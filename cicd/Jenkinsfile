@@ -1,0 +1,371 @@
+################################################################################
+# 3. JENKINS PIPELINE (Declarative)
+################################################################################
+---
+# File: Jenkinsfile
+@Library('shared-pipeline-library') _
+
+pipeline {
+    agent {
+        kubernetes {
+            yaml """
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    jenkins: agent
+spec:
+  serviceAccountName: jenkins
+  containers:
+  - name: docker
+    image: docker:24-dind
+    command:
+    - cat
+    tty: true
+    volumeMounts:
+    - name: docker-sock
+      mountPath: /var/run/docker.sock
+  - name: kubectl
+    image: bitnami/kubectl:latest
+    command:
+    - cat
+    tty: true
+  - name: node
+    image: node:20-alpine
+    command:
+    - cat
+    tty: true
+  volumes:
+  - name: docker-sock
+    hostPath:
+      path: /var/run/docker.sock
+"""
+        }
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '10'))
+        timestamps()
+        timeout(time: 1, unit: 'HOURS')
+        disableConcurrentBuilds()
+        ansiColor('xterm')
+    }
+
+    environment {
+        DOCKER_REGISTRY = 'docker.io'
+        DOCKER_CREDENTIALS = credentials('docker-hub-credentials')
+        AWS_CREDENTIALS = credentials('aws-credentials')
+        KUBECONFIG = credentials('kubeconfig-production')
+        SONAR_TOKEN = credentials('sonarqube-token')
+        SLACK_CHANNEL = '#deployments'
+        APP_NAME = 'backend-api'
+        GIT_COMMIT_SHORT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+    }
+
+    stages {
+        stage('Initialize') {
+            steps {
+                script {
+                    echo "Pipeline started for ${env.APP_NAME}"
+                    echo "Branch: ${env.BRANCH_NAME}"
+                    echo "Commit: ${env.GIT_COMMIT_SHORT}"
+                    
+                    // Send notification
+                    slackSend(
+                        channel: env.SLACK_CHANNEL,
+                        color: 'good',
+                        message: "Build Started: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+                    )
+                }
+            }
+        }
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    env.GIT_COMMIT_MSG = sh(script: 'git log -1 --pretty=%B', returnStdout: true).trim()
+                }
+            }
+        }
+
+        stage('Code Quality') {
+            parallel {
+                stage('Lint') {
+                    steps {
+                        container('node') {
+                            dir('services/backend-api') {
+                                sh 'npm ci'
+                                sh 'npm run lint'
+                            }
+                        }
+                    }
+                }
+
+                stage('SonarQube Analysis') {
+                    steps {
+                        container('node') {
+                            dir('services/backend-api') {
+                                withSonarQubeEnv('SonarQube') {
+                                    sh '''
+                                        sonar-scanner \
+                                          -Dsonar.projectKey=${APP_NAME} \
+                                          -Dsonar.sources=src \
+                                          -Dsonar.tests=tests \
+                                          -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+                                    '''
+                                }
+                            }
+                        }
+                    }
+                }
+
+                stage('Security Scan') {
+                    steps {
+                        container('node') {
+                            dir('services/backend-api') {
+                                sh 'npm audit --audit-level=moderate'
+                                sh 'npx snyk test --severity-threshold=high'
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                container('node') {
+                    dir('services/backend-api') {
+                        sh 'npm run test:unit -- --coverage --ci'
+                    }
+                }
+            }
+            post {
+                always {
+                    junit 'services/backend-api/junit.xml'
+                    publishHTML([
+                        reportDir: 'services/backend-api/coverage/lcov-report',
+                        reportFiles: 'index.html',
+                        reportName: 'Coverage Report'
+                    ])
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                container('docker') {
+                    script {
+                        dir('services/backend-api') {
+                            def imageTag = "${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.GIT_COMMIT_SHORT}"
+                            def latestTag = "${env.DOCKER_REGISTRY}/${env.APP_NAME}:latest"
+                            
+                            sh """
+                                docker build \
+                                    --build-arg BUILD_DATE=\$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+                                    --build-arg VCS_REF=${env.GIT_COMMIT} \
+                                    --build-arg VERSION=${env.BUILD_NUMBER} \
+                                    -t ${imageTag} \
+                                    -t ${latestTag} \
+                                    .
+                            """
+                            
+                            sh "docker login -u ${DOCKER_CREDENTIALS_USR} -p ${DOCKER_CREDENTIALS_PSW}"
+                            sh "docker push ${imageTag}"
+                            sh "docker push ${latestTag}"
+                            
+                            env.DOCKER_IMAGE = imageTag
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Container Security Scan') {
+            steps {
+                container('docker') {
+                    sh """
+                        docker run --rm \
+                            -v /var/run/docker.sock:/var/run/docker.sock \
+                            aquasec/trivy:latest image \
+                            --severity HIGH,CRITICAL \
+                            --exit-code 1 \
+                            ${env.DOCKER_IMAGE}
+                    """
+                }
+            }
+        }
+
+        stage('Deploy to Staging') {
+            when {
+                branch 'develop'
+            }
+            steps {
+                container('kubectl') {
+                    script {
+                        sh """
+                            kubectl set image deployment/${APP_NAME} \
+                                ${APP_NAME}=${env.DOCKER_IMAGE} \
+                                -n staging
+                            
+                            kubectl rollout status deployment/${APP_NAME} \
+                                -n staging \
+                                --timeout=5m
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Integration Tests') {
+            when {
+                branch 'develop'
+            }
+            steps {
+                container('node') {
+                    dir('services/backend-api') {
+                        sh 'npm run test:integration'
+                    }
+                }
+            }
+        }
+
+        stage('Approval for Production') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    def deploymentApproved = false
+                    try {
+                        timeout(time: 15, unit: 'MINUTES') {
+                            deploymentApproved = input(
+                                message: 'Deploy to Production?',
+                                parameters: [
+                                    booleanParam(
+                                        defaultValue: false,
+                                        description: 'Approve production deployment',
+                                        name: 'APPROVE_DEPLOYMENT'
+                                    )
+                                ]
+                            )
+                        }
+                    } catch (err) {
+                        deploymentApproved = false
+                        echo "Deployment approval timeout or cancelled"
+                    }
+                    
+                    if (!deploymentApproved) {
+                        error("Production deployment not approved")
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Production') {
+            when {
+                branch 'main'
+            }
+            steps {
+                container('kubectl') {
+                    script {
+                        // Blue-Green Deployment
+                        sh """
+                            # Deploy to green
+                            kubectl apply -f infrastructure/kubernetes/overlays/production/green/
+                            kubectl set image deployment/${APP_NAME}-green \
+                                ${APP_NAME}=${env.DOCKER_IMAGE} \
+                                -n production
+                            
+                            # Wait for rollout
+                            kubectl rollout status deployment/${APP_NAME}-green \
+                                -n production \
+                                --timeout=10m
+                            
+                            # Run smoke tests
+                            chmod +x scripts/health-check.sh
+                            ./scripts/health-check.sh https://api-green.example.com
+                            
+                            # Switch traffic
+                            kubectl patch service ${APP_NAME} -n production \
+                                -p '{"spec":{"selector":{"version":"green"}}}'
+                            
+                            echo "Production deployment complete. Blue kept for rollback."
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Post-Deployment Verification') {
+            when {
+                branch 'main'
+            }
+            steps {
+                container('node') {
+                    sh '''
+                        # Run E2E tests against production
+                        npm install -g @playwright/test
+                        cd tests/e2e
+                        npx playwright test --config=production.config.js
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            script {
+                slackSend(
+                    channel: env.SLACK_CHANNEL,
+                    color: 'good',
+                    message: """
+                        ✅ Build Successful: ${env.JOB_NAME} #${env.BUILD_NUMBER}
+                        Branch: ${env.BRANCH_NAME}
+                        Commit: ${env.GIT_COMMIT_SHORT}
+                        Image: ${env.DOCKER_IMAGE}
+                        Duration: ${currentBuild.durationString}
+                    """
+                )
+            }
+        }
+        failure {
+            script {
+                slackSend(
+                    channel: env.SLACK_CHANNEL,
+                    color: 'danger',
+                    message: """
+                        ❌ Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}
+                        Branch: ${env.BRANCH_NAME}
+                        Commit: ${env.GIT_COMMIT_SHORT}
+                        Stage: ${env.STAGE_NAME}
+                        Duration: ${currentBuild.durationString}
+                        Log: ${env.BUILD_URL}console
+                    """
+                )
+            }
+        }
+        unstable {
+            script {
+                slackSend(
+                    channel: env.SLACK_CHANNEL,
+                    color: 'warning',
+                    message: "⚠️ Build Unstable: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+                )
+            }
+        }
+        always {
+            cleanWs()
+        }
+    }
+}

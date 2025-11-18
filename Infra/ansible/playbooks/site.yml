@@ -1,0 +1,52 @@
+# ansible/playbooks/site.yml
+# Main playbook for complete server configuration
+
+---
+- name: Configure all servers
+  hosts: all
+  become: yes
+  gather_facts: yes
+  
+  pre_tasks:
+    - name: Update package cache
+      ansible.builtin.yum:
+        update_cache: yes
+      when: ansible_os_family == "RedHat"
+    
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+  roles:
+    - common
+    - security
+    - monitoring
+
+- name: Configure web servers
+  hosts: webservers
+  become: yes
+  gather_facts: yes
+  
+  roles:
+    - webserver
+    - app
+  
+  post_tasks:
+    - name: Verify application is running
+      ansible.builtin.uri:
+        url: "http://localhost:{{ app_port }}/health"
+        status_code: 200
+      register: health_check
+      retries: 5
+      delay: 10
+      until: health_check.status == 200
+
+- name: Configure monitoring servers
+  hosts: monitoring
+  become: yes
+  gather_facts: yes
+  
+  roles:
+    - monitoring_server
+
+  tags:
+    - monitoring

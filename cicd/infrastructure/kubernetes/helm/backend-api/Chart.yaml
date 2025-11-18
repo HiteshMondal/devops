@@ -1,0 +1,14 @@
+# File: infrastructure/kubernetes/helm/backend-api/Chart.yaml
+apiVersion: v2
+name: backend-api
+description: A Helm chart for Backend API
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - backend
+  - api
+  - microservice
+maintainers:
+  - name: DevOps Team
+    email: devops@example.com

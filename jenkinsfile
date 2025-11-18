@@ -1,0 +1,318 @@
+// Jenkinsfile - Declarative Pipeline for CI/CD
+pipeline {
+    agent any
+    
+    environment {
+        // Docker Hub credentials
+        DOCKER_REGISTRY = 'docker.io'
+        DOCKER_IMAGE_NAME = 'devops-demo-webapp'
+        DOCKER_CREDENTIALS = credentials('docker-hub-credentials')
+        
+        // AWS credentials
+        AWS_CREDENTIALS = credentials('aws-credentials')
+        AWS_REGION = 'us-east-1'
+        
+        // Kubernetes config
+        KUBE_CONFIG = credentials('kubeconfig')
+        K8S_NAMESPACE = 'devops-demo'
+        
+        // SonarQube
+        SONAR_HOST = 'http://sonarqube.example.com'
+        SONAR_TOKEN = credentials('sonar-token')
+        
+        // Slack
+        SLACK_CHANNEL = '#devops-alerts'
+        SLACK_CREDENTIALS = credentials('slack-token')
+    }
+    
+    options {
+        timestamps()
+        timeout(time: 1, unit: 'HOURS')
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds()
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                
+                script {
+                    // Get commit info
+                    env.GIT_COMMIT = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
+                    env.GIT_BRANCH = sh(returnStdout: true, script: 'git rev-parse --abbrev-ref HEAD').trim()
+                    env.BUILD_VERSION = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(7)}"
+                }
+                
+                echo "Building version: ${env.BUILD_VERSION}"
+            }
+        }
+        
+        stage('Quality Analysis') {
+            parallel {
+                stage('Lint HTML/CSS/JS') {
+                    steps {
+                        sh '''
+                            # Install linting tools
+                            npm install -g htmlhint csslint jshint
+                            
+                            # Run linters
+                            htmlhint index.html || true
+                            csslint styles.css || true
+                            jshint script.js || true
+                        '''
+                    }
+                }
+                
+                stage('Security Scan') {
+                    steps {
+                        sh '''
+                            # Run security scan
+                            docker run --rm -v $(pwd):/src \
+                                aquasec/trivy fs --security-checks vuln,config /src
+                        '''
+                    }
+                }
+                
+                stage('SonarQube Analysis') {
+                    steps {
+                        withSonarQubeEnv('SonarQube') {
+                            sh '''
+                                sonar-scanner \
+                                    -Dsonar.projectKey=devops-demo \
+                                    -Dsonar.sources=. \
+                                    -Dsonar.host.url=${SONAR_HOST} \
+                                    -Dsonar.login=${SONAR_TOKEN}
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    // Build Docker image
+                    docker.build("${DOCKER_IMAGE_NAME}:${env.BUILD_VERSION}")
+                    docker.build("${DOCKER_IMAGE_NAME}:latest")
+                }
+            }
+        }
+        
+        stage('Test Docker Image') {
+            steps {
+                script {
+                    // Run container for testing
+                    sh """
+                        docker run -d --name test-container -p 8081:8080 ${DOCKER_IMAGE_NAME}:${env.BUILD_VERSION}
+                        sleep 5
+                        
+                        # Test health endpoint
+                        curl -f http://localhost:8081/health || exit 1
+                        
+                        # Cleanup
+                        docker stop test-container
+                        docker rm test-container
+                    """
+                }
+            }
+        }
+        
+        stage('Push to Registry') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    docker.withRegistry("https://${DOCKER_REGISTRY}", 'docker-hub-credentials') {
+                        docker.image("${DOCKER_IMAGE_NAME}:${env.BUILD_VERSION}").push()
+                        docker.image("${DOCKER_IMAGE_NAME}:latest").push()
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Kubernetes') {
+            when {
+                branch 'main'
+            }
+            stages {
+                stage('Deploy to Staging') {
+                    steps {
+                        script {
+                            // Update staging deployment
+                            sh """
+                                kubectl --kubeconfig=${KUBE_CONFIG} \
+                                    -n ${K8S_NAMESPACE}-staging \
+                                    set image deployment/webapp-deployment \
+                                    webapp=${DOCKER_IMAGE_NAME}:${env.BUILD_VERSION}
+                                
+                                # Wait for rollout
+                                kubectl --kubeconfig=${KUBE_CONFIG} \
+                                    -n ${K8S_NAMESPACE}-staging \
+                                    rollout status deployment/webapp-deployment
+                            """
+                        }
+                    }
+                }
+                
+                stage('Smoke Tests') {
+                    steps {
+                        script {
+                            sh """
+                                # Get service URL
+                                SERVICE_URL=\$(kubectl --kubeconfig=${KUBE_CONFIG} \
+                                    -n ${K8S_NAMESPACE}-staging \
+                                    get service webapp-service \
+                                    -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+                                
+                                # Run smoke tests
+                                curl -f http://\${SERVICE_URL}/health || exit 1
+                                curl -f http://\${SERVICE_URL}/ || exit 1
+                            """
+                        }
+                    }
+                }
+                
+                stage('Approval') {
+                    steps {
+                        input message: 'Deploy to Production?', 
+                              ok: 'Deploy',
+                              submitter: 'devops-team'
+                    }
+                }
+                
+                stage('Deploy to Production') {
+                    steps {
+                        script {
+                            // Blue-Green deployment
+                            sh """
+                                # Create new deployment (green)
+                                kubectl --kubeconfig=${KUBE_CONFIG} \
+                                    -n ${K8S_NAMESPACE} \
+                                    apply -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-deployment-green
+  namespace: ${K8S_NAMESPACE}
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: webapp
+      version: green
+  template:
+    metadata:
+      labels:
+        app: webapp
+        version: green
+    spec:
+      containers:
+      - name: webapp
+        image: ${DOCKER_IMAGE_NAME}:${env.BUILD_VERSION}
+        ports:
+        - containerPort: 8080
+EOF
+                                
+                                # Wait for green deployment
+                                kubectl --kubeconfig=${KUBE_CONFIG} \
+                                    -n ${K8S_NAMESPACE} \
+                                    rollout status deployment/webapp-deployment-green
+                                
+                                # Switch service to green
+                                kubectl --kubeconfig=${KUBE_CONFIG} \
+                                    -n ${K8S_NAMESPACE} \
+                                    patch service webapp-service \
+                                    -p '{"spec":{"selector":{"version":"green"}}}'
+                                
+                                # Wait and verify
+                                sleep 30
+                                
+                                # Delete old blue deployment
+                                kubectl --kubeconfig=${KUBE_CONFIG} \
+                                    -n ${K8S_NAMESPACE} \
+                                    delete deployment webapp-deployment-blue --ignore-not-found=true
+                                
+                                # Rename green to blue for next deployment
+                                kubectl --kubeconfig=${KUBE_CONFIG} \
+                                    -n ${K8S_NAMESPACE} \
+                                    get deployment webapp-deployment-green \
+                                    -o yaml | sed 's/green/blue/g' | \
+                                    kubectl apply -f -
+                                
+                                kubectl --kubeconfig=${KUBE_CONFIG} \
+                                    -n ${K8S_NAMESPACE} \
+                                    delete deployment webapp-deployment-green
+                            """
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Performance Testing') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    sh """
+                        # Run performance tests with Apache Bench
+                        docker run --rm jordi/ab -n 1000 -c 10 \
+                            http://webapp-service.${K8S_NAMESPACE}.svc.cluster.local/
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            script {
+                // Send success notification
+                slackSend(
+                    channel: env.SLACK_CHANNEL,
+                    color: 'good',
+                    message: """
+                        ✅ Build Successful: ${env.JOB_NAME} #${env.BUILD_NUMBER}
+                        Version: ${env.BUILD_VERSION}
+                        Branch: ${env.GIT_BRANCH}
+                        View: ${env.BUILD_URL}
+                    """
+                )
+                
+                // Archive artifacts
+                archiveArtifacts artifacts: '**/target/*.jar', 
+                                 allowEmptyArchive: true
+            }
+        }
+        
+        failure {
+            script {
+                // Send failure notification
+                slackSend(
+                    channel: env.SLACK_CHANNEL,
+                    color: 'danger',
+                    message: """
+                        ❌ Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}
+                        Branch: ${env.GIT_BRANCH}
+                        View: ${env.BUILD_URL}
+                    """
+                )
+            }
+        }
+        
+        always {
+            // Cleanup
+            cleanWs()
+            
+            // Clean Docker
+            sh '''
+                docker system prune -f || true
+                docker volume prune -f || true
+            '''
+        }
+    }
+}

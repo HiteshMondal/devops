@@ -1,0 +1,223 @@
+# ansible/playbooks/deploy.yml
+# Application deployment with zero-downtime
+
+---
+- name: Deploy application with zero downtime
+  hosts: webservers
+  become: yes
+  serial: "{{ rolling_update | default(false) | ternary('50%', '100%') }}"
+  max_fail_percentage: 0
+  
+  vars:
+    app_version: "{{ lookup('env', 'APP_VERSION') | default('latest', true) }}"
+    health_check_retries: 10
+    health_check_delay: 5
+    
+  pre_tasks:
+    - name: Check current application status
+      ansible.builtin.uri:
+        url: "http://localhost:{{ app_port }}/health"
+        status_code: 200
+      register: pre_health_check
+      ignore_errors: yes
+      
+    - name: Display pre-deployment status
+      ansible.builtin.debug:
+        msg: "Application is {{ 'healthy' if pre_health_check.status == 200 else 'unhealthy' }}"
+
+  tasks:
+    - name: Create backup directory
+      ansible.builtin.file:
+        path: /opt/app/backups
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: '0755'
+      tags:
+        - deploy
+        - backup
+
+    - name: Backup current application
+      ansible.builtin.copy:
+        src: /opt/app/current/
+        dest: "/opt/app/backups/{{ ansible_date_time.epoch }}/"
+        remote_src: yes
+      when: pre_health_check.status == 200
+      tags:
+        - deploy
+        - backup
+
+    - name: Pull latest application code
+      ansible.builtin.git:
+        repo: "{{ git_repo_url }}"
+        dest: /opt/app/releases/{{ app_version }}
+        version: "{{ git_branch | default('main') }}"
+        force: yes
+      become_user: "{{ app_user }}"
+      when: deployment_method == 'git'
+      tags:
+        - deploy
+        - git
+
+    - name: Download application artifact
+      ansible.builtin.get_url:
+        url: "{{ artifact_url }}"
+        dest: "/tmp/{{ app_name }}-{{ app_version }}.tar.gz"
+        mode: '0644'
+      when: deployment_method == 'artifact'
+      tags:
+        - deploy
+        - artifact
+
+    - name: Extract application artifact
+      ansible.builtin.unarchive:
+        src: "/tmp/{{ app_name }}-{{ app_version }}.tar.gz"
+        dest: /opt/app/releases/{{ app_version }}
+        remote_src: yes
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+      when: deployment_method == 'artifact'
+      tags:
+        - deploy
+        - artifact
+
+    - name: Install application dependencies
+      ansible.builtin.command:
+        cmd: npm install --production
+        chdir: /opt/app/releases/{{ app_version }}
+      become_user: "{{ app_user }}"
+      when: app_type == 'nodejs'
+      tags:
+        - deploy
+        - dependencies
+
+    - name: Install Python dependencies
+      ansible.builtin.pip:
+        requirements: /opt/app/releases/{{ app_version }}/requirements.txt
+        virtualenv: /opt/app/releases/{{ app_version }}/venv
+        virtualenv_command: python3 -m venv
+      become_user: "{{ app_user }}"
+      when: app_type == 'python'
+      tags:
+        - deploy
+        - dependencies
+
+    - name: Configure application environment
+      ansible.builtin.template:
+        src: env.j2
+        dest: /opt/app/releases/{{ app_version }}/.env
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: '0600'
+      tags:
+        - deploy
+        - config
+
+    - name: Run database migrations
+      ansible.builtin.command:
+        cmd: "{{ migration_command }}"
+        chdir: /opt/app/releases/{{ app_version }}
+      become_user: "{{ app_user }}"
+      environment:
+        DATABASE_URL: "{{ database_url }}"
+      when: run_migrations | default(true)
+      run_once: yes
+      delegate_to: "{{ groups['webservers'][0] }}"
+      tags:
+        - deploy
+        - migrations
+
+    - name: Update current symlink
+      ansible.builtin.file:
+        src: /opt/app/releases/{{ app_version }}
+        dest: /opt/app/current
+        state: link
+        force: yes
+      tags:
+        - deploy
+        - symlink
+
+    - name: Reload application service
+      ansible.builtin.systemd:
+        name: "{{ app_service_name }}"
+        state: reloaded
+      tags:
+        - deploy
+        - service
+
+    - name: Wait for application to start
+      ansible.builtin.wait_for:
+        port: "{{ app_port }}"
+        delay: 2
+        timeout: 60
+      tags:
+        - deploy
+        - health
+
+    - name: Verify application health
+      ansible.builtin.uri:
+        url: "http://localhost:{{ app_port }}/health"
+        status_code: 200
+      register: post_health_check
+      retries: "{{ health_check_retries }}"
+      delay: "{{ health_check_delay }}"
+      until: post_health_check.status == 200
+      tags:
+        - deploy
+        - health
+
+    - name: Clean old releases
+      ansible.builtin.shell: |
+        cd /opt/app/releases
+        ls -t | tail -n +6 | xargs -r rm -rf
+      args:
+        executable: /bin/bash
+      tags:
+        - deploy
+        - cleanup
+
+  post_tasks:
+    - name: Deployment successful notification
+      ansible.builtin.debug:
+        msg: "Application {{ app_version }} deployed successfully on {{ inventory_hostname }}"
+
+    - name: Send deployment notification
+      ansible.builtin.uri:
+        url: "{{ notification_webhook_url }}"
+        method: POST
+        body_format: json
+        body:
+          text: "✅ Deployment successful: {{ app_name }} v{{ app_version }} on {{ inventory_hostname }}"
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+      when: notification_webhook_url is defined
+      delegate_to: localhost
+      run_once: yes
+      tags:
+        - deploy
+        - notification
+
+  rescue:
+    - name: Rollback to previous version
+      ansible.builtin.include_tasks: rollback.yml
+      tags:
+        - deploy
+        - rollback
+
+    - name: Send failure notification
+      ansible.builtin.uri:
+        url: "{{ notification_webhook_url }}"
+        method: POST
+        body_format: json
+        body:
+          text: "❌ Deployment failed: {{ app_name }} v{{ app_version }} on {{ inventory_hostname }}"
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+      when: notification_webhook_url is defined
+      delegate_to: localhost
+      run_once: yes
+      tags:
+        - deploy
+        - notification
+
+    - name: Fail the playbook
+      ansible.builtin.fail:
+        msg: "Deployment failed and was rolled back"

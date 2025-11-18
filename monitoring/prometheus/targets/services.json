@@ -1,0 +1,18 @@
+[
+  {
+    "targets": ["api-server-1:8000", "api-server-2:8000"],
+    "labels": {
+      "job": "api-server",
+      "environment": "production",
+      "team": "backend"
+    }
+  },
+  {
+    "targets": ["db-server-1:9187"],
+    "labels": {
+      "job": "postgres",
+      "environment": "production",
+      "team": "database"
+    }
+  }
+]

@@ -1,0 +1,200 @@
+# ansible/roles/webserver/tasks/main.yml
+# Nginx web server configuration
+
+---
+- name: Install Nginx
+  ansible.builtin.yum:
+    name:
+      - nginx
+      - nginx-mod-http-perl
+    state: present
+  tags:
+    - webserver
+    - nginx
+
+- name: Create Nginx directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: nginx
+    group: nginx
+    mode: '0755'
+  loop:
+    - /etc/nginx/sites-available
+    - /etc/nginx/sites-enabled
+    - /var/www/html
+    - /var/log/nginx
+  tags:
+    - webserver
+    - nginx
+
+- name: Configure Nginx main config
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    group: root
+    mode: '0644'
+    validate: 'nginx -t -c %s'
+  notify: restart nginx
+  tags:
+    - webserver
+    - nginx
+    - config
+
+- name: Configure default site
+  ansible.builtin.template:
+    src: default.conf.j2
+    dest: /etc/nginx/sites-available/default
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart nginx
+  tags:
+    - webserver
+    - nginx
+    - config
+
+- name: Enable default site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/default
+    dest: /etc/nginx/sites-enabled/default
+    state: link
+  notify: restart nginx
+  tags:
+    - webserver
+    - nginx
+
+- name: Configure application site
+  ansible.builtin.template:
+    src: app.conf.j2
+    dest: /etc/nginx/sites-available/{{ app_name }}
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart nginx
+  tags:
+    - webserver
+    - nginx
+    - config
+
+- name: Enable application site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/{{ app_name }}
+    dest: /etc/nginx/sites-enabled/{{ app_name }}
+    state: link
+  notify: restart nginx
+  tags:
+    - webserver
+    - nginx
+
+- name: Configure SSL if certificates provided
+  block:
+    - name: Create SSL directory
+      ansible.builtin.file:
+        path: /etc/nginx/ssl
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+    
+    - name: Copy SSL certificate
+      ansible.builtin.copy:
+        src: "{{ ssl_cert_file }}"
+        dest: /etc/nginx/ssl/cert.pem
+        owner: root
+        group: root
+        mode: '0644'
+      when: ssl_cert_file is defined
+      notify: restart nginx
+    
+    - name: Copy SSL private key
+      ansible.builtin.copy:
+        src: "{{ ssl_key_file }}"
+        dest: /etc/nginx/ssl/key.pem
+        owner: root
+        group: root
+        mode: '0600'
+      when: ssl_key_file is defined
+      notify: restart nginx
+  when: enable_ssl | default(false)
+  tags:
+    - webserver
+    - nginx
+    - ssl
+
+- name: Configure logrotate for Nginx
+  ansible.builtin.copy:
+    dest: /etc/logrotate.d/nginx
+    content: |
+      /var/log/nginx/*.log {
+          daily
+          rotate 14
+          compress
+          delaycompress
+          notifempty
+          create 0644 nginx nginx
+          sharedscripts
+          postrotate
+              if [ -f /var/run/nginx.pid ]; then
+                  kill -USR1 `cat /var/run/nginx.pid`
+              fi
+          endscript
+      }
+    mode: '0644'
+  tags:
+    - webserver
+    - nginx
+    - logging
+
+- name: Start and enable Nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: started
+    enabled: yes
+  tags:
+    - webserver
+    - nginx
+
+- name: Configure firewall for HTTP/HTTPS
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: yes
+    state: enabled
+    immediate: yes
+  loop:
+    - http
+    - https
+  when: ansible_facts['os_family'] == "RedHat" and ansible_facts['distribution_major_version'] | int >= 7
+  tags:
+    - webserver
+    - nginx
+    - firewall
+
+- name: Deploy health check page
+  ansible.builtin.copy:
+    dest: /var/www/html/health
+    content: |
+      {
+        "status": "healthy",
+        "timestamp": "{{ ansible_date_time.iso8601 }}",
+        "hostname": "{{ ansible_hostname }}"
+      }
+    owner: nginx
+    group: nginx
+    mode: '0644'
+  tags:
+    - webserver
+    - nginx
+    - health
+
+- name: Deploy default index page
+  ansible.builtin.template:
+    src: index.html.j2
+    dest: /var/www/html/index.html
+    owner: nginx
+    group: nginx
+    mode: '0644'
+  tags:
+    - webserver
+    - nginx

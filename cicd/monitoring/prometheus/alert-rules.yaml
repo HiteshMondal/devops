@@ -1,0 +1,92 @@
+# File: monitoring/prometheus/alert-rules.yaml
+groups:
+  - name: backend-api-alerts
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          rate(http_requests_total{status=~"5..",service="backend-api"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: backend-api
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.instance }}"
+
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{service="backend-api"}[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+          service: backend-api
+        annotations:
+          summary: "High latency detected"
+          description: "95th percentile latency is {{ $value }}s for {{ $labels.instance }}"
+
+      - alert: PodCrashLooping
+        expr: |
+          rate(kube_pod_container_status_restarts_total{pod=~"backend-api-.*"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: backend-api
+        annotations:
+          summary: "Pod is crash looping"
+          description: "Pod {{ $labels.pod }} is crash looping"
+
+      - alert: HighMemoryUsage
+        expr: |
+          container_memory_usage_bytes{pod=~"backend-api-.*"} / container_spec_memory_limit_bytes{pod=~"backend-api-.*"} > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          service: backend-api
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value | humanizePercentage }} for {{ $labels.pod }}"
+
+      - alert: HighCPUUsage
+        expr: |
+          rate(container_cpu_usage_seconds_total{pod=~"backend-api-.*"}[5m]) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          service: backend-api
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value | humanizePercentage }} for {{ $labels.pod }}"
+
+      - alert: DatabaseConnectionPoolExhausted
+        expr: |
+          pg_stat_activity_count{datname="production"} > 90
+        for: 5m
+        labels:
+          severity: critical
+          service: database
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+          description: "{{ $value }} connections active"
+
+      - alert: RedisHighMemoryUsage
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          service: redis
+        annotations:
+          summary: "Redis memory usage high"
+          description: "Redis memory usage is {{ $value | humanizePercentage }}"
+
+      - alert: ServiceDown
+        expr: |
+          up{job="backend-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: backend-api
+        annotations:
+          summary: "Service is down"
+          description: "{{ $labels.instance }} has been down for more than 2 minutes"

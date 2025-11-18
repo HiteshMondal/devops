@@ -1,0 +1,233 @@
+# ansible/roles/security/tasks/main.yml
+# Security hardening and compliance
+
+---
+- name: Install security packages
+  ansible.builtin.yum:
+    name:
+      - fail2ban
+      - aide
+      - rkhunter
+      - audit
+      - iptables-services
+    state: present
+  tags:
+    - security
+    - packages
+
+- name: Configure SSH hardening
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+    validate: '/usr/sbin/sshd -t -f %s'
+  loop:
+    - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+    - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+    - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+    - { regexp: '^#?PermitEmptyPasswords', line: 'PermitEmptyPasswords no' }
+    - { regexp: '^#?X11Forwarding', line: 'X11Forwarding no' }
+    - { regexp: '^#?MaxAuthTries', line: 'MaxAuthTries 3' }
+    - { regexp: '^#?ClientAliveInterval', line: 'ClientAliveInterval 300' }
+    - { regexp: '^#?ClientAliveCountMax', line: 'ClientAliveCountMax 2' }
+    - { regexp: '^#?Protocol', line: 'Protocol 2' }
+    - { regexp: '^#?LogLevel', line: 'LogLevel VERBOSE' }
+  notify: restart sshd
+  tags:
+    - security
+    - ssh
+
+- name: Configure fail2ban
+  ansible.builtin.copy:
+    dest: /etc/fail2ban/jail.local
+    content: |
+      [DEFAULT]
+      bantime = 3600
+      findtime = 600
+      maxretry = 5
+      
+      [sshd]
+      enabled = true
+      port = ssh
+      logpath = /var/log/secure
+      
+      [sshd-ddos]
+      enabled = true
+      port = ssh
+      logpath = /var/log/secure
+    mode: '0644'
+  notify: restart fail2ban
+  tags:
+    - security
+    - fail2ban
+
+- name: Start and enable fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: started
+    enabled: yes
+  tags:
+    - security
+    - fail2ban
+
+- name: Configure auditd rules
+  ansible.builtin.copy:
+    dest: /etc/audit/rules.d/custom.rules
+    content: |
+      # Log all commands executed by root
+      -a exit,always -F arch=b64 -F euid=0 -S execve -k root_commands
+      
+      # Monitor authentication logs
+      -w /var/log/lastlog -p wa -k logins
+      -w /var/log/faillog -p wa -k logins
+      
+      # Monitor user/group changes
+      -w /etc/group -p wa -k identity
+      -w /etc/passwd -p wa -k identity
+      -w /etc/gshadow -p wa -k identity
+      -w /etc/shadow -p wa -k identity
+      
+      # Monitor network configuration
+      -w /etc/hosts -p wa -k network_modifications
+      -w /etc/sysconfig/network -p wa -k network_modifications
+      
+      # Monitor sudoers
+      -w /etc/sudoers -p wa -k sudoers_changes
+      -w /etc/sudoers.d/ -p wa -k sudoers_changes
+      
+      # Monitor SSH configuration
+      -w /etc/ssh/sshd_config -p wa -k sshd_config_changes
+    mode: '0640'
+  notify: restart auditd
+  tags:
+    - security
+    - audit
+
+- name: Enable and start auditd
+  ansible.builtin.systemd:
+    name: auditd
+    state: started
+    enabled: yes
+  tags:
+    - security
+    - audit
+
+- name: Configure password policy
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - { regexp: '^PASS_MAX_DAYS', line: 'PASS_MAX_DAYS   90' }
+    - { regexp: '^PASS_MIN_DAYS', line: 'PASS_MIN_DAYS   7' }
+    - { regexp: '^PASS_MIN_LEN', line: 'PASS_MIN_LEN    14' }
+    - { regexp: '^PASS_WARN_AGE', line: 'PASS_WARN_AGE   14' }
+  tags:
+    - security
+    - password_policy
+
+- name: Configure PAM password complexity
+  ansible.builtin.lineinfile:
+    path: /etc/security/pwquality.conf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - { regexp: '^minlen', line: 'minlen = 14' }
+    - { regexp: '^dcredit', line: 'dcredit = -1' }
+    - { regexp: '^ucredit', line: 'ucredit = -1' }
+    - { regexp: '^lcredit', line: 'lcredit = -1' }
+    - { regexp: '^ocredit', line: 'ocredit = -1' }
+  tags:
+    - security
+    - password_policy
+
+- name: Disable unused filesystems
+  ansible.builtin.lineinfile:
+    path: /etc/modprobe.d/disable-filesystems.conf
+    line: "install {{ item }} /bin/true"
+    create: yes
+    mode: '0644'
+  loop:
+    - cramfs
+    - freevxfs
+    - jffs2
+    - hfs
+    - hfsplus
+    - udf
+  tags:
+    - security
+    - filesystem
+
+- name: Set proper permissions on sensitive files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: '/etc/passwd', mode: '0644' }
+    - { path: '/etc/shadow', mode: '0000' }
+    - { path: '/etc/group', mode: '0644' }
+    - { path: '/etc/gshadow', mode: '0000' }
+    - { path: '/etc/ssh/sshd_config', mode: '0600' }
+  tags:
+    - security
+    - permissions
+
+- name: Configure automatic security updates
+  ansible.builtin.yum:
+    name: yum-cron
+    state: present
+  tags:
+    - security
+    - updates
+
+- name: Configure yum-cron
+  ansible.builtin.lineinfile:
+    path: /etc/yum/yum-cron.conf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - { regexp: '^update_cmd', line: 'update_cmd = security' }
+    - { regexp: '^apply_updates', line: 'apply_updates = yes' }
+  notify: restart yum-cron
+  tags:
+    - security
+    - updates
+
+- name: Enable and start yum-cron
+  ansible.builtin.systemd:
+    name: yum-cron
+    state: started
+    enabled: yes
+  tags:
+    - security
+    - updates
+
+- name: Initialize AIDE database
+  ansible.builtin.command: aide --init
+  args:
+    creates: /var/lib/aide/aide.db.new.gz
+  tags:
+    - security
+    - aide
+
+- name: Move AIDE database to production
+  ansible.builtin.command: mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+  args:
+    creates: /var/lib/aide/aide.db.gz
+  tags:
+    - security
+    - aide
+
+- name: Configure AIDE cron job
+  ansible.builtin.cron:
+    name: "AIDE integrity check"
+    minute: "0"
+    hour: "3"
+    job: "/usr/sbin/aide --check"
+  tags:
+    - security
+    - aide

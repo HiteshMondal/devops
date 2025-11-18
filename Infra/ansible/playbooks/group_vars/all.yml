@@ -1,0 +1,70 @@
+# ansible/group_vars/all.yml
+# Common variables for all servers
+
+---
+# System Configuration
+timezone: "UTC"
+ntp_enabled: true
+
+# User Management
+app_user: "appuser"
+app_group: "appuser"
+
+# Application Configuration
+app_name: "myapp"
+app_port: 8080
+app_service_name: "myapp"
+health_check_path: "/health"
+
+# Nginx Configuration
+nginx_worker_processes: "auto"
+nginx_worker_connections: 4096
+nginx_client_max_body_size: "10m"
+enable_ssl: false
+
+# Security Configuration
+ssh_port: 22
+fail2ban_enabled: true
+fail2ban_bantime: 3600
+fail2ban_maxretry: 5
+
+# Firewall Configuration
+firewalld_enabled: true
+allowed_services:
+  - ssh
+  - http
+  - https
+
+# Monitoring Configuration
+cloudwatch_agent_enabled: true
+cloudwatch_log_retention: 7
+
+# Logging Configuration
+log_rotation_days: 14
+syslog_retention_days: 30
+
+# Performance Tuning
+kernel_parameters:
+  net.ipv4.tcp_fin_timeout: 30
+  net.ipv4.tcp_keepalive_time: 300
+  net.core.somaxconn: 65535
+  vm.swappiness: 10
+
+system_limits:
+  nofile_soft: 65536
+  nofile_hard: 65536
+  nproc_soft: 65536
+  nproc_hard: 65536
+
+# Backup Configuration
+backup_enabled: true
+backup_retention_days: 7
+
+# Package Management
+auto_update_enabled: true
+update_schedule: "daily"
+
+# Environment-specific overrides
+# These can be overridden in environment-specific files
+environment: "{{ lookup('env', 'ENVIRONMENT') | default('dev', true) }}"
+aws_region: "{{ lookup('env', 'AWS_REGION') | default('us-east-1', true) }}"
