@@ -4,60 +4,183 @@ This project demonstrates a full DevOps setup using **Kubernetes, Terraform, Doc
 
 ---
 
-## **Project Structure**
+# Project CI/CD, Infrastructure & Monitoring
 
-### **1. Infra**
-Terraform scripts to provision infrastructure if deploying to cloud.
-- `main.tf` – Main Terraform configuration.
-- `outputs.tf` – Defines outputs.
-- `variables.tf` – Input variables.
-- `versions.tf` – Terraform and provider versions.
-
-### **2. Kube**
-Kubernetes manifests for deploying the web application.
-- `namespace.yaml` – Defines the namespace.
-- `configmap.yaml` – App configuration variables.
-- `secret.yaml` – Secrets (API keys, credentials).
-- `deployment.yaml` – WebApp deployment, container specs, probes, volumes.
-- `service.yaml` – ClusterIP service to expose the app internally.
-- `ingress.yaml` – Ingress resource with TLS and path routing.
-- `hpa.yaml` – Horizontal Pod Autoscaler configuration.
-- `networkpolicy.yaml` – Network policies for ingress and egress control.
-- `pdb.yaml` – Pod Disruption Budget to ensure availability.
-
-### **3. App**
-- `app.html` – Frontend HTML page.
-- `default.conf` – Nginx site configuration (routes, health, metrics, caching, API mock).
-- `nginx.conf` – Main Nginx configuration.
-- `dockerfile` – Docker image build for the web app.
-
-### **4. CI/CD**
-- `.gitlab-ci.yml` – GitLab pipeline configuration.
-- `jenkinsfile` – Jenkins pipeline for Linux.
-- `windows.jenkinsfile` – Jenkins pipeline for Windows.
-- `.hintrc` – Linting configuration.
-
-### **5. Scripts**
-- `user_data.sh` – Linux provisioning script.
-- `windows.bat` – Windows setup script.
-
-### **6. Environment**
-- `.env` – Environment variables for local/dev deployment.
+This repository contains a complete DevOps ecosystem including CI/CD pipelines, Infrastructure-as-Code (IaC), Kubernetes manifests, monitoring stack, and deployment scripts. It is designed to demonstrate or support a production-grade workflow using modern DevOps tooling including **Jenkins**, **Azure Pipelines**, **GitLab CI**, **Terraform**, **Ansible**, **Docker**, and **Kubernetes**.
 
 ---
 
-## **Prerequisites**
+## 📂 Repository Structure
 
-- **Minikube** installed and running.
-- **kubectl** configured for your Minikube context.
-- **Docker** installed.
-- Optional: Terraform, Jenkins, GitLab Runner if using cloud or CI/CD pipelines.
+### **cicd/** – Continuous Integration & Delivery
+
+This directory contains all pipeline configurations and supporting files.
+
+```
+cicd/
+├── docs/                     # CI/CD documentation
+├── infrastructure/           # Infra-related CI/CD configs
+├── monitoring/               # Monitoring pipeline configs
+├── scripts/                  # Pipeline automation scripts
+├── services/                 # Deployment services
+├── azure-pipelines.yml       # Azure DevOps pipeline
+├── docker-compose.yml        # CI-supported container environment
+├── Jenkinsfile               # Jenkins pipeline
+└── sonar-project.properties  # SonarQube code analysis configuration
+```
 
 ---
 
-## **Setup Instructions**
+### **Infra/** – Infrastructure as Code
 
-### **1. Start Minikube**
+Contains IaC for provisioning cloud resources using Terraform and managing configuration using Ansible.
+
+```
+Infra/
+├── ansible/                      # Ansible playbooks & roles
+├── scripts/
+│   └── deploy.sh                 # Deployment script
+├── terraform/
+│   ├── modules/
+│   │   ├── compute/              # VM/Compute resources
+│   │   ├── database/             # Database provisioning
+│   │   ├── environments/         # Environment-specific configs
+│   │   └── vpc/                  # VPC/networking
+│   ├── explanation/              # Terraform documentation
+│   └── .terraform.lock.hcl       # Provider lockfile
+```
+
+---
+
+### **Kube/** – Kubernetes Deployment
+
+Contains Kubernetes manifests for deploying workloads, managing networking, scaling, and security.
+
+```
+Kube/
+├── configmap.yaml
+├── deployment.yaml
+├── hpa.yaml                # Horizontal Pod Autoscaler
+├── ingress.yaml
+├── namespace.yaml
+├── networkpolicy.yaml
+├── pdb.yaml                # Pod Disruption Budget
+├── secret.yaml
+└── service.yaml
+```
+
+---
+
+### **monitoring/** – Observability Stack
+
+Includes monitoring tools such as Prometheus, Grafana, Alertmanager, and Blackbox Exporter.
+
+```
+monitoring/
+├── alertmanager/
+├── blackbox/
+├── grafana/
+├── prometheus/
+└── docker-compose.yml      # Monitoring stack environment
+```
+
+---
+
+### **Root Files**
+
+```
+.gitignore                 # Git ignore rules
+.gitlab-ci.yml             # GitLab CI pipeline config
+.hintrc                    # Linting rules
+app.html                   # Sample app page
+default.conf               # Web server config
+dockerfile                 # Application Dockerfile
+jenkinsfile                # Jenkins pipeline (alt)
+nginx.conf                 # NGINX config
+README.md                  # Project documentation
+windows.jenkinsfile        # Jenkins pipeline for Windows agents
+```
+
+---
+
+## 🚀 CI/CD Workflow Overview
+
+### Supported CI/CD Platforms:
+
+* **Jenkins** (`Jenkinsfile`, `windows.jenkinsfile`)
+* **Azure Pipelines** (`azure-pipelines.yml`)
+* **GitLab CI** (`.gitlab-ci.yml`)
+
+### Pipeline Features:
+
+* Automated build & test
+* Docker image creation & push
+* Static code analysis through SonarQube
+* Terraform plan & apply workflow
+* Ansible deployment automation
+* Kubernetes rolling updates
+* Notifications & monitoring hooks
+
+---
+
+## 🏗️ Infrastructure Overview
+
+The Terraform modules provision:
+
+* VPC & networking (subnets, routing, security groups)
+* Compute resources
+* Database instances
+* Environment‑based configurations (dev, stage, prod)
+
+The Ansible layer automates configuration & deployment to provisioned infrastructure.
+
+---
+
+## ☸️ Kubernetes Overview
+
+Kubernetes manifests define:
+
+* Application deployment with replicas
+* ConfigMaps & Secrets for config management
+* HPA for autoscaling workloads
+* Ingress for routing
+* Pod Disruption Budget for HA
+* Network Policies for security
+
+---
+
+## 📊 Monitoring & Alerting
+
+The monitoring stack includes:
+
+* **Prometheus** for metrics scraping
+* **Grafana** for dashboards
+* **Alertmanager** for alert routing
+* **Blackbox exporter** for endpoint probing
+
+Docker Compose enables local or isolated monitoring setup.
+
+---
+
+## 🛠️ How to Use
+
+### **1. Deploy Infrastructure**
+
+```sh
+cd Infra/terraform
+tf init
+tf plan
+tf apply
+```
+
+### **2. Configure Infrastructure with Ansible**
+
+```sh
+cd Infra/ansible
+ansible-playbook site.yml
+```
+
+### **3. Deploy to Kubernetes with Minikube**
 ```bash
 minikube start
 minikube status
@@ -85,7 +208,22 @@ Get Minikube IP:
 ```bash
 minikube ip
 ```
-#For Terraform AWS
+
+### **4. Run Monitoring Stack**
+
+```sh
+cd monitoring
+docker-compose up -d
+```
+
+### **5. Run CI/CD Pipelines**
+
+Depending on your preferred platform (Jenkins, GitLab CI, Azure DevOps), push changes to automatically trigger pipeline actions.
+
+---
+
+
+### **6. For Terraform AWS**
 
 Option A: Set environment variables (simplest for local machine)
 ```bash
@@ -106,3 +244,22 @@ Install AWS CLI if you haven’t.
 ```bash
 aws configure
 ```
+
+## 📌 Future Enhancements
+
+* Add Helm charts
+* Add ArgoCD support
+* Add multi‑cloud Terraform modules
+* Implement Canary/Blue‑Green deployments
+
+---
+
+## 🤝 Contributing
+
+Feel free to open issues or submit pull requests to improve the project.
+
+---
+
+## 📄 License
+
+This repository is released under the MIT License.
