@@ -1,0 +1,99 @@
+stages:
+  - test
+  - build
+  - deploy
+  - monitor
+
+variables:
+  DOCKER_IMAGE: $CI_REGISTRY_IMAGE
+  DOCKER_TAG: $CI_COMMIT_SHORT_SHA
+  KUBECONFIG: /etc/kubectl/config
+
+.common:
+  before_script:
+    - echo "Starting pipeline for $CI_COMMIT_REF_NAME"
+
+test:
+  stage: test
+  image: node:18-alpine
+  script:
+    - npm ci
+    - npm test
+    - npm run lint || true
+  coverage: '/All files[^|]*\\|[^|]*\\s+([\\d\\.]+)/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+      junit: coverage/junit.xml
+    paths:
+      - coverage/
+    expire_in: 30 days
+  only:
+    - merge_requests
+    - main
+    - develop
+
+build:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker build -t $DOCKER_IMAGE:$DOCKER_TAG .
+    - docker build -t $DOCKER_IMAGE:latest .
+    - docker push $DOCKER_IMAGE:$DOCKER_TAG
+    - docker push $DOCKER_IMAGE:latest
+  only:
+    - main
+    - develop
+
+security_scan:
+  stage: build
+  image: aquasec/trivy:latest
+  script:
+    - trivy image --exit-code 0 --severity HIGH,CRITICAL $DOCKER_IMAGE:$DOCKER_TAG
+  allow_failure: true
+  only:
+    - main
+    - develop
+
+deploy_staging:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  script:
+    - kubectl config use-context staging
+    - kubectl set image deployment/devops-webapp webapp=$DOCKER_IMAGE:$DOCKER_TAG --record
+    - kubectl rollout status deployment/devops-webapp
+  environment:
+    name: staging
+    url: https://staging.webapp.com
+  only:
+    - develop
+
+deploy_production:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  script:
+    - kubectl config use-context production
+    - kubectl set image deployment/devops-webapp webapp=$DOCKER_IMAGE:$DOCKER_TAG --record
+    - kubectl rollout status deployment/devops-webapp
+  environment:
+    name: production
+    url: https://webapp.com
+  when: manual
+  only:
+    - main
+
+smoke_test:
+  stage: monitor
+  image: curlimages/curl:latest
+  script:
+    - curl -f https://webapp.com/health || exit 1
+    - curl -f https://webapp.com/ready || exit 1
+  only:
+    - main
+  needs:
+    - deploy_production
