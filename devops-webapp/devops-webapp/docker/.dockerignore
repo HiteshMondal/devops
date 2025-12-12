@@ -4,7 +4,4 @@ npm-debug.log
 .gitignore
 README.md
 .env
-coverage
-.vscode
-.idea
-Dockerfile
+.DS_Store

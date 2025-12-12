@@ -1,0 +1,23 @@
+{
+  "dashboard": {
+    "title": "DevOps WebApp Dashboard",
+    "panels": [
+      {
+        "title": "Request Rate",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])"
+          }
+        ]
+      },
+      {
+        "title": "Response Time",
+        "targets": [
+          {
+            "expr": "http_request_duration_seconds"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,77 @@
+# GitLab CI pipeline config
+stages:
+  - build
+  - test
+  - docker
+  - deploy
+
+variables:
+  DOCKER_IMAGE: devops-webapp
+  DOCKER_DRIVER: overlay2
+
+before_script:
+  - docker info
+
+build:
+  stage: build
+  image: node:18
+  script:
+    - cd app
+    - npm ci
+  artifacts:
+    paths:
+      - app/node_modules
+    expire_in: 1 hour
+
+test:
+  stage: test
+  image: node:18
+  dependencies:
+    - build
+  script:
+    - cd app
+    - npm test
+  coverage: '/Statements\s*:\s*([^%]+)/'
+
+docker-build:
+  stage: docker
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker build -t $DOCKER_IMAGE:$CI_COMMIT_SHA -f docker/Dockerfile .
+    - docker tag $DOCKER_IMAGE:$CI_COMMIT_SHA $DOCKER_IMAGE:latest
+    - docker push $DOCKER_IMAGE:$CI_COMMIT_SHA
+    - docker push $DOCKER_IMAGE:latest
+  only:
+    - main
+    - develop
+
+deploy-staging:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  script:
+    - kubectl config use-context staging
+    - kubectl apply -f kubernetes/
+    - kubectl set image deployment/devops-webapp webapp=$DOCKER_IMAGE:$CI_COMMIT_SHA
+    - kubectl rollout status deployment/devops-webapp
+  environment:
+    name: staging
+    url: https://staging.devops-webapp.com
+  only:
+    - develop
+
+deploy-production:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  script:
+    - kubectl config use-context production
+    - kubectl apply -f kubernetes/
+    - kubectl set image deployment/devops-webapp webapp=$DOCKER_IMAGE:$CI_COMMIT_SHA
+    - kubectl rollout status deployment/devops-webapp
+  environment:
+    name: production
+    url: https://devops-webapp.com
+  only:
+    - main
+  when: manual

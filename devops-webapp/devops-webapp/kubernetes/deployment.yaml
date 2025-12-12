@@ -1,3 +1,4 @@
+# Kubernetes Deployment manifest
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,15 +22,18 @@ spec:
       containers:
       - name: webapp
         image: devops-webapp:latest
-        imagePullPolicy: Never
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
           name: http
         env:
         - name: NODE_ENV
           value: "production"
-        - name: PORT
-          value: "3000"
+        - name: APP_VERSION
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: version
         resources:
           requests:
             memory: "128Mi"
@@ -53,3 +57,4 @@ spec:
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 3
+      restartPolicy: Always

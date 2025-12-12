@@ -1,3 +1,4 @@
+# Kubernetes Horizontal Pod Autoscaler manifest
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
