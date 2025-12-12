@@ -1,40 +1,50 @@
 #!/bin/bash
 
 set -e
+set -x
 
 ENV="${1:-production}"
+IMAGE_NAME="devops-webapp:${ENV}"
+NAMESPACE="devops-webapp"
 
-echo "=== Starting Minikube Setup ==="
+echo "=== Checking Minikube Status ==="
+if ! minikube status >/dev/null 2>&1; then
+  echo "Starting Minikube..."
+  minikube start --cpus=2
+fi
 
-# Start Minikube (run this before docker build)
-minikube start --cpus=2
-
-# Enable addons
+echo "=== Enabling Addons ==="
 minikube addons enable ingress
 minikube addons enable metrics-server
 
-echo "=== Using Minikube's Docker engine ==="
-eval $(minikube docker-env)
+echo "=== Switching Docker to Minikube Env ==="
+eval "$(minikube docker-env)"
 
-#Docker build and Kubernetes apply
-echo "=== Building Docker image ==="
-docker build -t devops-webapp:latest .
+echo "=== Building Docker Image ==="
+docker build -t "${IMAGE_NAME}" .
 
-echo "=== Applying Kubernetes manifests ==="
-kubectl apply -f k8s/configmap.yaml
-kubectl apply -f k8s/deployment.yaml
-kubectl apply -f k8s/service.yaml
-kubectl apply -f k8s/hpa.yaml
-kubectl apply -f k8s/ingress.yaml
+echo "=== Creating Namespace If Not Exists ==="
+kubectl get ns "${NAMESPACE}" >/dev/null 2>&1 || \
+kubectl create namespace "${NAMESPACE}"
+
+echo "=== Applying Kubernetes Manifests ==="
+kubectl apply -n "${NAMESPACE}" -f k8s/
 
 echo "=== Waiting for Deployment Rollout ==="
-kubectl rollout status deployment/devops-webapp
+if ! kubectl rollout status deployment/devops-webapp -n "${NAMESPACE}" --timeout=120s; then
+  echo "Rollout failed. Showing pod logs..."
+  kubectl get pods -n "${NAMESPACE}"
+  kubectl logs -n "${NAMESPACE}" -l app=devops-webapp --tail=100
+  exit 1
+fi
 
 echo "=== Running Health Check ==="
-kubectl wait --for=condition=available --timeout=300s deployment/devops-webapp
+kubectl wait -n "${NAMESPACE}" \
+  --for=condition=available \
+  --timeout=300s deployment/devops-webapp
 
 echo "=== Fetching Service URL ==="
-SERVICE_URL=$(minikube service devops-webapp-service --url)
+SERVICE_URL=$(minikube service devops-webapp-service -n "${NAMESPACE}" --url)
 
 echo "Minikube Setup Complete!"
 echo "Access the app at: $SERVICE_URL"
