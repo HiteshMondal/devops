@@ -90,3 +90,6 @@ temp/
 *.zip
 *.tar
 *.tar.gz
+
+# Node modules in specific project
+devops-webapp/node_modules
