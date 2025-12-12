@@ -1,7 +1,7 @@
 #!/bin/bash
 
 set -e
-set -x
+#set -x
 
 ENV="${1:-production}"
 IMAGE_NAME="devops-webapp:${ENV}"
