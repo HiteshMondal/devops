@@ -18,7 +18,6 @@ This directory contains all pipeline configurations and supporting files.
 
 ```
 cicd/
-├── docs/                     # CI/CD documentation
 ├── infrastructure/           # Infra-related CI/CD configs
 ├── monitoring/               # Monitoring pipeline configs
 ├── scripts/                  # Pipeline automation scripts
@@ -86,22 +85,6 @@ monitoring/
 
 ---
 
-### **Root Files**
-
-```
-.gitignore                 # Git ignore rules
-.gitlab-ci.yml             # GitLab CI pipeline config
-.hintrc                    # Linting rules
-app.html                   # Sample app page
-default.conf               # Web server config
-dockerfile                 # Application Dockerfile
-jenkinsfile                # Jenkins pipeline (alt)
-nginx.conf                 # NGINX config
-README.md                  # Project documentation
-windows.jenkinsfile        # Jenkins pipeline for Windows agents
-```
-
----
 
 ## 🚀 CI/CD Workflow Overview
 
