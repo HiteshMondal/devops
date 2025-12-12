@@ -1,0 +1,10 @@
+services:
+web:
+build: ./app
+ports:
+- "3000:3000"
+healthcheck:
+test: ["CMD","curl","-f","http://localhost:3000/healthz"]
+interval: 30s
+timeout: 5s
+retries: 3

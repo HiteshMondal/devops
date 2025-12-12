@@ -1,8 +1,0 @@
-# Kubernetes ConfigMap manifest
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: app-config
-data:
-  version: "1.0.0"
-  environment: "production"

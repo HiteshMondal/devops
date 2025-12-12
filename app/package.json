@@ -1,0 +1,15 @@
+{
+"name": "prod-scaffold-app",
+"version": "1.0.0",
+"main": "src/index.js",
+"scripts": {
+"start": "node src/index.js",
+"start:dev": "nodemon src/index.js"
+},
+"dependencies": {
+"express": "^4.18.2"
+},
+"devDependencies": {
+"nodemon": "^2.0.22"
+}
+}
