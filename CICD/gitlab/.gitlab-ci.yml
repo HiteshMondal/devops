@@ -1,0 +1,85 @@
+variables:
+  DOCKER_REGISTRY: your-registry
+  APP_NAME: production-api
+  DOCKER_DRIVER: overlay2
+  KUBERNETES_VERSION: 1.28.0
+
+stages:
+  - test
+  - build
+  - deploy
+  - verify
+
+before_script:
+  - export BUILD_TAG="${CI_PIPELINE_IID}-${CI_COMMIT_SHORT_SHA}"
+
+# Test Stage
+test:unit:
+  stage: test
+  image: node:18-alpine
+  script:
+    - cd app
+    - npm ci
+    - npm test
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: app/coverage/cobertura-coverage.xml
+
+test:security:
+  stage: test
+  image: node:18-alpine
+  script:
+    - cd app
+    - npm ci
+    - npm audit --audit-level=moderate
+  allow_failure: true
+
+test:lint:
+  stage: test
+  image: node:18-alpine
+  script:
+    - cd app
+    - npm ci
+    - npm run lint
+  allow_failure: true
+
+# Build Stage
+build:docker:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $DOCKER_REGISTRY
+  script:
+    - cd app
+    - docker build -t ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_TAG} .
+    - docker tag ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_TAG} ${DOCKER_REGISTRY}/${APP_NAME}:latest
+    - docker push ${DOCKER_REGISTRY}/${APP_NAME}:${BUILD_TAG}
+    - docker push ${DOCKER_REGISTRY}/${APP_NAME}:latest
+  only:
+    - main
+
+# Verification Stage
+verify:health:
+  stage: verify
+  image: curlimages/curl:latest
+  script:
+    - |
+      SERVICE_URL=${CI_ENVIRONMENT_URL:-https://api.yourdomain.com}
+      for i in {1..10}; do
+        if curl -f ${SERVICE_URL}/health; then
+          echo "Health check passed"
+          exit 0
+        fi
+        echo "Attempt $i failed, retrying..."
+        sleep 10
+      done
+      echo "Health check failed after 10 attempts"
+      exit 1
+  only:
+    - main
+    - develop

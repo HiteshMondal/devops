@@ -1,0 +1,30 @@
+- name: Setup Monitoring Stack
+  hosts: monitoring
+  become: yes
+  
+  tasks:
+    - name: Install Prometheus
+      kubernetes.core.k8s:
+        state: present
+        src: ../../kubernetes/monitoring/prometheus.yaml
+
+    - name: Install Grafana
+      kubernetes.core.k8s:
+        state: present
+        src: ../../kubernetes/monitoring/grafana.yaml
+
+    - name: Configure Prometheus data sources in Grafana
+      uri:
+        url: http://localhost:3000/api/datasources
+        method: POST
+        body_format: json
+        body:
+          name: Prometheus
+          type: prometheus
+          url: http://prometheus-service:9090
+          access: proxy
+          isDefault: true
+        user: admin
+        password: admin
+        force_basic_auth: yes
+        status_code: [200, 409]
