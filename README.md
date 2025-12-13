@@ -8,84 +8,6 @@ This project demonstrates a full DevOps setup using **Kubernetes, Terraform, Doc
 
 This repository contains a complete DevOps ecosystem including CI/CD pipelines, Infrastructure-as-Code (IaC), Kubernetes manifests, monitoring stack, and deployment scripts. It is designed to demonstrate or support a production-grade workflow using modern DevOps tooling including **Jenkins**, **Azure Pipelines**, **GitLab CI**, **Terraform**, **Ansible**, **Docker**, and **Kubernetes**.
 
----
-
-## 📂 Repository Structure
-
-### **cicd/** – Continuous Integration & Delivery
-
-This directory contains all pipeline configurations and supporting files.
-
-```
-cicd/
-├── infrastructure/           # Infra-related CI/CD configs
-├── monitoring/               # Monitoring pipeline configs
-├── scripts/                  # Pipeline automation scripts
-├── services/                 # Deployment services
-├── azure-pipelines.yml       # Azure DevOps pipeline
-├── docker-compose.yml        # CI-supported container environment
-├── Jenkinsfile               # Jenkins pipeline
-└── sonar-project.properties  # SonarQube code analysis configuration
-```
-
----
-
-### **Infra/** – Infrastructure as Code
-
-Contains IaC for provisioning cloud resources using Terraform and managing configuration using Ansible.
-
-```
-Infra/
-├── ansible/                      # Ansible playbooks & roles
-├── scripts/
-│   └── deploy.sh                 # Deployment script
-├── terraform/
-│   ├── modules/
-│   │   ├── compute/              # VM/Compute resources
-│   │   ├── database/             # Database provisioning
-│   │   ├── environments/         # Environment-specific configs
-│   │   └── vpc/                  # VPC/networking
-│   ├── explanation/              # Terraform documentation
-│   └── .terraform.lock.hcl       # Provider lockfile
-```
-
----
-
-### **Kube/** – Kubernetes Deployment
-
-Contains Kubernetes manifests for deploying workloads, managing networking, scaling, and security.
-
-```
-Kube/
-├── configmap.yaml
-├── deployment.yaml
-├── hpa.yaml                # Horizontal Pod Autoscaler
-├── ingress.yaml
-├── namespace.yaml
-├── networkpolicy.yaml
-├── pdb.yaml                # Pod Disruption Budget
-├── secret.yaml
-└── service.yaml
-```
-
----
-
-### **monitoring/** – Observability Stack
-
-Includes monitoring tools such as Prometheus, Grafana, Alertmanager, and Blackbox Exporter.
-
-```
-monitoring/
-├── alertmanager/
-├── blackbox/
-├── grafana/
-├── prometheus/
-└── docker-compose.yml      # Monitoring stack environment
-```
-
----
-
-
 ## 🚀 CI/CD Workflow Overview
 
 ### Supported CI/CD Platforms:
@@ -145,7 +67,7 @@ Docker Compose enables local or isolated monitoring setup.
 
 ---
 
-### Step 1: Initial Setup
+### Initial Setup
 
 ```bash
 # Clone repository
@@ -166,10 +88,10 @@ sudo apt update
 sudo apt install ansible -y
 ```
 
-### Step 2: Deploy Infrastructure with Terraform
+### Deploy Infrastructure with Terraform
 
 ```bash
-cd terraform
+cd Infra/terraform
 
 # Initialize Terraform
 terraform init
@@ -184,7 +106,7 @@ terraform apply -auto-approve
 terraform output
 ```
 
-### Step 3: Configure Kubernetes
+### Configure Kubernetes
 
 ```bash
 # Configure kubectl
@@ -210,10 +132,10 @@ kubectl apply -f ../kubernetes/monitoring/prometheus.yaml
 kubectl apply -f ../kubernetes/monitoring/grafana.yaml
 ```
 
-### Step 4: Setup Jenkins with Ansible
+### Setup Jenkins with Ansible
 
 ```bash
-cd ../ansible
+cd ../Infra/ansible
 
 # Update inventory with your server IPs
 vim inventory/hosts.yml
@@ -225,7 +147,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/setup-jenkins.yml
 ansible-playbook -i inventory/hosts.yml playbooks/configure-monitoring.yml
 ```
 
-### Step 5: Configure CI/CD
+### Configure CI/CD
 
 **For Jenkins:**
 ```bash
@@ -259,7 +181,7 @@ git push origin main
 # - KUBECONFIG (as file)
 ```
 
-### Step 6: Deploy Application
+### Deploy Application
 
 ```bash
 # Build and push Docker image
@@ -275,7 +197,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/deploy-app.yml
 kubectl rollout restart deployment/api-deployment -n production
 ```
 
-### Step 7: Access Services
+### Access Services
 
 ```bash
 # Get service URLs
@@ -291,7 +213,7 @@ echo "Prometheus URL: http://$(kubectl get svc prometheus-service -n production 
 echo "Grafana URL: http://$(kubectl get svc grafana-service -n production -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'):3000"
 ```
 
-### Step 8: Verify Deployment
+### Verify Deployment
 
 ```bash
 # Check pod status
