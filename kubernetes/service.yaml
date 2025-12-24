@@ -1,11 +1,13 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: node-service
-  namespace: demo
+  name: devops-app-service
+  namespace: devops-app
 spec:
   selector:
-    app: node-app
+    app: devops-app
   ports:
-    - port: 80
-      targetPort: 3000
+  - protocol: TCP
+    port: 80
+    targetPort: 3000
+  type: ClusterIP

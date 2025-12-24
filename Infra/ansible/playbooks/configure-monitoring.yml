@@ -1,5 +1,36 @@
-- hosts: servers
+---
+- name: Configure Monitoring
+  hosts: monitoring
+  become: yes
   tasks:
-    - name: Configure Monitoring
-      debug:
-        msg: "Monitoring configured"
+    - name: Install Prometheus
+      apt:
+        name: prometheus
+        state: present
+        update_cache: yes
+
+    - name: Copy Prometheus config
+      copy:
+        src: ../../monitoring/prometheus/prometheus.yml
+        dest: /etc/prometheus/prometheus.yml
+      notify: restart prometheus
+
+    - name: Install Grafana
+      apt:
+        name: grafana
+        state: present
+
+    - name: Start services
+      service:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - prometheus
+        - grafana-server
+
+  handlers:
+    - name: restart prometheus
+      service:
+        name: prometheus
+        state: restarted

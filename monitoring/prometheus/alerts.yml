@@ -1,5 +1,20 @@
 groups:
-  - name: example
+  - name: app_alerts
     rules:
-      - alert: HighCPU
-        expr: cpu_usage > 80
+    - alert: HighCPUUsage
+      expr: cpu_usage > 80
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High CPU usage detected"
+        description: "CPU usage is above 80% for 5 minutes"
+    
+    - alert: PodDown
+      expr: up == 0
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Pod is down"
+        description: "Pod has been down for 2 minutes"

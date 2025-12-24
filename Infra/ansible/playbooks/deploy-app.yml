@@ -1,5 +1,30 @@
-- hosts: servers
+---
+- name: Deploy Application
+  hosts: app_servers
+  become: yes
   tasks:
-    - name: Deploy app
-      debug:
-        msg: "Deploying application"
+    - name: Install Docker
+      apt:
+        name: docker.io
+        state: present
+        update_cache: yes
+
+    - name: Start Docker service
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Pull application image
+      docker_image:
+        name: devops-app:latest
+        source: pull
+
+    - name: Run application container
+      docker_container:
+        name: devops-app
+        image: devops-app:latest
+        state: started
+        restart_policy: always
+        ports:
+          - "3000:3000"

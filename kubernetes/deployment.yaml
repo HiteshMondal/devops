@@ -1,20 +1,44 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: node-app
-  namespace: demo
+  name: devops-app
+  namespace: devops-app
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
-      app: node-app
+      app: devops-app
   template:
     metadata:
       labels:
-        app: node-app
+        app: devops-app
     spec:
       containers:
-        - name: node-app
-          image: node-app
-          ports:
-            - containerPort: 3000
+      - name: app
+        image: devops-app:latest
+        ports:
+        - containerPort: 3000
+        envFrom:
+        - configMapRef:
+            name: app-config
+        - secretRef:
+            name: app-secrets
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
