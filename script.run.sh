@@ -5,6 +5,8 @@ set -e
 echo "=============================="
 echo "🚀 DevOps Project Runner"
 echo "=============================="
+echo "🧹 Cleaning old Docker networks..."
+docker network prune -f || true
 
 ##################################
 # Step 1: Run Application (Docker)
