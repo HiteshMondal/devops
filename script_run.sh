@@ -14,7 +14,7 @@ docker network prune -f || true
 echo "📦 Step 1: Building & running Node app using Docker Compose..."
 docker-compose up --build -d
 
-echo "✅ App running at http://localhost:3000"
+echo "✅ App running at http://localhost:3000 or 3001"
 echo ""
 
 ##################################
