@@ -1,77 +1,74 @@
 #!/bin/bash
 
-# Check if minikube command exists
-echo "checking minikube installation..."
-if ! command -v minikube &> /dev/null; then
-    echo "❌ Minikube is not installed."
-    exit 1
-fi
+set -e
 
-# Get minikube status
-STATUS=$(minikube status --format='{{.Host}}' 2>/dev/null)
+echo "=============================="
+echo "🚀 DevOps Project Runner"
+echo "=============================="
 
-if [[ "$STATUS" == "Running" ]]; then
-    echo "✅ Minikube is already running."
-else
-    echo "⚠️  Minikube is not running. Starting Minikube..."
-    minikube start
+##################################
+# Step 1: Run Application (Docker)
+##################################
+echo "📦 Step 1: Building & running Node app using Docker Compose..."
+docker-compose up --build -d
 
-    if [[ $? -eq 0 ]]; then
-        echo "🚀 Minikube started successfully."
-    else
-        echo "❌ Failed to start Minikube."
-        exit 1
-    fi
-fi
+echo "✅ App running at http://localhost:3000"
+echo ""
 
-pwd
-
-echo "Configure Kubernetes"
-# Configure kubectl
-#aws eks update-kubeconfig --name production-api-cluster --region us-east-1
-
-# Create namespace
-kubectl create namespace production
-echo "Apply Kubernetes configurations"
-kubectl apply -f ./kubernetes/configmap.yaml
-kubectl apply -f ./kubernetes/secrets.yaml
-kubectl apply -f ./kubernetes/deployment.yaml
-kubectl apply -f ./kubernetes/service.yaml
-kubectl apply -f ./kubernetes/hpa.yaml
-kubectl apply -f ./kubernetes/ingress.yaml
-# Deploy monitoring
-kubectl apply -f ./kubernetes/monitoring/prometheus.yaml
-kubectl apply -f ./kubernetes/monitoring/grafana.yaml
-
-echo "Configure AWS CLI"
-aws configure
-echo "Deploy Infrastructure with Terraform"
+##################################
+# Step 2: Terraform Infrastructure
+##################################
+echo "🌍 Step 2: Initializing Terraform..."
 cd Infra/terraform
-# Initialize Terraform
-#terraform init
-#terraform plan
-#terraform apply -auto-approve
-#terraform output
+
+terraform init
+terraform plan
+terraform apply -auto-approve
+
+echo "✅ Infrastructure provisioned"
 cd ../../
+echo ""
 
-# Setup Jenkins and Monitoring with Ansible
-cd ../Infra/ansible
-# Update inventory with your server IPs
-vi inventory/hosts.yml
-# Run Jenkins setup playbook
-ansible-playbook -i inventory/hosts.yml playbooks/setup-jenkins.yml
-# Configure monitoring
-ansible-playbook -i inventory/hosts.yml playbooks/configure-monitoring.yml
+##################################
+# Step 3: Ansible Configuration
+##################################
+echo "⚙️ Step 3: Running Ansible playbooks..."
 
-echo "Deployment"
-# Build and push Docker image
-cd ../app
-docker build -t your-registry/production-api:latest .
-docker push your-registry/production-api:latest
+cd Infra/ansible
 
-# Deploy via Ansible
-cd ../ansible
-ansible-playbook -i inventory/hosts.yml playbooks/deploy-app.yml
+ansible-playbook -i inventory playbooks/setup-jenkins.yml
+ansible-playbook -i inventory playbooks/deploy-app.yml
+ansible-playbook -i inventory playbooks/configure-monitoring.yml
 
-# Or deploy directly with kubectl
-kubectl rollout restart deployment/api-deployment -n production
+echo "✅ Ansible configuration completed"
+cd ../../
+echo ""
+
+##################################
+# Step 4: Kubernetes Deployment
+##################################
+echo "☸️ Step 4: Deploying to Kubernetes..."
+
+kubectl apply -f kubernetes/namespace.yaml
+kubectl apply -f kubernetes/configmap.yaml
+kubectl apply -f kubernetes/secrets.yaml
+kubectl apply -f kubernetes/deployment.yaml
+kubectl apply -f kubernetes/service.yaml
+kubectl apply -f kubernetes/hpa.yaml
+kubectl apply -f kubernetes/ingress.yaml
+
+echo "✅ Application deployed to Kubernetes"
+echo ""
+
+##################################
+# Step 5: Monitoring
+##################################
+echo "📊 Step 5: Deploying Monitoring Stack..."
+
+kubectl apply -f kubernetes/monitoring/prometheus.yaml
+kubectl apply -f kubernetes/monitoring/grafana.yaml
+
+echo "✅ Monitoring deployed"
+echo ""
+
+echo "🎉 All steps completed successfully!"
