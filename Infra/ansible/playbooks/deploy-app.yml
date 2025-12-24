@@ -1,52 +1,5 @@
-- name: Deploy Application to Kubernetes
-  hosts: k8s_masters
-  become: yes
-  
-  vars:
-    app_namespace: production
-    docker_registry: your-registry
-    app_version: "{{ lookup('env', 'APP_VERSION') | default('latest') }}"
-  
+- hosts: servers
   tasks:
-    - name: Create namespace
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Namespace
-          metadata:
-            name: "{{ app_namespace }}"
-
-    - name: Apply ConfigMaps
-      kubernetes.core.k8s:
-        state: present
-        src: ../../kubernetes/configmap.yaml
-        namespace: "{{ app_namespace }}"
-
-    - name: Apply Secrets
-      kubernetes.core.k8s:
-        state: present
-        src: ../../kubernetes/secrets.yaml
-        namespace: "{{ app_namespace }}"
-
-    - name: Deploy application
-      kubernetes.core.k8s:
-        state: present
-        src: ../../kubernetes/deployment.yaml
-        namespace: "{{ app_namespace }}"
-
-    - name: Create services
-      kubernetes.core.k8s:
-        state: present
-        src: ../../kubernetes/service.yaml
-        namespace: "{{ app_namespace }}"
-
-    - name: Wait for deployment
-      kubernetes.core.k8s_info:
-        kind: Deployment
-        name: api-deployment
-        namespace: "{{ app_namespace }}"
-      register: deployment
-      until: deployment.resources[0].status.readyReplicas == deployment.resources[0].spec.replicas
-      retries: 30
-      delay: 10
+    - name: Deploy app
+      debug:
+        msg: "Deploying application"

@@ -1,37 +1,58 @@
 #!/bin/bash
 
-#set -e
-set -x
+# Check if minikube command exists
+echo "checking minikube installation..."
+if ! command -v minikube &> /dev/null; then
+    echo "❌ Minikube is not installed."
+    exit 1
+fi
 
-echo "Configure AWS CLI"
-aws configure
+# Get minikube status
+STATUS=$(minikube status --format='{{.Host}}' 2>/dev/null)
 
-echo "Deploy Infrastructure with Terraform"
-cd Infra/terraform
-# Initialize Terraform
-terraform init
-terraform plan
-terraform apply -auto-approve
-terraform output
+if [[ "$STATUS" == "Running" ]]; then
+    echo "✅ Minikube is already running."
+else
+    echo "⚠️  Minikube is not running. Starting Minikube..."
+    minikube start
+
+    if [[ $? -eq 0 ]]; then
+        echo "🚀 Minikube started successfully."
+    else
+        echo "❌ Failed to start Minikube."
+        exit 1
+    fi
+fi
+
+pwd
 
 echo "Configure Kubernetes"
 # Configure kubectl
-aws eks update-kubeconfig --name production-api-cluster --region us-east-1
-# Verify connection
-kubectl cluster-info
-kubectl get nodes
+#aws eks update-kubeconfig --name production-api-cluster --region us-east-1
+
 # Create namespace
 kubectl create namespace production
 echo "Apply Kubernetes configurations"
-kubectl apply -f ../kubernetes/configmap.yaml
-kubectl apply -f ../kubernetes/secrets.yaml
-kubectl apply -f ../kubernetes/deployment.yaml
-kubectl apply -f ../kubernetes/service.yaml
-kubectl apply -f ../kubernetes/hpa.yaml
-kubectl apply -f ../kubernetes/ingress.yaml
+kubectl apply -f ./kubernetes/configmap.yaml
+kubectl apply -f ./kubernetes/secrets.yaml
+kubectl apply -f ./kubernetes/deployment.yaml
+kubectl apply -f ./kubernetes/service.yaml
+kubectl apply -f ./kubernetes/hpa.yaml
+kubectl apply -f ./kubernetes/ingress.yaml
 # Deploy monitoring
-kubectl apply -f ../kubernetes/monitoring/prometheus.yaml
-kubectl apply -f ../kubernetes/monitoring/grafana.yaml
+kubectl apply -f ./kubernetes/monitoring/prometheus.yaml
+kubectl apply -f ./kubernetes/monitoring/grafana.yaml
+
+echo "Configure AWS CLI"
+aws configure
+echo "Deploy Infrastructure with Terraform"
+cd Infra/terraform
+# Initialize Terraform
+#terraform init
+#terraform plan
+#terraform apply -auto-approve
+#terraform output
+cd ../../
 
 # Setup Jenkins and Monitoring with Ansible
 cd ../Infra/ansible
