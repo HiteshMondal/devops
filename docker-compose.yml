@@ -1,6 +1,22 @@
 services:
-  app:
-    build: ./app
+  devops-app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: devops-app
+    restart: unless-stopped
     ports:
-      - "3001:3000"
-    network_mode: bridge
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+    # For development, mount local source code to container for live reload
+    volumes:
+      - ./app/src:/app/src
+      - /app/node_modules
+    # Optional health check for Kubernetes-like probes
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

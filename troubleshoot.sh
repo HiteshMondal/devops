@@ -1,64 +1,25 @@
 #!/bin/bash
 
-echo "=== DevOps Troubleshooting Script ==="
+echo "=== DevOps Full Cleanup & Troubleshooting Script ==="
 
-# Troubleshoot Docker
+# Stop and remove all containers (force, including orphans)
 sudo docker compose down --remove-orphans
-sudo usermod -aG docker $USER
+sudo docker rm -f $(sudo docker ps -aq) 2>/dev/null || true
+sudo docker network rm devops_default
+sudo docker network prune -f
+docker container prune -f
 sudo systemctl stop docker
-sudo systemctl daemon-reexec
+sudo systemctl stop docker.socket
+sudo rm -rf /var/lib/docker/network/files
 sudo systemctl start docker
-docker ps
+docker ps -a
+ss -lntp | grep -E '3000|3001' || echo "Ports are free."
 
-# Check Kubernetes cluster
-echo -e "\n--- Kubernetes Cluster Status ---"
-kubectl cluster-info
-kubectl get nodes
+# Fix port conflicts
+sudo fuser -k 3000/tcp
+sudo fuser -k 3001/tcp
 
-# Check pods status
-echo -e "\n--- Pods Status ---"
-kubectl get pods -A
-
-# Check application pods
-echo -e "\n--- Application Pods ---"
-kubectl get pods -n devops-app
-kubectl logs -n devops-app -l app=devops-app --tail=50
-
-# Check services
-echo -e "\n--- Services ---"
-kubectl get svc -A
-
-# Check deployments
-echo -e "\n--- Deployments ---"
-kubectl get deployments -A
-
-# Check ingress
-echo -e "\n--- Ingress ---"
-kubectl get ingress -A
-
-# Check monitoring
-echo -e "\n--- Monitoring Status ---"
-kubectl get pods -n monitoring
-
-# Check Jenkins
-echo -e "\n--- Jenkins Status ---"
-kubectl get pods -n cicd
-
-# Docker status
-echo -e "\n--- Docker Status ---"
-docker ps
-
-# System resources
-echo -e "\n--- System Resources ---"
-df -h
-free -h
+echo "=== Cleanup & Restart Complete ==="
 
 echo -e "\n=== Troubleshooting Complete ==="
 
-sudo fuser -k 3000/tcp
-lsof -i :3000
-sudo kill -9 $(sudo lsof -t -i:3000)
-docker ps
-ss -lntp | grep 3000
-netstat -tulpn | grep 3000
-docker-compose down

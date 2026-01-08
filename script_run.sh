@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -e
-
 echo "=============================="
 echo "🚀 DevOps Project Runner"
 echo "=============================="
@@ -12,7 +10,7 @@ docker network prune -f || true
 # Step 1: Run Application (Docker)
 ##################################
 echo "📦 Step 1: Building & running Node app using Docker Compose..."
-docker-compose up --build -d
+docker-compose up
 
 echo "✅ App running at http://localhost:3000 or 3001"
 echo ""
