@@ -2,6 +2,14 @@
 
 echo "=== DevOps Troubleshooting Script ==="
 
+# Troubleshoot Docker
+sudo docker compose down --remove-orphans
+sudo usermod -aG docker $USER
+sudo systemctl stop docker
+sudo systemctl daemon-reexec
+sudo systemctl start docker
+docker ps
+
 # Check Kubernetes cluster
 echo -e "\n--- Kubernetes Cluster Status ---"
 kubectl cluster-info

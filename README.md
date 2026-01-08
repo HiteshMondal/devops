@@ -107,8 +107,14 @@ terraform output
 ```
 
 ### Configure Kubernetes
-
 ```bash
+#For Minikube
+minikube start \
+  --driver=docker \
+  --memory=1024 \
+  --cpus=1 \
+  --disk-size=10g
+
 # Configure kubectl
 aws eks update-kubeconfig --name production-api-cluster --region us-east-1
 

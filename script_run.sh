@@ -20,6 +20,7 @@ echo ""
 ##################################
 # Step 2: Terraform Infrastructure
 ##################################
+<<'COMMENT'
 echo "🌍 Step 2: Initializing Terraform..."
 cd Infra/terraform
 
@@ -45,7 +46,7 @@ ansible-playbook -i inventory playbooks/configure-monitoring.yml
 echo "✅ Ansible configuration completed"
 cd ../../
 echo ""
-
+COMMENT
 ##################################
 # Step 4: Kubernetes Deployment
 ##################################
