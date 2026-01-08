@@ -15,9 +15,9 @@ spec:
     spec:
       containers:
       - name: grafana
-        image: grafana/grafana:latest
+        image: grafana/grafana:10.1.5
         ports:
-        - containerPort: 3000
+        - containerPort: 3000   # Internal container port
         env:
         - name: GF_SECURITY_ADMIN_PASSWORD
           value: "admin"
@@ -30,7 +30,8 @@ metadata:
 spec:
   selector:
     app: grafana
+  type: NodePort   # Use NodePort instead of LoadBalancer for local dev
   ports:
-  - port: 3000
-    targetPort: 3000
-  type: LoadBalancer
+    - port: 3000          # Kubernetes service port
+      targetPort: 3000    # Container port
+      nodePort: 32000     # Host port, choose any free port (>30000)
