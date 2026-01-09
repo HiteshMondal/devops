@@ -3,11 +3,14 @@ kind: Service
 metadata:
   name: devops-app-service
   namespace: devops-app
+  labels:
+    app: devops-app
 spec:
   selector:
     app: devops-app
   ports:
-  - protocol: TCP
-    port: 80
-    targetPort: 3000
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 3000
   type: ClusterIP

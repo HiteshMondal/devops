@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: grafana
   namespace: monitoring
+  labels:
+    app: grafana
 spec:
   replicas: 1
   selector:
@@ -14,24 +16,52 @@ spec:
         app: grafana
     spec:
       containers:
-      - name: grafana
-        image: grafana/grafana:10.1.5
-        ports:
-        - containerPort: 3000   # Internal container port
-        env:
-        - name: GF_SECURITY_ADMIN_PASSWORD
-          value: "admin"
+        - name: grafana
+          image: grafana/grafana:10.1.5
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secrets
+                  key: admin-password
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 472
+            allowPrivilegeEscalation: false
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: grafana
   namespace: monitoring
+  labels:
+    app: grafana
 spec:
   selector:
     app: grafana
-  type: NodePort   # Use NodePort instead of LoadBalancer for local dev
   ports:
-    - port: 3000          # Kubernetes service port
-      targetPort: 3000    # Container port
-      nodePort: 32000     # Host port, choose any free port (>30000)
+    - name: http
+      port: 3000
+      targetPort: 3000
+  type: ClusterIP

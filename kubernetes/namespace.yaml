@@ -4,3 +4,4 @@ metadata:
   name: devops-app
   labels:
     name: devops-app
+    environment: production
