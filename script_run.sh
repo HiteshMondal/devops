@@ -5,6 +5,7 @@ set -e
 echo "DevOps Project Runner"
 
 # Step 1: Run Application (Docker)
+echo "Choose Docker Compose or minikube to run app"
 read -p "Run app using Docker Compose? (y/n): " RUN_DOCKER
 
 if [[ "$RUN_DOCKER" == "y" ]]; then
