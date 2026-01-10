@@ -62,10 +62,10 @@ echo "✅ Application deployed to Kubernetes"
 echo "🌐 Access your app at: http://$MINIKUBE_IP:$NODE_PORT"
 echo "To See GUI of Kubernetes type "minikube dashboard""
 
-# Create monitoring namespace
+#Step 5: monitoring 
 echo "Step 5: Deploying Monitoring Stack..."
 
-# Create monitoring namespace if it doesn't exist
+# Create monitoring namespace
 kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Namespace
@@ -75,37 +75,52 @@ metadata:
     environment: production
 EOF
 
-# Create Prometheus ConfigMap
-kubectl apply -f - <<EOF
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: prometheus-config
-  namespace: monitoring
-data:
-  prometheus.yml: |
-    global:
-      scrape_interval: 15s
-    scrape_configs:
-      - job_name: 'kubernetes'
-        kubernetes_sd_configs:
-          - role: pod
-        relabel_configs:
-          - source_labels: [__meta_kubernetes_pod_label_app]
-            action: keep
-            regex: devops-app
-EOF
-
-# Create Grafana Secret (idempotent)
+# Grafana admin secret
 kubectl create secret generic grafana-secrets \
   --from-literal=admin-password=admin123 \
+  -n monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+# Prometheus ConfigMap
+kubectl create configmap prometheus-config \
+  --from-file=prometheus.yml=monitoring/prometheus/prometheus.yml \
+  --from-file=alerts.yml=monitoring/prometheus/alerts.yml \
+  -n monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+# Grafana dashboard JSON ConfigMap
+kubectl create configmap grafana-dashboard \
+  --from-file=dashboard.json=kubernetes/monitoring/dashboard.json \
+  -n monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+# Grafana dashboard provider YAML ConfigMap
+kubectl create configmap grafana-dashboard-config \
+  --from-literal=provider.yaml="apiVersion: 1
+providers:
+  - name: 'devops-app'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    options:
+      path: /etc/grafana/provisioning/dashboards" \
+  -n monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+# Grafana data source ConfigMap (Prometheus)
+kubectl create configmap grafana-datasource \
+  --from-literal=datasource.yaml="apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus.monitoring.svc.cluster.local:9090
+    isDefault: true
+    editable: false" \
   -n monitoring --dry-run=client -o yaml | kubectl apply -f -
 
 # Deploy Prometheus and Grafana
 kubectl apply -f kubernetes/monitoring/prometheus.yaml
 kubectl apply -f kubernetes/monitoring/grafana.yaml
 
-# Create NodePort services for external access
+# NodePort Services
 kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Service
@@ -140,11 +155,11 @@ spec:
   type: NodePort
 EOF
 
-echo "⏳ Waiting for Prometheus and Grafana pods to be ready..."
-kubectl wait --namespace monitoring --for=condition=Ready pod -l app=prometheus --timeout=120s
-kubectl wait --namespace monitoring --for=condition=Ready pod -l app=grafana --timeout=120s
+# Wait for pods to be ready
+kubectl wait --namespace monitoring --for=condition=Ready pod -l app=prometheus --timeout=180s
+kubectl wait --namespace monitoring --for=condition=Ready pod -l app=grafana --timeout=180s
 
 MINIKUBE_IP=$(minikube ip)
 echo "✅ Monitoring deployed successfully!"
 echo "🌐 Prometheus URL: http://$MINIKUBE_IP:30003"
-echo "🌐 Grafana URL: http://$MINIKUBE_IP:30002"
+echo "🌐 Grafana URL: http://$MINIKUBE_IP:30002 (dashboard & Prometheus data source auto-loaded)"

@@ -49,6 +49,19 @@ spec:
             runAsNonRoot: true
             runAsUser: 472
             allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: dashboards
+              mountPath: /etc/grafana/provisioning/dashboards
+            #- name: dashboards-config
+            #  mountPath: /etc/grafana/provisioning/dashboards/provider.yaml
+            #  subPath: provider.yaml
+      volumes:
+        - name: dashboards
+          configMap:
+            name: grafana-dashboard
+        - name: dashboards-config
+          configMap:
+            name: grafana-dashboard-config
 ---
 apiVersion: v1
 kind: Service
@@ -64,4 +77,5 @@ spec:
     - name: http
       port: 3000
       targetPort: 3000
-  type: ClusterIP
+      nodePort: 30002
+  type: NodePort
