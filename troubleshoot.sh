@@ -3,6 +3,11 @@
 echo "=== DevOps Full Cleanup & Troubleshooting Script ==="
 
 # Stop and remove all containers (force, including orphans)
+# Kubernetes cleanup
+kubectl delete deployments --all-namespaces --all
+minikube delete
+
+# Docker cleanup
 sudo docker compose down --remove-orphans
 sudo docker rm -f $(sudo docker ps -aq) 2>/dev/null || true
 sudo docker network rm devops_default
@@ -22,9 +27,6 @@ sudo fuser -k 30001/tcp
 sudo fuser -k 30002/tcp
 sudo fuser -k 30003/tcp
 
-# Delete old Kubernetes Deployments
-kubectl delete deployments --all-namespaces --all
-kubectl delete deployments -A --all
 echo "=== Cleanup & Restart Complete ==="
 
 echo -e "\n=== Troubleshooting Complete ==="

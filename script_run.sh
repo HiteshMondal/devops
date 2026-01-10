@@ -5,13 +5,15 @@ set -e
 echo "DevOps Project Runner"
 
 # Step 1: Run Application (Docker)
-echo "Choose Docker Compose or minikube to run app"
+echo "Choose Docker Compose to ONLY run app or minikube to run app with monitoring"
 read -p "Run app using Docker Compose? (y/n): " RUN_DOCKER
 
 if [[ "$RUN_DOCKER" == "y" ]]; then
   echo "🐳 Running app using Docker Compose..."
   docker compose up -d
   echo "App running at http://localhost:3000"
+  echo "Skipping Kubernetes and monitoring."
+  exit 0
 fi
 
 
