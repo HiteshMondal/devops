@@ -18,7 +18,13 @@ ss -lntp | grep -E '3000|3001' || echo "Ports are free."
 # Fix port conflicts
 sudo fuser -k 3000/tcp
 sudo fuser -k 3001/tcp
+sudo fuser -k 30001/tcp
+sudo fuser -k 30002/tcp
+sudo fuser -k 30003/tcp
 
+# Delete old Kubernetes Deployments
+kubectl delete deployments --all-namespaces --all
+kubectl delete deployments -A --all
 echo "=== Cleanup & Restart Complete ==="
 
 echo -e "\n=== Troubleshooting Complete ==="
