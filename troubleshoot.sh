@@ -1,6 +1,9 @@
 #!/bin/bash
 
 echo "=== DevOps Full Cleanup & Troubleshooting Script ==="
+echo "⚠️ WARNING: This will DESTROY Docker, Minikube, and Kubernetes state"
+read -p "Type DESTROY to continue: " CONFIRM
+[[ "$CONFIRM" == "DESTROY" ]] || exit 1
 
 # Stop and remove all containers (force, including orphans)
 # Kubernetes cleanup

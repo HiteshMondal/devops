@@ -1,256 +1,257 @@
-# DevOps Project
+# 🚀 End-to-End DevOps Project
 
-This project demonstrates a full DevOps setup using **Kubernetes, Terraform, Docker, Nginx, CI/CD pipelines**, and autoscaling. It is designed to run locally using **Minikube** or on cloud infrastructure.
+This repository demonstrates a **production-style DevOps workflow** covering the complete lifecycle of an application — from development and containerization to CI/CD, cloud infrastructure provisioning, Kubernetes orchestration, and monitoring.
 
----
-
-# Project CI/CD, Infrastructure & Monitoring
-
-This repository contains a complete DevOps ecosystem including CI/CD pipelines, Infrastructure-as-Code (IaC), Kubernetes manifests, monitoring stack, and deployment scripts. It is designed to demonstrate or support a production-grade workflow using modern DevOps tooling including **Jenkins**, **Azure Pipelines**, **GitLab CI**, **Terraform**, **Ansible**, **Docker**, and **Kubernetes**.
-
-## 🚀 CI/CD Workflow Overview
-
-### Supported CI/CD Platforms:
-
-* **Jenkins** (`Jenkinsfile`, `windows.jenkinsfile`)
-* **Azure Pipelines** (`azure-pipelines.yml`)
-* **GitLab CI** (`.gitlab-ci.yml`)
-
-### Pipeline Features:
-
-* Automated build & test
-* Docker image creation & push
-* Static code analysis through SonarQube
-* Terraform plan & apply workflow
-* Ansible deployment automation
-* Kubernetes rolling updates
-* Notifications & monitoring hooks
+The project is intentionally designed to reflect **real-world DevOps practices** rather than tutorial-style setups.
 
 ---
 
-## 🏗️ Infrastructure Overview
+## 📌 Project Objectives
 
-The Terraform modules provision:
-
-* VPC & networking (subnets, routing, security groups)
-* Compute resources
-* Database instances
-* Environment‑based configurations (dev, stage, prod)
-
-The Ansible layer automates configuration & deployment to provisioned infrastructure.
-
----
-
-## ☸️ Kubernetes Overview
-
-Kubernetes manifests define:
-
-* Application deployment with replicas
-* ConfigMaps & Secrets for config management
-* HPA for autoscaling workloads
-* Ingress for routing
-* Pod Disruption Budget for HA
-* Network Policies for security
+* Build and containerize a sample Node.js application
+* Automate CI/CD using Jenkins
+* Provision cloud infrastructure using Terraform (AWS)
+* Configure services using Ansible
+* Deploy and scale the application on Kubernetes (EKS / Minikube)
+* Implement monitoring and alerting using Prometheus and Grafana
+* Provide automation and recovery scripts for reliability
 
 ---
 
-## 📊 Monitoring & Alerting
+## 🧱 Architecture Overview
 
-The monitoring stack includes:
+**High-level flow:**
 
-* **Prometheus** for metrics scraping
-* **Grafana** for dashboards
-* **Alertmanager** for alert routing
-* **Blackbox exporter** for endpoint probing
-
-Docker Compose enables local or isolated monitoring setup.
-
----
-
-### Initial Setup
-
-```bash
-# Clone repository
-git clone 
-cd project-root
-
-# Install Terraform
-wget https://releases.hashicorp.com/terraform/1.6.0/terraform_1.6.0_linux_amd64.zip
-unzip terraform_1.6.0_linux_amd64.zip
-sudo mv terraform /usr/local/bin/
-
-# Install kubectl
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-
-# Install Ansible
-sudo apt update
-sudo apt install ansible -y
+```
+Developer → GitLab → Jenkins CI/CD → Docker Image → Kubernetes (EKS/Minikube)
+                                           ↓
+                                   Prometheus + Grafana
 ```
 
-### Deploy Infrastructure with Terraform
+**Key components:**
+
+* **App**: Node.js microservice
+* **CI/CD**: Jenkins (Pipeline as Code)
+* **Infrastructure**: AWS (VPC, EKS, RDS)
+* **Configuration**: Ansible
+* **Orchestration**: Kubernetes
+* **Monitoring**: Prometheus & Grafana
+
+---
+
+## 📂 Repository Structure
+
+```
+.
+├── app/                    # Node.js application
+│   ├── Dockerfile
+│   ├── package.json
+│   └── src/index.js
+│
+├── CICD/                   # CI/CD configuration
+│   ├── gitlab/
+│   └── jenkins/
+│       ├── Jenkinsfile
+│       └── jenkins-deployment.yaml
+│
+├── Infra/                  # Infrastructure as Code
+│   ├── terraform/          # AWS provisioning (VPC, EKS, RDS)
+│   └── ansible/            # Configuration management
+│       └── playbooks/
+│
+├── kubernetes/             # Kubernetes manifests
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   ├── ingress.yaml
+│   ├── hpa.yaml
+│   ├── configmap.yaml
+│   ├── secrets.yaml
+│   └── monitoring/
+│
+├── monitoring/             # Prometheus configuration
+│   └── prometheus/
+│
+├── docker-compose.yml      # Local development
+├── script_run.sh           # Main automation script
+├── troubleshoot.sh         # Emergency cleanup script
+└── README.md
+```
+
+---
+
+## ⚙️ Prerequisites
+
+Ensure the following tools are installed:
+
+* Docker & Docker Compose
+* Kubernetes CLI (`kubectl`)
+* Minikube (for local Kubernetes)
+* Terraform
+* Ansible
+* AWS CLI (for cloud deployment)
+
+---
+
+## 🚀 Getting Started
+
+### 1️⃣ Run Application
+
+```bash
+chmod +x script_run.sh
+./script_run.sh
+```
+
+Choose **Docker Compose** when prompted.
+
+Access the app at:
+
+```
+http://localhost:3000
+```
+
+---
+
+### 2️⃣ Provision Infrastructure (AWS)
+
+Terraform provisions:
+
+* VPC & networking
+* EKS cluster
+* RDS database
 
 ```bash
 cd Infra/terraform
-
-# Initialize Terraform
 terraform init
-
-# Review plan
 terraform plan
-
-# Apply configuration
-terraform apply -auto-approve
-
-# Get outputs
-terraform output
+# terraform apply
 ```
 
-### Configure Kubernetes
-```bash
-#For Minikube
-minikube start \
-  --driver=docker \
-  --memory=1024 \
-  --cpus=1 \
-  --disk-size=10g
-
-# Configure kubectl
-aws eks update-kubeconfig --name production-api-cluster --region us-east-1
-
-# Verify connection
-kubectl cluster-info
-kubectl get nodes
-
-# Create namespace
-kubectl create namespace production
-
-# Apply Kubernetes configurations
-kubectl apply -f ../kubernetes/configmap.yaml
-kubectl apply -f ../kubernetes/secrets.yaml
-kubectl apply -f ../kubernetes/deployment.yaml
-kubectl apply -f ../kubernetes/service.yaml
-kubectl apply -f ../kubernetes/hpa.yaml
-kubectl apply -f ../kubernetes/ingress.yaml
-
-# Deploy monitoring
-kubectl apply -f ../kubernetes/monitoring/prometheus.yaml
-kubectl apply -f ../kubernetes/monitoring/grafana.yaml
-```
-
-### Setup Jenkins with Ansible
-
-```bash
-cd ../Infra/ansible
-
-# Update inventory with your server IPs
-vim inventory/hosts.yml
-
-# Run Jenkins setup playbook
-ansible-playbook -i inventory/hosts.yml playbooks/setup-jenkins.yml
-
-# Configure monitoring
-ansible-playbook -i inventory/hosts.yml playbooks/configure-monitoring.yml
-```
-
-### Configure CI/CD
-
-**For Jenkins:**
-```bash
-# Access Jenkins
-# URL: http://:8080
-# Get initial password from Ansible output
-
-# Install required plugins:
-# - Kubernetes Plugin
-# - Docker Pipeline
-# - Git Plugin
-# - Pipeline Plugin
-
-# Create Jenkins Pipeline:
-# 1. New Item → Pipeline
-# 2. Pipeline from SCM → Git
-# 3. Script Path: Jenkinsfile
-```
-
-**For GitLab:**
-```bash
-# Push .gitlab-ci.yml to your GitLab repository
-git add .gitlab-ci.yml
-git commit -m "Add GitLab CI/CD configuration"
-git push origin main
-
-# Configure GitLab variables:
-# - DOCKER_REGISTRY
-# - CI_REGISTRY_USER
-# - CI_REGISTRY_PASSWORD
-# - KUBECONFIG (as file)
-```
-
-### Deploy Application
-
-```bash
-# Build and push Docker image
-cd ../app
-docker build -t your-registry/production-api:latest .
-docker push your-registry/production-api:latest
-
-# Deploy via Ansible
-cd ../ansible
-ansible-playbook -i inventory/hosts.yml playbooks/deploy-app.yml
-
-# Or deploy directly with kubectl
-kubectl rollout restart deployment/api-deployment -n production
-```
-
-### Access Services
-
-```bash
-# Get service URLs
-kubectl get svc -n production
-
-# API Service
-echo "API URL: http://$(kubectl get svc api-service -n production -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
-
-# Prometheus
-echo "Prometheus URL: http://$(kubectl get svc prometheus-service -n production -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'):9090"
-
-# Grafana
-echo "Grafana URL: http://$(kubectl get svc grafana-service -n production -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'):3000"
-```
-
-### Verify Deployment
-
-```bash
-# Check pod status
-kubectl get pods -n production
-
-# Check logs
-kubectl logs -f deployment/api-deployment -n production
-
-# Test API
-curl http:///health
-curl http:///metrics
-
-# Check HPA
-kubectl get hpa -n production
-```
-
-## 📌 Future Enhancements
-
-* Add Helm charts
-* Add ArgoCD support
-* Add multi‑cloud Terraform modules
-* Implement Canary/Blue‑Green deployments
+> ⚠️ `apply` is intentionally manual to avoid accidental cloud costs.
 
 ---
 
-## 🤝 Contributing
+### 3️⃣ Configure Services (Ansible)
 
-Feel free to open issues or submit pull requests to improve the project.
+```bash
+cd Infra/ansible
+ansible-playbook -i inventory playbooks/setup-jenkins.yml
+ansible-playbook -i inventory playbooks/deploy-app.yml
+ansible-playbook -i inventory playbooks/configure-monitoring.yml
+```
+
+---
+
+### 4️⃣ Deploy to Kubernetes (Minikube)
+
+The project supports Kubernetes deployment with:
+
+* Namespaces
+* ConfigMaps & Secrets
+* Horizontal Pod Autoscaler
+* Ingress Controller
+
+```bash
+minikube start
+./script_run.sh
+```
+
+---
+
+## 📈 Monitoring & Observability
+
+The monitoring stack includes:
+
+* **Prometheus** for metrics collection
+* **Grafana** for dashboards
+* Custom alerts and dashboards
+
+Access (Minikube):
+
+* Prometheus → `http://<minikube-ip>:30003`
+* Grafana → `http://<minikube-ip>:30002`
+
+Default Grafana credentials (demo only):
+
+```
+username: admin
+password: admin123
+```
+
+---
+
+## 🔁 CI/CD Pipeline
+
+The Jenkins pipeline:
+
+1. Pulls code from GitLab
+2. Builds Docker image
+3. Pushes image to registry
+4. Deploys to Kubernetes
+
+Defined in:
+
+```
+CICD/jenkins/Jenkinsfile
+```
+
+---
+
+## 🧨 Disaster Recovery & Troubleshooting
+
+When the local environment becomes unstable:
+
+```bash
+./troubleshoot.sh
+```
+
+⚠️ **WARNING**:
+
+* Deletes all Docker containers
+* Resets Minikube
+* Clears Docker network state
+
+**Use ONLY for local development. Never run on production systems.**
+
+---
+
+## 🔐 Security Notes
+
+* Secrets are stored as Kubernetes Secrets (demo purposes)
+* Hardcoded credentials are **intentional for learning only**
+* For production:
+
+  * Use AWS Secrets Manager / Vault
+  * Enable RBAC & Network Policies
+
+---
+
+## 📌 Key DevOps Concepts Demonstrated
+
+* Infrastructure as Code (Terraform)
+* Configuration Management (Ansible)
+* CI/CD Pipelines (Jenkins)
+* Containerization (Docker)
+* Orchestration & Scaling (Kubernetes + HPA)
+* Observability (Prometheus & Grafana)
+* Failure recovery & cleanup automation
+
+---
+
+## 🧠 Author Notes
+
+This project is built as a **hands-on DevOps learning and portfolio project**, focusing on **real operational challenges** such as:
+
+* Environment drift
+* Broken container states
+* Monitoring visibility
+* Scaling and reliability
 
 ---
 
 ## 📄 License
 
-This repository is released under the MIT License.
+This project is open for learning and demonstration purposes.
+
+---
+
+⭐ If you find this project useful, feel free to explore, fork, or improve it!
