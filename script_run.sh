@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -o pipefail
+set -u
 set -e
 
 echo "DevOps Project Runner"
@@ -20,9 +22,9 @@ fi
 # Step 2: Terraform Infrastructure
 echo "🌍 Step 2: Initializing Terraform..."
 cd Infra/terraform
-terraform init
+terraform init -upgrade
 terraform plan
-terraform apply -auto-approve
+#terraform apply -auto-approve
 
 echo "✅ Infrastructure provisioned"
 cd ../../
