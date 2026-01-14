@@ -18,7 +18,6 @@ fi
 
 
 # Step 2: Terraform Infrastructure
-<<'COMMENT'
 echo "🌍 Step 2: Initializing Terraform..."
 cd Infra/terraform
 terraform init
@@ -31,9 +30,7 @@ echo ""
 
 # Step 3: Ansible Configuration
 echo "⚙️ Step 3: Running Ansible playbooks..."
-
 cd Infra/ansible
-
 ansible-playbook -i inventory playbooks/setup-jenkins.yml
 ansible-playbook -i inventory playbooks/deploy-app.yml
 ansible-playbook -i inventory playbooks/configure-monitoring.yml
@@ -41,8 +38,7 @@ ansible-playbook -i inventory playbooks/configure-monitoring.yml
 echo "✅ Ansible configuration completed"
 cd ../../
 echo ""
-COMMENT
-
+exit 0 #temporary
 # Step 4: Kubernetes Deployment
 echo "Step 4: Deploying to Kubernetes..."
 eval $(minikube docker-env)
