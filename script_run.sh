@@ -5,11 +5,19 @@ set -u
 set -e
 
 echo "DevOps Project Runner"
+echo ""
+echo "🔍 Checking prerequisites..."
+echo "📦 Tool versions:"
+docker --version || true
+kubectl version --client || true
+terraform --version | head -n 1 || true
+aws --version || true
+minikube version || true
+echo ""
 
 # Step 1: Run Application (Docker)
 echo "Choose Docker Compose to ONLY run app or minikube to run app with monitoring"
 read -p "Run app using Docker Compose? (y/n): " RUN_DOCKER
-
 if [[ "$RUN_DOCKER" == "y" ]]; then
   echo "🐳 Running app using Docker Compose..."
   docker compose up -d
@@ -18,13 +26,12 @@ if [[ "$RUN_DOCKER" == "y" ]]; then
   exit 0
 fi
 
-
 # Step 2: Terraform Infrastructure
 echo "🌍 Step 2: Initializing Terraform..."
 cd Infra/terraform
 terraform init -upgrade
 terraform plan
-#terraform apply -auto-approve
+terraform apply -auto-approve
 
 echo "✅ Infrastructure provisioned"
 cd ../../
@@ -60,7 +67,7 @@ MINIKUBE_IP=$(minikube ip)
 
 echo "✅ Application deployed to Kubernetes"
 echo "🌐 Access your app at: http://$MINIKUBE_IP:$NODE_PORT"
-echo "To See GUI of Kubernetes type "minikube dashboard""
+echo "To see Kubernetes GUI, run: minikube dashboard"
 
 #Step 5: monitoring 
 echo "Step 5: Deploying Monitoring Stack..."

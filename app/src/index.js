@@ -153,263 +153,86 @@ app.post("/shutdown", (req, res) => {
 // DASHBOARD UI
 app.get("/", (req, res) => {
   res.send(`
-<!DOCTYPE html>
-<html>
-<head>
-  <title>DevOps Control Panel</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body {
-      background:#0f172a;
-      color:#e5e7eb;
-      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;
-    }
-    header {
-      padding:24px;
-      background:linear-gradient(135deg,#1e293b,#0f172a);
-      border-bottom:2px solid #38bdf8;
-      position:sticky;
-      top:0;
-      z-index:100;
-      box-shadow:0 4px 6px rgba(0,0,0,.3);
-    }
-    header h1 {
-      font-size:28px;
-      color:#38bdf8;
-      display:flex;
-      align-items:center;
-      gap:12px;
-    }
-    .status-badge {
-      font-size:12px;
-      padding:4px 12px;
-      border-radius:20px;
-      background:#10b981;
-      color:#fff;
-      font-weight:bold;
-    }
-    .container { padding:20px; max-width:1600px; margin:0 auto; }
-    .grid {
-      display:grid;
-      grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
-      gap:20px;
-      margin-bottom:20px;
-    }
-    .card {
-      background:#1e293b;
-      padding:20px;
-      border-radius:12px;
-      border:1px solid #334155;
-      box-shadow:0 4px 6px rgba(0,0,0,.2);
-    }
-    .card h3 {
-      color:#38bdf8;
-      margin-bottom:16px;
-      font-size:18px;
-      display:flex;
-      align-items:center;
-      gap:8px;
-    }
-    .stat-row {
-      display:flex;
-      justify-content:space-between;
-      padding:8px 0;
-      border-bottom:1px solid #334155;
-    }
-    .stat-row:last-child { border:none; }
-    .stat-value {
-      color:#38bdf8;
-      font-weight:bold;
-    }
-    button {
-      padding:10px 16px;
-      background:#38bdf8;
-      border:none;
-      border-radius:8px;
-      cursor:pointer;
-      font-weight:600;
-      color:#020617;
-      transition:all .2s;
-      margin:4px;
-    }
-    button:hover { background:#0ea5e9; transform:translateY(-1px); }
-    .danger { background:#ef4444; color:#fff; }
-    .danger:hover { background:#dc2626; }
-    .success { background:#10b981; color:#fff; }
-    .success:hover { background:#059669; }
-    .warning { background:#f59e0b; color:#fff; }
-    .warning:hover { background:#d97706; }
-    pre {
-      font-size:12px;
-      overflow:auto;
-      background:#0f172a;
-      padding:12px;
-      border-radius:6px;
-      max-height:200px;
-    }
-    .alert {
-      padding:12px;
-      margin:8px 0;
-      border-radius:6px;
-      border-left:4px solid;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      animation:slideIn .3s;
-    }
-    @keyframes slideIn {
-      from { opacity:0; transform:translateX(-20px); }
-      to { opacity:1; transform:translateX(0); }
-    }
-    .alert.error { background:#7f1d1d; border-color:#ef4444; }
-    .alert.info { background:#1e3a8a; border-color:#3b82f6; }
-    .alert.success { background:#14532d; border-color:#10b981; }
-    .chart-bar {
-      height:24px;
-      background:#38bdf8;
-      border-radius:4px;
-      margin:8px 0;
-      transition:width .3s;
-      position:relative;
-    }
-    .chart-label {
-      position:absolute;
-      right:8px;
-      line-height:24px;
-      color:#020617;
-      font-weight:bold;
-      font-size:12px;
-    }
-    .request-item {
-      padding:8px;
-      margin:4px 0;
-      background:#0f172a;
-      border-radius:4px;
-      display:flex;
-      justify-content:space-between;
-      font-size:12px;
-    }
-    .method { 
-      padding:2px 6px;
-      border-radius:4px;
-      font-weight:bold;
-      background:#334155;
-    }
-    .status-200 { color:#10b981; }
-    .status-500 { color:#ef4444; }
-    .full-width { grid-column:1/-1; }
-  </style>
-</head>
-<body>
+<!DOCTYPE html><html><head>
+<title>DevOps Control Panel</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0f172a;color:#e5e7eb;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial}
+header{padding:24px;background:linear-gradient(135deg,#1e293b,#0f172a);border-bottom:2px solid #38bdf8;position:sticky;top:0;z-index:100;box-shadow:0 4px 6px rgba(0,0,0,.3)}
+h1{font-size:28px;color:#38bdf8;display:flex;gap:12px;align-items:center}
+.badge{font:700 12px/1 Arial;padding:4px 12px;border-radius:20px;background:#10b981;color:#fff}
+.container{padding:20px;max-width:1600px;margin:auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;margin-bottom:20px}
+.card{background:#1e293b;padding:20px;border-radius:12px;border:1px solid #334155;box-shadow:0 4px 6px rgba(0,0,0,.2)}
+.card h3{color:#38bdf8;margin-bottom:16px;font-size:18px;display:flex;gap:8px}
+.row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #334155}
+.row:last-child{border:0}
+.val{color:#38bdf8;font-weight:700}
+button{padding:10px 16px;border:0;border-radius:8px;font-weight:600;cursor:pointer;margin:4px;transition:.2s}
+button:hover{transform:translateY(-1px)}
+.primary{background:#38bdf8;color:#020617}
+.primary:hover{background:#0ea5e9}
+.success{background:#10b981;color:#fff}
+.success:hover{background:#059669}
+.warning{background:#f59e0b;color:#fff}
+.warning:hover{background:#d97706}
+.danger{background:#ef4444;color:#fff}
+.danger:hover{background:#dc2626}
+pre{font-size:12px;overflow:auto;background:#0f172a;padding:12px;border-radius:6px;max-height:200px}
+.alert{padding:12px;margin:8px 0;border-left:4px solid;border-radius:6px;display:flex;justify-content:space-between;animation:in .3s}
+@keyframes in{from{opacity:0;transform:translateX(-20px)}to{opacity:1}}
+.alert.error{background:#7f1d1d;border-color:#ef4444}
+.alert.info{background:#1e3a8a;border-color:#3b82f6}
+.alert.success{background:#14532d;border-color:#10b981}
+.bar{height:24px;background:#38bdf8;border-radius:4px;margin:8px 0;position:relative}
+.label{position:absolute;right:8px;line-height:24px;font:700 12px Arial;color:#020617}
+.req{padding:8px;margin:4px 0;background:#0f172a;border-radius:4px;display:flex;justify-content:space-between;font-size:12px}
+.method{padding:2px 6px;border-radius:4px;background:#334155;font-weight:700}
+.s200{color:#10b981}.s500{color:#ef4444}
+.full{grid-column:1/-1}
+</style></head>
 
-<header>
-  <h1>
-    <span>🚀</span>
-    DevOps Control Panel
-    <span class="status-badge" id="statusBadge">ONLINE</span>
-  </h1>
-</header>
+<body>
+<header><h1>🚀 DevOps Control Panel <span class="badge" id="statusBadge">ONLINE</span></h1></header>
 
 <div class="container">
-  
-  <div class="grid">
-    
-    <div class="card">
-      <h3>📊 Performance Metrics</h3>
-      <div class="stat-row">
-        <span>Uptime</span>
-        <span class="stat-value" id="uptime">-</span>
-      </div>
-      <div class="stat-row">
-        <span>Total Requests</span>
-        <span class="stat-value" id="req">-</span>
-      </div>
-      <div class="stat-row">
-        <span>Errors</span>
-        <span class="stat-value" id="err">-</span>
-      </div>
-      <div class="stat-row">
-        <span>Success Rate</span>
-        <span class="stat-value" id="successRate">-</span>
-      </div>
-    </div>
+<div class="grid">
+<div class="card"><h3>📊 Performance</h3>
+<div class="row"><span>Uptime</span><span class="val" id="uptime">-</span></div>
+<div class="row"><span>Requests</span><span class="val" id="req">-</span></div>
+<div class="row"><span>Errors</span><span class="val" id="err">-</span></div>
+<div class="row"><span>Success</span><span class="val" id="successRate">-</span></div></div>
 
-    <div class="card">
-      <h3>💻 System Info</h3>
-      <div class="stat-row">
-        <span>Hostname</span>
-        <span class="stat-value">${os.hostname()}</span>
-      </div>
-      <div class="stat-row">
-        <span>Node Version</span>
-        <span class="stat-value">${process.version}</span>
-      </div>
-      <div class="stat-row">
-        <span>CPU Cores</span>
-        <span class="stat-value">${os.cpus().length}</span>
-      </div>
-      <div class="stat-row">
-        <span>Platform</span>
-        <span class="stat-value">${os.platform()}</span>
-      </div>
-    </div>
+<div class="card"><h3>💻 System</h3>
+<div class="row"><span>Host</span><span class="val">${os.hostname()}</span></div>
+<div class="row"><span>Node</span><span class="val">${process.version}</span></div>
+<div class="row"><span>CPU</span><span class="val">${os.cpus().length}</span></div>
+<div class="row"><span>OS</span><span class="val">${os.platform()}</span></div></div>
 
-    <div class="card">
-      <h3>🎛️ Controls</h3>
-      <button onclick="toggleChaos(true)" class="warning">🔥 Enable Chaos</button>
-      <button onclick="toggleChaos(false)" class="success">✓ Disable Chaos</button>
-      <button onclick="resetStats()">🔄 Reset Stats</button>
-      <button onclick="clearAlerts()">🧹 Clear Alerts</button>
-    </div>
+<div class="card"><h3>🎛️ Controls</h3>
+<button class="warning" onclick="toggleChaos(true)">🔥 Chaos</button>
+<button class="success" onclick="toggleChaos(false)">✓ Safe</button>
+<button class="primary" onclick="resetStats()">🔄 Reset</button>
+<button class="primary" onclick="clearAlerts()">🧹 Clear</button></div>
 
-    <div class="card">
-      <h3>🧠 Memory Usage (MB)</h3>
-      <div class="stat-row">
-        <span>Heap Used</span>
-        <span class="stat-value" id="heapUsed">-</span>
-      </div>
-      <div class="stat-row">
-        <span>Heap Total</span>
-        <span class="stat-value" id="heapTotal">-</span>
-      </div>
-      <div class="stat-row">
-        <span>RSS</span>
-        <span class="stat-value" id="rss">-</span>
-      </div>
-    </div>
-
-  </div>
-
-  <div class="grid">
-    
-    <div class="card">
-      <h3>🚨 Recent Alerts</h3>
-      <div id="alerts">No alerts</div>
-    </div>
-
-    <div class="card">
-      <h3>📈 Top Routes by Requests</h3>
-      <div id="topRoutes">Loading...</div>
-    </div>
-
-  </div>
-
-  <div class="grid">
-    
-    <div class="card full-width">
-      <h3>📜 Recent Requests</h3>
-      <div id="recentRequests">Loading...</div>
-    </div>
-
-    <div class="card full-width">
-      <h3>🗺️ Route Statistics</h3>
-      <pre id="routes">Loading...</pre>
-    </div>
-
-  </div>
-
+<div class="card"><h3>🧠 Memory (MB)</h3>
+<div class="row"><span>Heap Used</span><span class="val" id="heapUsed">-</span></div>
+<div class="row"><span>Heap Total</span><span class="val" id="heapTotal">-</span></div>
+<div class="row"><span>RSS</span><span class="val" id="rss">-</span></div></div>
 </div>
+
+<div class="grid">
+<div class="card"><h3>🚨 Alerts</h3><div id="alerts">No alerts</div></div>
+<div class="card"><h3>📈 Top Routes</h3><div id="topRoutes">Loading...</div></div>
+</div>
+
+<div class="grid">
+<div class="card full"><h3>📜 Requests</h3><div id="recentRequests">Loading...</div></div>
+<div class="card full"><h3>🗺️ Routes</h3><pre id="routes">Loading...</pre></div>
+</div>
+</div>
+</body></html>
 
 <script>
 let refreshInterval;
