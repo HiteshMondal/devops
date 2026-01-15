@@ -1,7 +1,6 @@
 const express = require("express");
 const morgan = require("morgan");
 const os = require("os");
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 const START_TIME = Date.now();
@@ -150,7 +149,6 @@ app.post("/shutdown", (req, res) => {
   process.exit(0);
 });
 
-// DASHBOARD UI
 app.get("/", (req, res) => {
   res.send(`
 <!DOCTYPE html><html><head>

@@ -4,6 +4,12 @@ set -o pipefail
 set -u
 set -e
 
+# Verify passwordless sudo
+if ! sudo -n true 2>/dev/null; then
+  echo "❌ Passwordless sudo required. Please configure sudoers."
+  exit 1
+fi
+
 echo "DevOps Project Runner"
 echo ""
 echo "🔍 Checking prerequisites..."
@@ -25,7 +31,7 @@ if [[ "$RUN_DOCKER" == "y" ]]; then
   echo "Skipping Kubernetes and monitoring."
   exit 0
 fi
-
+<<COMMENT
 # Step 2: Terraform Infrastructure
 echo "🌍 Step 2: Initializing Terraform..."
 cd Infra/terraform
@@ -36,18 +42,55 @@ terraform plan
 echo "✅ Infrastructure provisioned"
 cd ../../
 echo ""
-
+COMMENT
 # Step 3: Ansible Configuration
 echo "⚙️ Step 3: Running Ansible playbooks..."
-cd Infra/ansible
-ansible-playbook -i inventory playbooks/setup-jenkins.yml
-ansible-playbook -i inventory playbooks/deploy-app.yml
-ansible-playbook -i inventory playbooks/configure-monitoring.yml
 
-echo "✅ Ansible configuration completed"
+echo "Ensure UTF-8 locale (Ansible)"
+if ! locale | grep -qi utf-8; then
+  echo "⚙️ Ensuring UTF-8 locale..."
+  sudo locale-gen en_US.UTF-8 >/dev/null 2>&1 || true
+  sudo update-locale LANG=en_US.UTF-8 >/dev/null 2>&1 || true
+  export LANG=en_US.UTF-8
+  export LC_ALL=en_US.UTF-8
+fi
+
+# Ansible inventory setup
+ANSIBLE_DIR="Infra/ansible"
+INVENTORY_DIR="$ANSIBLE_DIR/inventory"
+INVENTORY_FILE="$INVENTORY_DIR/hosts"
+
+mkdir -p "$INVENTORY_DIR"
+# Create default inventory ONLY if missing
+if [[ ! -f "$INVENTORY_FILE" ]]; then
+  echo " Creating default Ansible inventory (localhost)"
+  cat <<EOF > "$INVENTORY_FILE"
+[jenkins]
+localhost ansible_connection=local
+
+[app_servers]
+localhost ansible_connection=local
+
+[monitoring]
+localhost ansible_connection=local
+EOF
+fi
+
+# Validate inventory
+ansible-inventory -i "$INVENTORY_FILE" --list >/dev/null \
+  || { echo " Invalid Ansible inventory"; exit 1; }
+
+# Run playbooks
+cd "$ANSIBLE_DIR" || exit 1
+ansible-playbook -i inventory/hosts playbooks/setup-jenkins.yml
+ansible-playbook -i inventory/hosts playbooks/deploy-app.yml
+ansible-playbook -i inventory/hosts playbooks/configure-monitoring.yml
 cd ../../
+echo "✅ Ansible configuration completed"
 echo ""
-exit 0 #temporary
+exit 0  # temporary
+
+
 # Step 4: Kubernetes Deployment
 echo "Step 4: Deploying to Kubernetes..."
 eval $(minikube docker-env)

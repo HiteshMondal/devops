@@ -1,0 +1,8 @@
+[jenkins]
+localhost ansible_connection=local
+
+[app_servers]
+localhost ansible_connection=local
+
+[monitoring]
+localhost ansible_connection=local
