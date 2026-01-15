@@ -5,8 +5,27 @@
   vars:
     docker_keyring: /usr/share/keyrings/docker-archive-keyring.gpg
 
-  tasks:
+  pre_tasks:
+    - name: Remove legacy Docker key
+      file:
+        path: /usr/share/keyrings/docker.gpg
+        state: absent
+      ignore_errors: yes
 
+    - name: Remove all legacy Docker repo files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ lookup('fileglob','/etc/apt/sources.list.d/docker*.list', wantlist=True) }}"
+      ignore_errors: yes
+
+    - name: Ensure /usr/share/keyrings exists
+      file:
+        path: /usr/share/keyrings
+        state: directory
+        mode: '0755'
+
+  tasks:
     - name: Ensure APT essentials
       apt:
         name:
@@ -17,24 +36,6 @@
           - lsb-release
         state: present
         update_cache: yes
-
-    - name: Ensure /usr/share/keyrings exists
-      file:
-        path: /usr/share/keyrings
-        state: directory
-        mode: '0755'
-
-    - name: Remove old Docker repo/key (if exists)
-      file:
-        path: /usr/share/keyrings/docker.gpg
-        state: absent
-      ignore_errors: yes
-
-    - name: Remove legacy Docker sources.list entries (if exists)
-      lineinfile:
-        path: /etc/apt/sources.list.d/docker.list
-        state: absent
-      ignore_errors: yes
 
     - name: Add Docker GPG key
       ansible.builtin.get_url:
