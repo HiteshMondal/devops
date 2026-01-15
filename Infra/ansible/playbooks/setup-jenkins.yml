@@ -4,6 +4,7 @@
   become: true
 
   tasks:
+    
     - name: Update apt cache
       apt:
         update_cache: yes
@@ -11,7 +12,7 @@
 
     - name: Install Java (required by Jenkins)
       apt:
-        name: openjdk-17-jdk
+        name: default-jdk
         state: present
 
     - name: Ensure keyrings directory exists

@@ -6,7 +6,9 @@ set -e
 
 # Verify passwordless sudo
 if ! sudo -n true 2>/dev/null; then
-  echo "❌ Passwordless sudo required. Please configure sudoers."
+  echo "❌ Passwordless sudo required."
+  echo "Run: sudo visudo"
+  echo "Add: $USER ALL=(ALL) NOPASSWD:ALL"
   exit 1
 fi
 
