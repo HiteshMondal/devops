@@ -31,7 +31,7 @@ echo "🌍 Step 2: Initializing Terraform..."
 cd Infra/terraform
 terraform init -upgrade
 terraform plan
-terraform apply -auto-approve
+#terraform apply -auto-approve
 
 echo "✅ Infrastructure provisioned"
 cd ../../
