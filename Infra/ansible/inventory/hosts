@@ -6,3 +6,6 @@ localhost ansible_connection=local
 
 [monitoring]
 localhost ansible_connection=local
+
+[devops_servers]
+localhost ansible_connection=local

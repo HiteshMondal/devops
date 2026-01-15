@@ -1,88 +1,37 @@
 ---
-- name: Deploy Application
-  hosts: app_servers
-  become: yes
+- name: Deploy Node.js App
+  hosts: devops_servers
+  become: true
   vars:
-    docker_keyring: /usr/share/keyrings/docker-archive-keyring.gpg
-
-  pre_tasks:
-    - name: Remove legacy Docker key
-      file:
-        path: /usr/share/keyrings/docker.gpg
-        state: absent
-      ignore_errors: yes
-
-    - name: Remove all legacy Docker repo files
-      file:
-        path: "{{ item }}"
-        state: absent
-      loop: "{{ lookup('fileglob','/etc/apt/sources.list.d/docker*.list', wantlist=True) }}"
-      ignore_errors: yes
-
-    - name: Ensure /usr/share/keyrings exists
-      file:
-        path: /usr/share/keyrings
-        state: directory
-        mode: '0755'
+    app_dir: "~/DevOpsApp"
 
   tasks:
-    - name: Ensure APT essentials
+    - name: Install Docker
       apt:
-        name:
-          - apt-transport-https
-          - ca-certificates
-          - curl
-          - gnupg
-          - lsb-release
+        name: docker.io
         state: present
         update_cache: yes
 
-    - name: Add Docker GPG key
-      ansible.builtin.get_url:
-        url: https://download.docker.com/linux/debian/gpg
-        dest: "{{ docker_keyring }}"
-        mode: '0644'
-        force: yes
-
-    - name: Add Docker repository (signed-by key)
-      apt_repository:
-        repo: "deb [arch=amd64 signed-by={{ docker_keyring }}] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
-        state: present
-
-    - name: Update apt cache after adding Docker repo
+    - name: Install docker-compose
       apt:
-        update_cache: yes
-
-    - name: Install Docker Engine
-      apt:
-        name:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
+        name: docker-compose
         state: present
 
     - name: Ensure Docker service is running
-      service:
+      systemd:
         name: docker
         state: started
         enabled: yes
 
-    - name: Add current user to docker group
-      user:
-        name: "{{ ansible_user_id }}"
-        groups: docker
-        append: yes
+    - name: Copy app code locally
+      copy:
+        src: ../../app/
+        dest: "{{ app_dir }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
 
-    - name: Pull application image
-      docker_image:
-        name: devops-app:latest
-        source: pull
-
-    - name: Run application container
-      docker_container:
-        name: devops-app
-        image: devops-app:latest
-        state: started
-        restart_policy: always
-        ports:
-          - "3000:3000"
+    - name: Start app with Docker Compose
+      shell: docker compose up -d
+      args:
+        chdir: "{{ app_dir }}"

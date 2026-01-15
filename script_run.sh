@@ -56,38 +56,19 @@ if ! locale | grep -qi utf-8; then
   export LC_ALL=en_US.UTF-8
 fi
 
-# Ansible inventory setup
 ANSIBLE_DIR="Infra/ansible"
-INVENTORY_DIR="$ANSIBLE_DIR/inventory"
-INVENTORY_FILE="$INVENTORY_DIR/hosts"
+INVENTORY="$ANSIBLE_DIR/inventory/hosts"
 
-mkdir -p "$INVENTORY_DIR"
-# Create default inventory ONLY if missing
-if [[ ! -f "$INVENTORY_FILE" ]]; then
-  echo " Creating default Ansible inventory (localhost)"
-  cat <<EOF > "$INVENTORY_FILE"
-[jenkins]
-localhost ansible_connection=local
+echo "🔹 Setting up Jenkins..."
+ansible-playbook -i "$INVENTORY" "$ANSIBLE_DIR/playbooks/setup-jenkins.yml"
 
-[app_servers]
-localhost ansible_connection=local
+echo "🔹 Deploying Node.js app..."
+ansible-playbook -i "$INVENTORY" "$ANSIBLE_DIR/playbooks/deploy-app.yml"
 
-[monitoring]
-localhost ansible_connection=local
-EOF
-fi
+echo "🔹 Configuring monitoring..."
+ansible-playbook -i "$INVENTORY" "$ANSIBLE_DIR/playbooks/configure-monitoring.yml"
 
-# Validate inventory
-ansible-inventory -i "$INVENTORY_FILE" --list >/dev/null \
-  || { echo " Invalid Ansible inventory"; exit 1; }
-
-# Run playbooks
-cd "$ANSIBLE_DIR" || exit 1
-ansible-playbook -i inventory/hosts playbooks/setup-jenkins.yml
-ansible-playbook -i inventory/hosts playbooks/deploy-app.yml
-ansible-playbook -i inventory/hosts playbooks/configure-monitoring.yml
-cd ../../
-echo "✅ Ansible configuration completed"
+echo "✅ Ansible tasks completed"
 echo ""
 exit 0  # temporary
 

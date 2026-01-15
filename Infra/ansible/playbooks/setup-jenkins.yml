@@ -1,57 +1,24 @@
 ---
-- name: Setup Jenkins
-  hosts: jenkins
+- name: Setup Jenkins Server
+  hosts: devops_servers
   become: true
 
-  vars:
-    jenkins_key: /usr/share/keyrings/jenkins.gpg
-
-  pre_tasks:
-    - name: Remove legacy Docker key
-      file:
-        path: /usr/share/keyrings/docker.gpg
-        state: absent
-      ignore_errors: yes
-
-    - name: Remove all legacy Docker repo files
-      file:
-        path: "{{ item }}"
-        state: absent
-      loop: "{{ lookup('fileglob','/etc/apt/sources.list.d/docker*.list', wantlist=True) }}"
-      ignore_errors: yes
-
-    - name: Ensure /usr/share/keyrings exists
-      file:
-        path: /usr/share/keyrings
-        state: directory
-        mode: '0755'
-
   tasks:
-    - name: Update apt cache
-      apt:
-        update_cache: yes
-
     - name: Install Java (required by Jenkins)
       apt:
-        name: default-jdk
+        name: openjdk-11-jdk
         state: present
+        update_cache: yes
 
-    - name: Add Jenkins GPG key
-      get_url:
-        url: https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key
-        dest: "{{ jenkins_key }}"
-        mode: '0644'
-        force: yes
+    - name: Add Jenkins key
+      apt_key:
+        url: https://pkg.jenkins.io/debian/jenkins.io.key
+        state: present
 
     - name: Add Jenkins repository
       apt_repository:
-        repo: "deb [signed-by={{ jenkins_key }}] https://pkg.jenkins.io/debian-stable binary/"
+        repo: deb https://pkg.jenkins.io/debian-stable binary/
         state: present
-        filename: jenkins
-
-    - name: Update apt cache after adding Jenkins repo
-      apt:
-        update_cache: yes
 
     - name: Install Jenkins
       apt:
@@ -59,8 +26,16 @@
         state: present
         update_cache: yes
 
-    - name: Start and enable Jenkins
-      service:
+    - name: Ensure Jenkins is running
+      systemd:
         name: jenkins
         state: started
         enabled: yes
+
+    - name: Show Jenkins initial admin password
+      command: cat /var/lib/jenkins/secrets/initialAdminPassword
+      register: jenkins_pass
+      ignore_errors: yes
+
+    - debug:
+        msg: "Jenkins initial admin password: {{ jenkins_pass.stdout }}"
