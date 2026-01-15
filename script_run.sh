@@ -48,9 +48,8 @@ COMMENT
 # Step 3: Ansible Configuration
 echo "⚙️ Step 3: Running Ansible playbooks..."
 
-echo "Ensure UTF-8 locale (Ansible)"
+echo "⚙️ Ensuring UTF-8 locale..."
 if ! locale | grep -qi utf-8; then
-  echo "⚙️ Ensuring UTF-8 locale..."
   sudo locale-gen en_US.UTF-8 >/dev/null 2>&1 || true
   sudo update-locale LANG=en_US.UTF-8 >/dev/null 2>&1 || true
   export LANG=en_US.UTF-8
