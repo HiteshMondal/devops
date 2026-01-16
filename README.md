@@ -18,15 +18,17 @@ The project is intentionally designed to reflect **real-world DevOps practices**
 
 ---
 
-## 🧱 Architecture Overview
+### Architecture Overview
 
-**High-level flow:**
+- The application supports **dual deployment modes**:
+  - **Local Kubernetes using Minikube**
+  - **Cloud Kubernetes using AWS EKS provisioned via Terraform**
 
-```
-Developer → GitLab → Jenkins CI/CD → Docker Image → Kubernetes (EKS/Minikube)
-                                           ↓
-                                   Prometheus + Grafana
-```
+- CI/CD pipelines (Jenkins/GitLab) build Docker images and push them to a registry.
+- The same Kubernetes manifests are reused for both Minikube and EKS.
+- Monitoring is handled using **Prometheus + Grafana** deployed inside the cluster.
+- Deployment mode is selected interactively using `script_run.sh`.
+
 
 **Key components:**
 
