@@ -36,19 +36,8 @@ if [[ "$RUN_DOCKER" == "y" ]]; then
   exit 0
 fi
 
-# Terraform Infrastructure
-echo "🌍 Step 2: Initializing Terraform..."
-cd Infra/terraform
-terraform init -upgrade
-terraform plan
-#terraform apply -auto-approve
-
-echo "✅ Infrastructure provisioned"
-cd ../../
-echo ""
-
 # Kubernetes Deployment
-echo "Step 4: Deploying to Kubernetes..."
+echo "Deploying to Kubernetes..."
 eval $(minikube docker-env)
 minikube addons enable ingress
 docker build -t devops-app:latest ./app
@@ -69,7 +58,7 @@ echo "🌐 Access your app at: http://$MINIKUBE_IP:$NODE_PORT"
 echo "To see Kubernetes GUI, run: minikube dashboard"
 
 # Monitoring 
-echo "Step 5: Deploying Monitoring Stack..."
+echo "Deploying Monitoring Stack..."
 
 # Create monitoring namespace
 kubectl apply -f - <<EOF
@@ -169,3 +158,14 @@ MINIKUBE_IP=$(minikube ip)
 echo "✅ Monitoring deployed successfully!"
 echo "🌐 Prometheus URL: http://$MINIKUBE_IP:30003"
 echo "🌐 Grafana URL: http://$MINIKUBE_IP:30002 (dashboard & Prometheus data source auto-loaded)"
+
+# Terraform Infrastructure
+echo "Initializing Terraform..."
+cd Infra/terraform
+terraform init -upgrade
+terraform plan
+#terraform apply -auto-approve
+
+echo "✅ Infrastructure provisioned"
+cd ../../
+echo ""
