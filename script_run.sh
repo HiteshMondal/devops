@@ -92,7 +92,7 @@ providers:
     type: file
     disableDeletion: false
     options:
-      path: /etc/grafana/provisioning/dashboards" \
+      path: /etc/grafana/provisioning/dashboards/devops" \
     -n monitoring --dry-run=client -o yaml | kubectl apply -f -
 
   # Grafana datasource
@@ -109,7 +109,7 @@ datasources:
 
   kubectl apply -f kubernetes/monitoring/prometheus.yaml
   kubectl apply -f kubernetes/monitoring/grafana.yaml
-  
+
   # Prometheus Service
   kubectl apply -f - <<EOF
 apiVersion: v1
@@ -146,8 +146,8 @@ spec:
   type: NodePort
 EOF
   # Wait for pods to be ready
-  kubectl wait --namespace monitoring --for=condition=Ready pod -l app=prometheus --timeout=180s
-  kubectl wait --namespace monitoring --for=condition=Ready pod -l app=grafana --timeout=180s
+  kubectl rollout status deployment/prometheus -n monitoring --timeout=300s
+  kubectl rollout status deployment/grafana -n monitoring --timeout=300s
   echo "✅ Monitoring deployed"
 }
 
