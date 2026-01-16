@@ -48,7 +48,19 @@ cd ../../
 echo ""
 
 # Step 3: Kubernetes Deployment
-echo "Step 4: Deploying to Kubernetes..."
+echo "Step 3: Deploying to Kubernetes..."
+if ! command -v minikube >/dev/null 2>&1; then
+  echo "❌ Minikube is not installed"
+  exit 1
+fi
+
+MINIKUBE_STATUS=$(minikube status --format='{{.Host}}' 2>/dev/null || echo "Stopped")
+
+if [[ "$MINIKUBE_STATUS" != "Running" ]]; then
+  echo "❌ Minikube is installed but NOT running"
+  echo "👉 Start it using: minikube start"
+  exit 1
+fi
 eval $(minikube docker-env)
 minikube addons enable ingress
 docker build -t devops-app:latest ./app
@@ -69,7 +81,7 @@ echo "🌐 Access your app at: http://$MINIKUBE_IP:$NODE_PORT"
 echo "To see Kubernetes GUI, run: minikube dashboard"
 
 #Step 4: monitoring 
-echo "Step 5: Deploying Monitoring Stack..."
+echo "Step 4: Deploying Monitoring Stack..."
 
 # Create monitoring namespace
 kubectl apply -f - <<EOF
