@@ -3,8 +3,10 @@
 set -o pipefail
 set -u
 set -e
+IFS=$'\n\t'
 
 # Verify passwordless sudo
+echo "⚠️ Some steps may require sudo privileges"
 if ! sudo -n true 2>/dev/null; then
   echo "❌ Passwordless sudo required."
   echo "Run: sudo visudo"
@@ -33,7 +35,7 @@ if [[ "$RUN_DOCKER" == "y" ]]; then
   echo "Skipping Kubernetes and monitoring."
   exit 0
 fi
-<<COMMENT
+
 # Step 2: Terraform Infrastructure
 echo "🌍 Step 2: Initializing Terraform..."
 cd Infra/terraform
@@ -44,36 +46,8 @@ terraform plan
 echo "✅ Infrastructure provisioned"
 cd ../../
 echo ""
-COMMENT
-# Step 3: Ansible Configuration
-echo "⚙️ Step 3: Running Ansible playbooks..."
 
-echo "⚙️ Ensuring UTF-8 locale..."
-if ! locale | grep -qi utf-8; then
-  sudo locale-gen en_US.UTF-8 >/dev/null 2>&1 || true
-  sudo update-locale LANG=en_US.UTF-8 >/dev/null 2>&1 || true
-  export LANG=en_US.UTF-8
-  export LC_ALL=en_US.UTF-8
-fi
-
-ANSIBLE_DIR="Infra/ansible"
-INVENTORY="$ANSIBLE_DIR/inventory/hosts"
-
-echo "🔹 Setting up Jenkins..."
-ansible-playbook -i "$INVENTORY" "$ANSIBLE_DIR/playbooks/setup-jenkins.yml"
-
-echo "🔹 Deploying Node.js app..."
-ansible-playbook -i "$INVENTORY" "$ANSIBLE_DIR/playbooks/deploy-app.yml"
-
-echo "🔹 Configuring monitoring..."
-ansible-playbook -i "$INVENTORY" "$ANSIBLE_DIR/playbooks/configure-monitoring.yml"
-
-echo "✅ Ansible tasks completed"
-echo ""
-exit 0  # temporary
-
-
-# Step 4: Kubernetes Deployment
+# Step 3: Kubernetes Deployment
 echo "Step 4: Deploying to Kubernetes..."
 eval $(minikube docker-env)
 minikube addons enable ingress
@@ -94,7 +68,7 @@ echo "✅ Application deployed to Kubernetes"
 echo "🌐 Access your app at: http://$MINIKUBE_IP:$NODE_PORT"
 echo "To see Kubernetes GUI, run: minikube dashboard"
 
-#Step 5: monitoring 
+#Step 4: monitoring 
 echo "Step 5: Deploying Monitoring Stack..."
 
 # Create monitoring namespace
