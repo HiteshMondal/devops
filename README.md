@@ -89,7 +89,11 @@ Ensure the following tools are installed:
 * Terraform
 * Ansible
 * AWS CLI (for cloud deployment)
-
+Docker must be accessible without sudo:
+```bash
+sudo usermod -aG docker $USER
+newgrp docker
+```
 ---
 
 ## 🚀 Getting Started
