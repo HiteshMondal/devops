@@ -6,10 +6,6 @@ const PORT = process.env.PORT || 3000;
 const START_TIME = Date.now();
 const ENV = process.env.NODE_ENV || "development";
 
-// CI/CD metadata (optional)
-const BUILD_ID = process.env.BUILD_ID || "local";
-const GIT_COMMIT = process.env.GIT_COMMIT || "unknown";
-
 // STATE (in-memory)
 let totalRequests = 0;
 let totalErrors = 0;
@@ -151,86 +147,85 @@ app.post("/shutdown", (req, res) => {
 
 app.get("/", (req, res) => {
   res.send(`
-<!DOCTYPE html><html><head>
-<title>DevOps Control Panel</title>
+<!DOCTYPE html>
+<html>
+<head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DevOps Panel</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{background:#0f172a;color:#e5e7eb;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial}
-header{padding:24px;background:linear-gradient(135deg,#1e293b,#0f172a);border-bottom:2px solid #38bdf8;position:sticky;top:0;z-index:100;box-shadow:0 4px 6px rgba(0,0,0,.3)}
-h1{font-size:28px;color:#38bdf8;display:flex;gap:12px;align-items:center}
-.badge{font:700 12px/1 Arial;padding:4px 12px;border-radius:20px;background:#10b981;color:#fff}
-.container{padding:20px;max-width:1600px;margin:auto}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;margin-bottom:20px}
-.card{background:#1e293b;padding:20px;border-radius:12px;border:1px solid #334155;box-shadow:0 4px 6px rgba(0,0,0,.2)}
-.card h3{color:#38bdf8;margin-bottom:16px;font-size:18px;display:flex;gap:8px}
-.row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #334155}
+body{
+  margin:0;
+  font-family:system-ui,Arial;
+  background:#0f172a;
+  color:#e5e7eb
+}
+header{
+  padding:16px;
+  background:#020617;
+  border-bottom:1px solid #334155
+}
+h1{font-size:20px;color:#38bdf8}
+
+.container{
+  max-width:1200px;
+  margin:auto;
+  padding:16px
+}
+.grid{
+  display:grid;
+  gap:16px;
+  grid-template-columns:repeat(auto-fit,minmax(260px,1fr))
+}
+.card{
+  background:#1e293b;
+  padding:16px;
+  border:1px solid #334155;
+  border-radius:8px
+}
+.row{
+  display:flex;
+  justify-content:space-between;
+  padding:6px 0;
+  border-bottom:1px solid #334155
+}
 .row:last-child{border:0}
-.val{color:#38bdf8;font-weight:700}
-button{padding:10px 16px;border:0;border-radius:8px;font-weight:600;cursor:pointer;margin:4px;transition:.2s}
-button:hover{transform:translateY(-1px)}
-.primary{background:#38bdf8;color:#020617}
-.primary:hover{background:#0ea5e9}
-.success{background:#10b981;color:#fff}
-.success:hover{background:#059669}
-.warning{background:#f59e0b;color:#fff}
-.warning:hover{background:#d97706}
-.danger{background:#ef4444;color:#fff}
-.danger:hover{background:#dc2626}
-pre{font-size:12px;overflow:auto;background:#0f172a;padding:12px;border-radius:6px;max-height:200px}
-.alert{padding:12px;margin:8px 0;border-left:4px solid;border-radius:6px;display:flex;justify-content:space-between;animation:in .3s}
-@keyframes in{from{opacity:0;transform:translateX(-20px)}to{opacity:1}}
-.alert.error{background:#7f1d1d;border-color:#ef4444}
-.alert.info{background:#1e3a8a;border-color:#3b82f6}
-.alert.success{background:#14532d;border-color:#10b981}
-.bar{height:24px;background:#38bdf8;border-radius:4px;margin:8px 0;position:relative}
-.label{position:absolute;right:8px;line-height:24px;font:700 12px Arial;color:#020617}
-.req{padding:8px;margin:4px 0;background:#0f172a;border-radius:4px;display:flex;justify-content:space-between;font-size:12px}
-.method{padding:2px 6px;border-radius:4px;background:#334155;font-weight:700}
-.s200{color:#10b981}.s500{color:#ef4444}
-.full{grid-column:1/-1}
-</style></head>
+.val{color:#38bdf8;font-weight:600}
+</style>
+</head>
 
 <body>
-<header><h1>🚀 DevOps Control Panel <span class="badge" id="statusBadge">ONLINE</span></h1></header>
+<header>
+  <h1>DevOps Control Panel</h1>
+</header>
 
 <div class="container">
-<div class="grid">
-<div class="card"><h3>📊 Performance</h3>
-<div class="row"><span>Uptime</span><span class="val" id="uptime">-</span></div>
-<div class="row"><span>Requests</span><span class="val" id="req">-</span></div>
-<div class="row"><span>Errors</span><span class="val" id="err">-</span></div>
-<div class="row"><span>Success</span><span class="val" id="successRate">-</span></div></div>
+  <div class="grid">
 
-<div class="card"><h3>💻 System</h3>
-<div class="row"><span>Host</span><span class="val">${os.hostname()}</span></div>
-<div class="row"><span>Node</span><span class="val">${process.version}</span></div>
-<div class="row"><span>CPU</span><span class="val">${os.cpus().length}</span></div>
-<div class="row"><span>OS</span><span class="val">${os.platform()}</span></div></div>
+    <div class="card">
+      <h3>Performance</h3>
+      <div class="row"><span>Uptime</span><span class="val" id="uptime">-</span></div>
+      <div class="row"><span>Requests</span><span class="val" id="req">-</span></div>
+      <div class="row"><span>Errors</span><span class="val" id="err">-</span></div>
+    </div>
 
-<div class="card"><h3>🎛️ Controls</h3>
-<button class="warning" onclick="toggleChaos(true)">🔥 Chaos</button>
-<button class="success" onclick="toggleChaos(false)">✓ Safe</button>
-<button class="primary" onclick="resetStats()">🔄 Reset</button>
-<button class="primary" onclick="clearAlerts()">🧹 Clear</button></div>
+    <div class="card">
+      <h3>System</h3>
+      <div class="row"><span>Host</span><span class="val">${os.hostname()}</span></div>
+      <div class="row"><span>Node</span><span class="val">${process.version}</span></div>
+      <div class="row"><span>CPU</span><span class="val">${os.cpus().length}</span></div>
+    </div>
 
-<div class="card"><h3>🧠 Memory (MB)</h3>
-<div class="row"><span>Heap Used</span><span class="val" id="heapUsed">-</span></div>
-<div class="row"><span>Heap Total</span><span class="val" id="heapTotal">-</span></div>
-<div class="row"><span>RSS</span><span class="val" id="rss">-</span></div></div>
+    <div class="card">
+      <h3>Memory (MB)</h3>
+      <div class="row"><span>Heap Used</span><span class="val" id="heapUsed">-</span></div>
+      <div class="row"><span>Heap Total</span><span class="val" id="heapTotal">-</span></div>
+      <div class="row"><span>RSS</span><span class="val" id="rss">-</span></div>
+    </div>
+
+  </div>
 </div>
-
-<div class="grid">
-<div class="card"><h3>🚨 Alerts</h3><div id="alerts">No alerts</div></div>
-<div class="card"><h3>📈 Top Routes</h3><div id="topRoutes">Loading...</div></div>
-</div>
-
-<div class="grid">
-<div class="card full"><h3>📜 Requests</h3><div id="recentRequests">Loading...</div></div>
-<div class="card full"><h3>🗺️ Routes</h3><pre id="routes">Loading...</pre></div>
-</div>
-</div>
-</body></html>
+</body>
+</html>
 
 <script>
 let refreshInterval;
