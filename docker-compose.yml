@@ -10,13 +10,39 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3000
-    # For development, mount local source code to container for live reload
     volumes:
       - ./app/src:/app/src
       - /app/node_modules
-    # Optional health check for Kubernetes-like probes
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+
+  jenkins:
+    image: jenkins/jenkins:lts
+    container_name: jenkins
+    restart: unless-stopped
+    user: root
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      # Jenkins persistent data
+      - jenkins_home:/var/jenkins_home
+
+      # Allow Jenkins to run Docker commands
+      - /var/run/docker.sock:/var/run/docker.sock
+
+      # Optional: access your repo locally if needed
+      - ./:/workspace
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  jenkins_home:

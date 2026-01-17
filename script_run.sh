@@ -38,6 +38,7 @@ if [[ "$RUN_DOCKER" == "y" ]]; then
   echo "🐳 Running app using Docker Compose..."
   docker compose up -d
   echo "App running at http://localhost:3000"
+  echo "Jenkins running at http://localhost:8080"
   echo "Skipping Kubernetes and monitoring."
   exit 0
 fi
@@ -95,7 +96,7 @@ providers:
       path: /etc/grafana/provisioning/dashboards/devops" \
     -n monitoring --dry-run=client -o yaml | kubectl apply -f -
 
-  # Grafana datasource
+  # Create monitoring namespace
   kubectl create configmap grafana-datasource \
     --from-literal=datasource.yaml="apiVersion: 1
 datasources:
