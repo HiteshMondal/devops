@@ -19,8 +19,8 @@ fi
 
 echo "DevOps Project Runner"
 echo ""
-echo "🔍 Checking prerequisites..."
-echo "📦 Tool versions:"
+echo "Checking prerequisites..."
+echo "Tool versions:"
 docker --version || true
 kubectl version --client || true
 terraform --version | head -n 1 || true
@@ -29,7 +29,7 @@ minikube version || true
 echo ""
 
 if ! docker info >/dev/null 2>&1; then
-  echo "❌ Docker not accessible without sudo"
+  echo "Docker not accessible without sudo"
   echo "Run: sudo usermod -aG docker $USER && newgrp docker"
   exit 1
 fi
@@ -38,7 +38,7 @@ fi
 echo "Choose Docker Compose to ONLY run app or minikube to run app with monitoring"
 read -p "Run app using Docker Compose? (y/n): " RUN_DOCKER
 if [[ "$RUN_DOCKER" == "y" ]]; then
-  echo "🐳 Running app using Docker Compose..."
+  echo "Running app using Docker Compose..."
   docker compose up -d
   echo "App running at http://localhost:3000"
   echo "Jenkins running at http://localhost:8080"
@@ -69,7 +69,7 @@ deploy_monitoring() {
 
   BASE_MONITORING_PATH="$PROJECT_ROOT/kubernetes/base/monitoring"
 
-  # Namespace
+  # Create monitoring namespace (idempotent)
   kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Namespace
@@ -83,7 +83,7 @@ EOF
     -n monitoring \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  # Apply Grafana Dashboard ConfigMap (DECLARATIVE)
+  # Grafana Dashboard ConfigMap
   kubectl apply -f "$BASE_MONITORING_PATH/dashboard-configmap.yaml"
 
   # Grafana datasource
@@ -102,10 +102,46 @@ datasources:
   kubectl apply -f "$BASE_MONITORING_PATH/prometheus.yaml"
   kubectl apply -f "$BASE_MONITORING_PATH/grafana.yaml"
 
+  # Expose Prometheus and Grafana using NodePort
+  kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+  type: NodePort
+EOF
+
+  # Wait for pods to be ready
   kubectl rollout status deployment/prometheus -n monitoring --timeout=300s
   kubectl rollout status deployment/grafana -n monitoring --timeout=300s
 
+  # Get working URLs in Minikube
+  PROM_URL=$(minikube service prometheus -n monitoring --url)
+  GRAF_URL=$(minikube service grafana -n monitoring --url)
+
   echo "✅ Monitoring deployed successfully"
+  echo "🌐 Prometheus: $PROM_URL"
+  echo "🌐 Grafana: $GRAF_URL"
 }
 
 echo "Choose deployment target:"
@@ -136,8 +172,6 @@ case "$DEPLOY_TARGET" in
 
     echo "✅ Application deployed to Minikube"
     echo "🌐 App URL: http://$MINIKUBE_IP:$NODE_PORT"
-    echo "🌐 Prometheus: http://$MINIKUBE_IP:30003"
-    echo "🌐 Grafana: http://$MINIKUBE_IP:30002"
     echo "📊 Dashboard: minikube dashboard"
     ;;
 
