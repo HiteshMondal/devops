@@ -1,48 +1,65 @@
-name: CI - Build and Push Docker Image
+name: Production CI/CD
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
+    branches:
+      - master
 
 env:
+  DOCKER_REGISTRY: docker.io
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
   IMAGE_NAME: devops-app
-  REGISTRY: docker.io
+  KUBE_CONTEXT: prod
 
 jobs:
-  build:
+  build-and-push:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
         with:
-          node-version: 18
+          node-version: "18"
 
       - name: Install dependencies
-        working-directory: app
         run: npm install
+        working-directory: ./app
 
       - name: Run tests
-        working-directory: app
-        run: npm test || echo "No tests found"
+        run: npm test
+        working-directory: ./app
 
-      - name: Login to DockerHub
-        run: |
-          echo "${{ secrets.DOCKERHUB_TOKEN }}" | \
-          docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+      - name: Log in to Docker
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build Docker image
+      - name: Build & Push Docker Image
         run: |
-          docker build \
-            -t $REGISTRY/${{ secrets.DOCKERHUB_USERNAME }}/$IMAGE_NAME:latest \
-            -t $REGISTRY/${{ secrets.DOCKERHUB_USERNAME }}/$IMAGE_NAME:${{ github.sha }} \
-            ./app
+          docker build -t $DOCKER_REGISTRY/${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:latest ./app
+          docker push $DOCKER_REGISTRY/${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:latest
 
-      - name: Push Docker image
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: v1.30.0
+
+      - name: Configure Kubeconfig
         run: |
-          docker push $REGISTRY/${{ secrets.DOCKERHUB_USERNAME }}/$IMAGE_NAME:latest
-          docker push $REGISTRY/${{ secrets.DOCKERHUB_USERNAME }}/$IMAGE_NAME:${{ github.sha }}
+          echo "${{ secrets.KUBECONFIG_PROD }}" > kubeconfig.yaml
+          export KUBECONFIG=$(pwd)/kubeconfig.yaml
+
+      - name: Deploy to Kubernetes (Prod)
+        run: |
+          kubectl apply -k kubernetes/overlays/prod

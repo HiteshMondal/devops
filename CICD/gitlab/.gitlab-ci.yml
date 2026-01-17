@@ -1,32 +1,46 @@
 stages:
   - build
-  - docker
+  - test
+  - push
+  - deploy
 
 variables:
-  IMAGE_NAME: registry.gitlab.com/hiteshm/devops-node-app
-  DOCKER_TLS_CERTDIR: ""
+  DOCKER_IMAGE: $CI_REGISTRY_IMAGE/devops-app:latest
+  KUBECONFIG_PATH: /builds/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/kubeconfig
 
 before_script:
-  - docker info
+  - echo "$KUBECONFIG_PROD" > $KUBECONFIG_PATH
+  - export KUBECONFIG=$KUBECONFIG_PATH
 
 build:
   stage: build
+  image: docker:20.10.16
+  services:
+    - docker:20.10.16-dind
+  script:
+    - docker build -t $DOCKER_IMAGE ./app
+
+test:
+  stage: test
   image: node:18
   script:
     - cd app
     - npm install
-    - npm test || echo "No tests"
+    - npm test
 
-docker-build:
-  stage: docker
-  image: docker:25
+push:
+  stage: push
+  image: docker:20.10.16
   services:
-    - docker:25-dind
+    - docker:20.10.16-dind
   script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
-    - docker build -t $IMAGE_NAME:$CI_COMMIT_SHA ./app
-    - docker tag $IMAGE_NAME:$CI_COMMIT_SHA $IMAGE_NAME:latest
-    - docker push $IMAGE_NAME:$CI_COMMIT_SHA
-    - docker push $IMAGE_NAME:latest
+    - docker push $DOCKER_IMAGE
+
+deploy:
+  stage: deploy
+  image: lachlanevenson/k8s-kubectl:latest
+  script:
+    - kubectl apply -k kubernetes/overlays/prod
   only:
-    - main
+    - master
