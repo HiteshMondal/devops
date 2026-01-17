@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+images:
+  - name: devops-app
+    newName: docker.io/<DOCKERHUB_USERNAME>/devops-app
+    newTag: latest
+
+patches:
+  - target:
+      kind: Deployment
+      name: devops-app
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always

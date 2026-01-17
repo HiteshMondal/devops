@@ -5,6 +5,9 @@ set -u
 set -e
 IFS=$'\n\t'
 
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+
 # Verify passwordless sudo
 echo "⚠️ Some steps may require sudo privileges"
 if ! sudo -n true 2>/dev/null; then
@@ -44,59 +47,46 @@ if [[ "$RUN_DOCKER" == "y" ]]; then
 fi
 
 deploy_kubernetes() {
-  echo "🚀 Deploying application to Kubernetes..."
-  kubectl apply -f kubernetes/namespace.yaml
-  kubectl apply -f kubernetes/configmap.yaml
-  kubectl apply -f kubernetes/secrets.yaml
-  kubectl apply -f kubernetes/deployment.yaml
-  kubectl apply -f kubernetes/service.yaml
-  kubectl apply -f kubernetes/hpa.yaml
-  kubectl apply -f kubernetes/ingress.yaml
+  local ENVIRONMENT="${1:-}"
+
+  if [[ -z "$ENVIRONMENT" ]]; then
+    echo "❌ Environment not specified (use: local | prod)"
+    exit 1
+  fi
+
+  echo "🚀 Deploying Kubernetes resources using Kustomize ($ENVIRONMENT)..."
+
+  if [[ ! -d "kubernetes/overlays/$ENVIRONMENT" ]]; then
+    echo "❌ Overlay '$ENVIRONMENT' not found"
+    exit 1
+  fi
+
+  kubectl apply -k "kubernetes/overlays/$ENVIRONMENT"
 }
 
 deploy_monitoring() {
   echo "📊 Deploying Monitoring Stack..."
 
-  # Create monitoring namespace
+  BASE_MONITORING_PATH="$PROJECT_ROOT/kubernetes/base/monitoring"
+
+  # Namespace
   kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Namespace
 metadata:
   name: monitoring
-  labels:
-    environment: production
 EOF
 
   # Grafana admin secret
   kubectl create secret generic grafana-secrets \
     --from-literal=admin-password=admin123 \
-    -n monitoring --dry-run=client -o yaml | kubectl apply -f -
+    -n monitoring \
+    --dry-run=client -o yaml | kubectl apply -f -
 
-  # Prometheus ConfigMap
-  kubectl create configmap prometheus-config \
-    --from-file=prometheus.yml=monitoring/prometheus/prometheus.yml \
-    --from-file=alerts.yml=monitoring/prometheus/alerts.yml \
-    -n monitoring --dry-run=client -o yaml | kubectl apply -f -
+  # Apply Grafana Dashboard ConfigMap (DECLARATIVE)
+  kubectl apply -f "$BASE_MONITORING_PATH/dashboard-configmap.yaml"
 
-  # Grafana dashboard JSON ConfigMap
-  kubectl create configmap grafana-dashboard \
-    --from-file=dashboard.json=kubernetes/monitoring/dashboard.json \
-    -n monitoring --dry-run=client -o yaml | kubectl apply -f -
-
-  # Grafana dashboard provider
-  kubectl create configmap grafana-dashboard-config \
-    --from-literal=provider.yaml="apiVersion: 1
-providers:
-  - name: devops-app
-    orgId: 1
-    folder: ''
-    type: file
-    disableDeletion: false
-    options:
-      path: /etc/grafana/provisioning/dashboards/devops" \
-    -n monitoring --dry-run=client -o yaml | kubectl apply -f -
-
-  # Create monitoring namespace
+  # Grafana datasource
   kubectl create configmap grafana-datasource \
     --from-literal=datasource.yaml="apiVersion: 1
 datasources:
@@ -104,52 +94,18 @@ datasources:
     type: prometheus
     access: proxy
     url: http://prometheus.monitoring.svc.cluster.local:9090
-    isDefault: true
-    editable: false" \
-    -n monitoring --dry-run=client -o yaml | kubectl apply -f -
+    isDefault: true" \
+    -n monitoring \
+    --dry-run=client -o yaml | kubectl apply -f -
 
-  kubectl apply -f kubernetes/monitoring/prometheus.yaml
-  kubectl apply -f kubernetes/monitoring/grafana.yaml
+  # Deploy monitoring workloads
+  kubectl apply -f "$BASE_MONITORING_PATH/prometheus.yaml"
+  kubectl apply -f "$BASE_MONITORING_PATH/grafana.yaml"
 
-  # Prometheus Service
-  kubectl apply -f - <<EOF
-apiVersion: v1
-kind: Service
-metadata:
-  name: prometheus
-  namespace: monitoring
-spec:
-  selector:
-    app: prometheus
-  ports:
-    - name: http
-      port: 9090
-      targetPort: 9090
-      nodePort: 30003
-  type: NodePort
-EOF
-
-  # Grafana Service
-  kubectl apply -f - <<EOF
-apiVersion: v1
-kind: Service
-metadata:
-  name: grafana
-  namespace: monitoring
-spec:
-  selector:
-    app: grafana
-  ports:
-    - name: http
-      port: 3000
-      targetPort: 3000
-      nodePort: 30002
-  type: NodePort
-EOF
-  # Wait for pods to be ready
   kubectl rollout status deployment/prometheus -n monitoring --timeout=300s
   kubectl rollout status deployment/grafana -n monitoring --timeout=300s
-  echo "✅ Monitoring deployed"
+
+  echo "✅ Monitoring deployed successfully"
 }
 
 echo "Choose deployment target:"
@@ -172,7 +128,7 @@ case "$DEPLOY_TARGET" in
     minikube addons enable ingress
     docker build -t devops-app:latest ./app
 
-    deploy_kubernetes
+    deploy_kubernetes local
     deploy_monitoring
 
     MINIKUBE_IP=$(minikube ip)
@@ -198,7 +154,7 @@ case "$DEPLOY_TARGET" in
       --region "$(terraform output -raw region)" \
       --name "$(terraform output -raw cluster_name)"
     cd ../../
-    deploy_kubernetes
+    deploy_kubernetes prod
     deploy_monitoring
     echo "✅ App deployed to AWS EKS"
     echo "ℹ️ Use LoadBalancer or Ingress to expose services"

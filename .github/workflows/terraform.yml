@@ -1,0 +1,25 @@
+name: Terraform Infra
+
+on:
+  workflow_dispatch:
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        working-directory: Infra/terraform
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: Infra/terraform
+        run: terraform plan
+
+      - name: Terraform Apply
+        working-directory: Infra/terraform
+        run: terraform apply -auto-approve

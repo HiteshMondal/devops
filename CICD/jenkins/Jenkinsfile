@@ -1,47 +1,17 @@
 pipeline {
-    agent any
-    
-    environment {
-        DOCKER_IMAGE = 'devops-app'
-        DOCKER_TAG = "${BUILD_NUMBER}"
+  agent any
+
+  stages {
+    stage('Build') {
+      steps {
+        sh 'cd app && npm install'
+      }
     }
-    
-    stages {
-        stage('Checkout') {
-            steps {
-                git branch: 'main', url: 'https://github.com/your-repo/devops.git'
-            }
-        }
-        
-        stage('Build') {
-            steps {
-                dir('app') {
-                    sh 'npm install'
-                }
-            }
-        }
-        
-        stage('Docker Build') {
-            steps {
-                sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ./app"
-                sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
-            }
-        }
-        
-        stage('Deploy to Kubernetes') {
-            steps {
-                sh 'kubectl apply -f kubernetes/'
-                sh "kubectl set image deployment/devops-app app=${DOCKER_IMAGE}:${DOCKER_TAG} -n devops-app"
-            }
-        }
+
+    stage('Docker Build') {
+      steps {
+        sh 'docker build -t devops-app:latest app'
+      }
     }
-    
-    post {
-        success {
-            echo 'Pipeline succeeded!'
-        }
-        failure {
-            echo 'Pipeline failed!'
-        }
-    }
+  }
 }
