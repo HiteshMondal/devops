@@ -53,7 +53,7 @@ jobs:
 
       - name: Configure Kubeconfig
         run: |
-          echo "${{ secrets.KUBECONFIG_PROD }}" > kubeconfig.yaml
+          echo "${{ secrets.KUBECONFIG_PROD }}" | base64 --decode > kubeconfig.yaml
           export KUBECONFIG=$(pwd)/kubeconfig.yaml
 
       - name: Deploy to Kubernetes (Prod)
