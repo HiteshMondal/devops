@@ -52,8 +52,6 @@ jobs:
         run: |
           kubectl apply -f kubernetes/base/monitoring/prometheus.yaml
           kubectl apply -f kubernetes/base/monitoring/grafana.yaml
-          kubectl rollout status deployment/prometheus -n monitoring --timeout=300s
-          kubectl rollout status deployment/grafana -n monitoring --timeout=300s
 
       - name: Output URLs
         run: |
