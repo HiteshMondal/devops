@@ -45,7 +45,13 @@ jobs:
 
           echo "⏳ Waiting for Kubernetes rollouts..."
           kubectl kustomize kubernetes/overlays/local \
+            | awk '
+                $1=="kind:" && $2=="Deployment" {in_deploy=1}
+                in_deploy {print}
+                /^---/ {in_deploy=0}
+              ' \
             | kubectl rollout status -f - --timeout=300s
+
 
       - name: Deploy Monitoring Stack
         run: |
