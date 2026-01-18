@@ -49,13 +49,17 @@ jobs:
       - name: Wait for Kubernetes rollouts (dynamic)
         run: |
           eval $(minikube docker-env)
-
           kubectl apply -k kubernetes/overlays/local -o name \
-            | grep '^deployment.apps/' \
-            | while read DEPLOY; do
-                echo "⏳ Waiting for rollout: $DEPLOY"
-                kubectl rollout status "$DEPLOY" --timeout=300s
-              done
+          | grep '^deployment.apps/' \
+          | while read DEPLOY; do
+              NAME=$(echo "$DEPLOY" | cut -d/ -f2)
+
+              NAMESPACE=$(kubectl get deployment "$NAME" -A \
+                --no-headers | awk '{print $1}')
+
+              echo " Waiting for rollout: $NAME (namespace: $NAMESPACE)"
+              kubectl rollout status deployment/"$NAME" -n "$NAMESPACE" --timeout=300s
+            done
 
       - name: Deploy Monitoring Stack
         run: |
