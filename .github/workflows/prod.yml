@@ -11,7 +11,8 @@ env:
 
 jobs:
   build-and-deploy:
-    runs-on: self-hosted   # Must be your machine with Minikube
+    runs-on: self-hosted   # Your machine with Minikube
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -28,44 +29,29 @@ jobs:
       - name: Ensure Minikube is running
         run: |
           if [[ "$(minikube status --format='{{.Host}}')" != "Running" ]]; then
-            echo "Starting Minikube..."
             minikube start --driver=docker
             minikube addons enable ingress
-          else
-            echo "Minikube already running."
           fi
 
       - name: Build Docker image inside Minikube
         run: |
           eval $(minikube docker-env)
           docker build -t $IMAGE_NAME:$IMAGE_TAG ./app
-          echo "Docker image built inside Minikube: $IMAGE_NAME:$IMAGE_TAG"
 
-      - name: Deploy to Minikube (Kustomize)
+      - name: Deploy & wait for rollout (Kustomize, dynamic)
         run: |
-          eval $(minikube docker-env)
-          kubectl apply -k kubernetes/overlays/local
+          echo "🚀 Deploying application..."
+          kustomize build kubernetes/overlays/local | kubectl apply -f -
 
-      - name: Wait for Kubernetes rollouts (dynamic)
-        run: |
-          eval $(minikube docker-env)
-          kubectl apply -k kubernetes/overlays/local -o name \
-          | grep '^deployment.apps/' \
-          | while read DEPLOY; do
-              NAME=$(echo "$DEPLOY" | cut -d/ -f2)
-
-              NAMESPACE=$(kubectl get deployment "$NAME" -A \
-                --no-headers | awk '{print $1}')
-
-              echo " Waiting for rollout: $NAME (namespace: $NAMESPACE)"
-              kubectl rollout status deployment/"$NAME" -n "$NAMESPACE" --timeout=300s
-            done
+          echo "⏳ Waiting for Kubernetes rollouts..."
+          kustomize build kubernetes/overlays/local \
+            | kubectl rollout status -f - --timeout=300s
 
       - name: Deploy Monitoring Stack
         run: |
-          eval $(minikube docker-env)
           kubectl apply -f kubernetes/base/monitoring/prometheus.yaml
           kubectl apply -f kubernetes/base/monitoring/grafana.yaml
+
           kubectl rollout status deployment/prometheus -n monitoring --timeout=300s
           kubectl rollout status deployment/grafana -n monitoring --timeout=300s
 
@@ -73,6 +59,7 @@ jobs:
         run: |
           MINIKUBE_IP=$(minikube ip)
           NODE_PORT=$(kubectl get svc $IMAGE_NAME-service -n devops-app -o jsonpath='{.spec.ports[0].nodePort}')
+
           echo "✅ App URL: http://$MINIKUBE_IP:$NODE_PORT"
           echo "📊 Prometheus: http://$MINIKUBE_IP:9090"
           echo "📊 Grafana: http://$MINIKUBE_IP:3000"
