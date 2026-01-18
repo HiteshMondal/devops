@@ -43,4 +43,4 @@ deploy:
   script:
     - kubectl apply -k kubernetes/overlays/prod
   only:
-    - master
+    - main

@@ -7,7 +7,7 @@ spec:
   project: default
   source:
     repoURL: "https://github.com/YOUR_USERNAME/YOUR_REPO.git"
-    targetRevision: master
+    targetRevision: main
     path: kubernetes/overlays/prod
   destination:
     server: "https://kubernetes.default.svc"
