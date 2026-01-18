@@ -6,14 +6,12 @@ on:
       - main
 
 env:
-  DOCKER_REGISTRY: docker.io
-  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
   IMAGE_NAME: devops-app
+  IMAGE_TAG: latest
 
 jobs:
-  build-and-push:
-    runs-on: self-hosted   # Use a local runner where Minikube is installed
+  build-and-deploy:
+    runs-on: self-hosted   # Must be your machine with Minikube
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -27,59 +25,41 @@ jobs:
         run: npm install
         working-directory: ./app
 
-      - name: Log in to Docker
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build Docker Image
-        run: |
-          IMAGE_TAG=$(git rev-parse --short HEAD)
-          docker build -t $IMAGE_NAME:$IMAGE_TAG ./app
-          echo "Docker image built locally: $IMAGE_NAME:$IMAGE_TAG"
-
-      - name: Load Docker Image into Minikube
-        run: |
-          eval $(minikube docker-env)
-          IMAGE_TAG=$(git rev-parse --short HEAD)
-          docker tag $IMAGE_NAME:$IMAGE_TAG $IMAGE_NAME:latest
-          echo "Docker image loaded into Minikube"
-
-  deploy-to-minikube:
-    runs-on: self-hosted
-    needs: build-and-push
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
       - name: Ensure Minikube is running
         run: |
           if [[ "$(minikube status --format='{{.Host}}')" != "Running" ]]; then
-            echo "Minikube is not running. Starting..."
-            minikube start
+            echo "Starting Minikube..."
+            minikube start --driver=docker
+            minikube addons enable ingress
           else
-            echo "Minikube is running."
+            echo "Minikube already running."
           fi
 
-      - name: Deploy App and Monitoring
+      - name: Build Docker image inside Minikube
         run: |
-          cd $GITHUB_WORKSPACE
-          echo "Deploying Kubernetes resources..."
+          eval $(minikube docker-env)
+          docker build -t $IMAGE_NAME:$IMAGE_TAG ./app
+          echo "Docker image built inside Minikube: $IMAGE_NAME:$IMAGE_TAG"
+
+      - name: Deploy Kubernetes resources
+        run: |
+          eval $(minikube docker-env)
           kubectl apply -k kubernetes/overlays/local
-          
-          echo "Deploying Monitoring Stack..."
-          # Reuse the deploy_monitoring function logic
+          echo "Waiting for application rollout..."
+          kubectl rollout status deployment/$IMAGE_NAME -n default --timeout=300s
+
+      - name: Deploy Monitoring Stack
+        run: |
+          eval $(minikube docker-env)
           kubectl apply -f kubernetes/base/monitoring/prometheus.yaml
           kubectl apply -f kubernetes/base/monitoring/grafana.yaml
-          
-          echo "Waiting for pods to be ready..."
-          kubectl rollout status deployment/devops-app -n default --timeout=300s
           kubectl rollout status deployment/prometheus -n monitoring --timeout=300s
           kubectl rollout status deployment/grafana -n monitoring --timeout=300s
-          
+
+      - name: Output URLs
+        run: |
           MINIKUBE_IP=$(minikube ip)
-          NODE_PORT=$(kubectl get svc devops-app-service -n devops-app -o jsonpath='{.spec.ports[0].nodePort}')
-          echo "✅ App deployed successfully: http://$MINIKUBE_IP:$NODE_PORT"
-          echo "📊 Access Grafana: http://$MINIKUBE_IP:3000"
-          echo "📊 Access Prometheus: http://$MINIKUBE_IP:9090"
+          NODE_PORT=$(kubectl get svc $IMAGE_NAME-service -n devops-app -o jsonpath='{.spec.ports[0].nodePort}')
+          echo "✅ App URL: http://$MINIKUBE_IP:$NODE_PORT"
+          echo "📊 Prometheus: http://$MINIKUBE_IP:9090"
+          echo "📊 Grafana: http://$MINIKUBE_IP:3000"
