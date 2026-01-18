@@ -91,6 +91,7 @@ jobs:
           echo "📊 Resolving Minikube service URLs..."
           PROM_URL=$(minikube service prometheus -n monitoring --url)
           GRAF_URL=$(minikube service grafana -n monitoring --url)
+          echo "🌐 App URL: http://$MINIKUBE_IP:$NODE_PORT"
           echo "📊 Prometheus: $PROM_URL"
           echo "📊 Grafana: $GRAF_URL"
 
