@@ -160,7 +160,7 @@ deploy_argocd() {
   kubectl apply -n argocd \
     -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
   echo "⏳ Waiting for Argo CD components..."
-  sleep 10
+  sleep 5
 
   echo "✅ Argo CD installed successfully"
 
