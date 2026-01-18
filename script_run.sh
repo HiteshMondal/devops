@@ -7,7 +7,6 @@ IFS=$'\n\t'
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-
 # Verify passwordless sudo
 echo "⚠️ Some steps may require sudo privileges"
 if ! sudo -n true 2>/dev/null; then
@@ -138,10 +137,53 @@ EOF
   # Get working URLs in Minikube
   PROM_URL=$(minikube service prometheus -n monitoring --url)
   GRAF_URL=$(minikube service grafana -n monitoring --url)
-
+  APP_URL=$(minikube service devops-app-service -n devops-app --url)
   echo "✅ Monitoring deployed successfully"
   echo "🌐 Prometheus: $PROM_URL"
   echo "🌐 Grafana: $GRAF_URL"
+  echo "🌐 App URL: $APP_URL"
+}
+
+deploy_argocd() {
+  echo "🚀 Installing Argo CD..."
+
+  # Ensure kubectl works
+  kubectl cluster-info >/dev/null 2>&1 || {
+    echo "❌ kubectl not configured for any cluster"
+    exit 1
+  }
+
+  # Create namespace (idempotent)
+  kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+
+  # Install Argo CD (idempotent)
+  kubectl apply -n argocd \
+    -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+  echo "⏳ Waiting for Argo CD components..."
+  sleep 10
+
+  echo "✅ Argo CD installed successfully"
+
+  echo "🔐 Argo CD admin password:"
+  kubectl get secret argocd-initial-admin-secret \
+    -n argocd \
+    -o jsonpath="{.data.password}" | base64 -d && echo
+
+  echo ""
+  echo "🌐 To access Argo CD UI (portable method):"
+  echo "Type: kubectl port-forward svc/argocd-server -n argocd 8080:443"
+  echo "Then open: https://localhost:8080"
+  echo "📦 Deploying GitOps Application..."
+
+  if [[ ! -f "$PROJECT_ROOT/argocd/application.yaml" ]]; then
+    echo "❌ argocd/application.yaml not found"
+    exit 1
+  fi
+
+  kubectl apply -f "$PROJECT_ROOT/argocd/application.yaml"
+
+  echo "✅ Argo CD Application applied"
+  echo "ℹ️ Argo CD will now manage Kubernetes state via GitOps"
 }
 
 echo "Choose deployment target:"
@@ -166,6 +208,7 @@ case "$DEPLOY_TARGET" in
 
     deploy_kubernetes local
     deploy_monitoring
+    deploy_argocd
 
     MINIKUBE_IP=$(minikube ip)
     NODE_PORT=$(kubectl get svc devops-app-service -n devops-app -o jsonpath='{.spec.ports[0].nodePort}')
@@ -188,8 +231,11 @@ case "$DEPLOY_TARGET" in
       --region "$(terraform output -raw region)" \
       --name "$(terraform output -raw cluster_name)"
     cd ../../
+
     deploy_kubernetes prod
     deploy_monitoring
+    deploy_argocd
+
     echo "✅ App deployed to AWS EKS"
     echo "ℹ️ Use LoadBalancer or Ingress to expose services"
     ;;

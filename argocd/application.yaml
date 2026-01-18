@@ -1,21 +1,54 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: devops-app-prod
+  name: devops-app
   namespace: argocd
+  labels:
+    app.kubernetes.io/name: devops-app
+    app.kubernetes.io/part-of: devops-platform
+    app.kubernetes.io/managed-by: argocd
 spec:
   project: default
+
+  # Source of truth (GitOps)
   source:
-    repoURL: "https://github.com/YOUR_USERNAME/YOUR_REPO.git"
+    repoURL: https://github.com/<YOUR_GITHUB_USERNAME>/Devops.git
     targetRevision: main
     path: kubernetes/overlays/prod
+    kustomize:
+      commonLabels:
+        app.kubernetes.io/version: "v1"
+      images:
+        - devops-app=devops-app:latest
+
+  # Destination cluster
   destination:
-    server: "https://kubernetes.default.svc"
+    server: https://kubernetes.default.svc
     namespace: devops-app
+
+  # Sync behavior
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
+      allowEmpty: false
+
     syncOptions:
       - CreateNamespace=true
+      - PruneLast=true
       - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+
+  # Drift management
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
