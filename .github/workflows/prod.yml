@@ -3,7 +3,7 @@ name: Production CI/CD
 on:
   push:
     branches:
-      - master
+      - '*'
 
 env:
   DOCKER_REGISTRY: docker.io
