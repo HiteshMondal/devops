@@ -48,16 +48,49 @@ jobs:
           kubectl apply -f kubernetes/base/monitoring/prometheus.yaml
           kubectl apply -f kubernetes/base/monitoring/grafana.yaml
 
-      - name: Output URLs (Minikube-safe)
+      - name: Expose Monitoring Services (NodePort)
+        run: |
+          echo "🔓 Exposing Prometheus & Grafana via NodePort..."
+
+          kubectl apply -f - <<EOF
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: prometheus
+            namespace: monitoring
+          spec:
+            selector:
+              app: prometheus
+            ports:
+              - port: 9090
+                targetPort: 9090
+            type: NodePort
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: grafana
+            namespace: monitoring
+          spec:
+            selector:
+              app: grafana
+            ports:
+              - port: 3000
+                targetPort: 3000
+            type: NodePort
+          EOF
+
+      - name: Wait for Monitoring Rollouts
+        run: |
+          echo "⏳ Waiting for Prometheus & Grafana..."
+          kubectl rollout status deployment/prometheus -n monitoring --timeout=300s
+          kubectl rollout status deployment/grafana -n monitoring --timeout=300s
+
+      - name: Output Monitoring URLs (Minikube-native)
         run: |
           echo "📊 Resolving Minikube service URLs..."
-
           PROM_URL=$(minikube service prometheus -n monitoring --url)
           GRAF_URL=$(minikube service grafana -n monitoring --url)
-
-          APP_URL=$(minikube service devops-app-service -n devops-app --url)
-
-          echo "✅ App URL: $APP_URL"
           echo "📊 Prometheus: $PROM_URL"
           echo "📊 Grafana: $GRAF_URL"
 
