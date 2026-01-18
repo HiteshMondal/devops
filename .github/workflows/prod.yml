@@ -41,10 +41,10 @@ jobs:
       - name: Deploy & wait for rollout (Kustomize, dynamic)
         run: |
           echo "🚀 Deploying application..."
-          kustomize build kubernetes/overlays/local | kubectl apply -f -
+          kubectl kustomize kubernetes/overlays/local | kubectl apply -f -
 
           echo "⏳ Waiting for Kubernetes rollouts..."
-          kustomize build kubernetes/overlays/local \
+          kubectl kustomize kubernetes/overlays/local \
             | kubectl rollout status -f - --timeout=300s
 
       - name: Deploy Monitoring Stack
