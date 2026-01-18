@@ -48,11 +48,16 @@ jobs:
           kubectl apply -f kubernetes/base/monitoring/prometheus.yaml
           kubectl apply -f kubernetes/base/monitoring/grafana.yaml
 
-      - name: Output URLs
+      - name: Output URLs (Minikube-safe)
         run: |
-          MINIKUBE_IP=$(minikube ip)
-          NODE_PORT=$(kubectl get svc $IMAGE_NAME-service -n devops-app -o jsonpath='{.spec.ports[0].nodePort}')
+          echo "📊 Resolving Minikube service URLs..."
 
-          echo "✅ App URL: http://$MINIKUBE_IP:$NODE_PORT"
-          echo "📊 Prometheus: http://$MINIKUBE_IP:9090"
-          echo "📊 Grafana: http://$MINIKUBE_IP:3000"
+          PROM_URL=$(minikube service prometheus -n monitoring --url)
+          GRAF_URL=$(minikube service grafana -n monitoring --url)
+
+          APP_URL=$(minikube service devops-app-service -n devops-app --url)
+
+          echo "✅ App URL: $APP_URL"
+          echo "📊 Prometheus: $PROM_URL"
+          echo "📊 Grafana: $GRAF_URL"
+
