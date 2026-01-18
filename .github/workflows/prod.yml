@@ -41,12 +41,21 @@ jobs:
           docker build -t $IMAGE_NAME:$IMAGE_TAG ./app
           echo "Docker image built inside Minikube: $IMAGE_NAME:$IMAGE_TAG"
 
-      - name: Deploy Kubernetes resources
+      - name: Deploy to Minikube (Kustomize)
         run: |
           eval $(minikube docker-env)
           kubectl apply -k kubernetes/overlays/local
-          echo "Waiting for application rollout..."
-          kubectl rollout status deployment/$IMAGE_NAME -n default --timeout=300s
+
+      - name: Wait for Kubernetes rollouts (dynamic)
+        run: |
+          eval $(minikube docker-env)
+
+          kubectl apply -k kubernetes/overlays/local -o name \
+            | grep '^deployment.apps/' \
+            | while read DEPLOY; do
+                echo "⏳ Waiting for rollout: $DEPLOY"
+                kubectl rollout status "$DEPLOY" --timeout=300s
+              done
 
       - name: Deploy Monitoring Stack
         run: |
