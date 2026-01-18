@@ -182,7 +182,7 @@ case "$DEPLOY_TARGET" in
     command -v aws >/dev/null || { echo "❌ AWS CLI not installed"; exit 1; }
     cd Infra/terraform || exit 1
     terraform init -upgrade
-    terraform apply -auto-approve
+    terraform apply
 
     aws eks update-kubeconfig \
       --region "$(terraform output -raw region)" \
