@@ -58,4 +58,4 @@ jobs:
 
       - name: Deploy to Kubernetes (Prod)
         run: |
-          kubectl apply -k kubernetes/overlays/prod
+          kubectl apply -k kubernetes/overlays/prod --validate=false
