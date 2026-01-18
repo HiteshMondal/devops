@@ -38,26 +38,20 @@ jobs:
           eval $(minikube docker-env)
           docker build -t $IMAGE_NAME:$IMAGE_TAG ./app
 
-      - name: Deploy & wait for rollout (Kustomize, dynamic)
+      - name: Deploy & wait for rollout (Kustomize, safe)
         run: |
           echo "🚀 Deploying application..."
           kubectl kustomize kubernetes/overlays/local | kubectl apply -f -
 
-          echo "⏳ Waiting for Kubernetes rollouts..."
-          kubectl kustomize kubernetes/overlays/local \
-            | awk '
-                $1=="kind:" && $2=="Deployment" {in_deploy=1}
-                in_deploy {print}
-                /^---/ {in_deploy=0}
-              ' \
-            | kubectl rollout status -f - --timeout=300s
-
+          echo "⏳ Waiting for all Kubernetes Deployments..."
+          kubectl rollout status deployment \
+            --all-namespaces \
+            --timeout=300s
 
       - name: Deploy Monitoring Stack
         run: |
           kubectl apply -f kubernetes/base/monitoring/prometheus.yaml
           kubectl apply -f kubernetes/base/monitoring/grafana.yaml
-
           kubectl rollout status deployment/prometheus -n monitoring --timeout=300s
           kubectl rollout status deployment/grafana -n monitoring --timeout=300s
 
