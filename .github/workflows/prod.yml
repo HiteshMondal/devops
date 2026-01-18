@@ -38,15 +38,10 @@ jobs:
           eval $(minikube docker-env)
           docker build -t $IMAGE_NAME:$IMAGE_TAG ./app
 
-      - name: Deploy & wait for rollout (Kustomize, safe)
+      - name: Deploy (Kustomize)
         run: |
           echo "🚀 Deploying application..."
           kubectl kustomize kubernetes/overlays/local | kubectl apply -f -
-
-          echo "⏳ Waiting for all Kubernetes Deployments..."
-          kubectl rollout status deployment \
-            --all-namespaces \
-            --timeout=300s
 
       - name: Deploy Monitoring Stack
         run: |
