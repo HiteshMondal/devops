@@ -58,8 +58,6 @@ The project is intentionally designed to reflect **real-world DevOps practices**
 │
 ├── Infra/                  # Infrastructure as Code
 │   ├── terraform/          # AWS provisioning (VPC, EKS, RDS)
-│   └── ansible/            # Configuration management
-│       └── playbooks/
 │
 ├── kubernetes/             # Kubernetes manifests
 │   ├── deployment.yaml
@@ -100,7 +98,7 @@ newgrp docker
 
 ## 🚀 Getting Started
 
-### 1️⃣ Run Application
+### Run Application
 
 ```bash
 chmod +x script_run.sh
@@ -117,7 +115,7 @@ http://localhost:3000
 
 ---
 
-### 2️⃣ Provision Infrastructure (AWS)
+### Provision Infrastructure (AWS)
 
 Terraform provisions:
 
@@ -136,18 +134,7 @@ terraform plan
 
 ---
 
-### 3️⃣ Configure Services (Ansible)
-
-```bash
-cd Infra/ansible
-ansible-playbook -i inventory playbooks/setup-jenkins.yml
-ansible-playbook -i inventory playbooks/deploy-app.yml
-ansible-playbook -i inventory playbooks/configure-monitoring.yml
-```
-
----
-
-### 4️⃣ Deploy to Kubernetes (Minikube)
+### Deploy to Kubernetes (Minikube)
 
 The project supports Kubernetes deployment with:
 

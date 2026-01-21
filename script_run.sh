@@ -253,7 +253,7 @@ self_heal_app() {
   --overwrite
   sleep 5
   BAD_PODS=$(kubectl get pods -n "$NAMESPACE" --no-headers \
-      | grep -E "InvalidImageName|CrashLoopBackOff|ImagePullBackOff" \
+      | grep -E "CrashLoopBackOff|ImagePullBackOff|ErrImagePull|CreateContainerConfigError|OOMKilled"
       | awk '{print $1}')
 
   if [[ -z "$BAD_PODS" ]]; then
