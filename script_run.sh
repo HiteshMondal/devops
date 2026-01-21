@@ -165,9 +165,76 @@ EOF
   sleep 3
 }
 
+configure_dockerhub_username() {
+  echo "🐳 Configure Docker Hub username for GitOps"
+  read -p "Enter Docker Hub username: " DOCKERHUB_USERNAME
+
+  if [[ -z "$DOCKERHUB_USERNAME" ]]; then
+    echo "❌ Docker Hub username cannot be empty"
+    exit 1
+  fi
+
+  echo "🔧 Replacing <DOCKERHUB_USERNAME> in kustomization.yaml"
+
+  sed -i "s|<DOCKERHUB_USERNAME>|$DOCKERHUB_USERNAME|g" \
+    kubernetes/overlays/prod/kustomization.yaml
+
+  echo "✅ Docker Hub username configured"
+}
+
+configure_git_github() {
+  echo "🧾 Configure Git & GitHub for GitOps (Argo CD)"
+
+  # Git identity
+  read -p "Enter Git author name: " GIT_AUTHOR_NAME
+  read -p "Enter Git author email: " GIT_AUTHOR_EMAIL
+
+  if [[ -z "$GIT_AUTHOR_NAME" || -z "$GIT_AUTHOR_EMAIL" ]]; then
+    echo "❌ Git author name/email cannot be empty"
+    exit 1
+  fi
+
+  git config user.name "$GIT_AUTHOR_NAME"
+  git config user.email "$GIT_AUTHOR_EMAIL"
+  echo "✅ Git identity set: $GIT_AUTHOR_NAME <$GIT_AUTHOR_EMAIL>"
+
+  # GitHub username
+  read -p "Enter your GitHub username: " GITHUB_USERNAME
+  if [[ -z "$GITHUB_USERNAME" ]]; then
+    echo "❌ GitHub username cannot be empty"
+    exit 1
+  fi
+
+  sed -i.bak "s|<YOUR_GITHUB_USERNAME>|$GITHUB_USERNAME|g" \
+    argocd/application.yaml && rm -f argocd/application.yaml.bak
+  echo "✅ GitHub username injected"
+
+  # DockerHub username
+  read -p "Enter Docker Hub username: " DOCKERHUB_USERNAME
+  if [[ -z "$DOCKERHUB_USERNAME" ]]; then
+    echo "❌ Docker Hub username cannot be empty"
+    exit 1
+  fi
+
+  sed -i.bak "s|<DOCKERHUB_USERNAME>|$DOCKERHUB_USERNAME|g" \
+    kubernetes/overlays/prod/kustomization.yaml && rm -f kubernetes/overlays/prod/kustomization.yaml.bak
+  echo "✅ Docker Hub username injected"
+
+  # Commit & push
+  if git diff --quiet; then
+    echo "ℹ️ No changes to commit"
+    return
+  fi
+
+  git add argocd/application.yaml kubernetes/overlays/prod/kustomization.yaml
+  git commit -m "chore: configure gitops placeholders"
+  git push origin main
+
+  echo "🚀 GitOps configuration committed & pushed"
+}
+
 deploy_argocd() {
   echo "🚀 Installing Argo CD..."
-  sleep 3
   kubectl cluster-info >/dev/null 2>&1 || { echo "❌ kubectl not configured"; exit 1; }
   kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
   kubectl apply -n argocd \
@@ -216,12 +283,6 @@ self_heal_app() {
   kubectl get pods -n "$NAMESPACE"
 }
 
-update_deployment_image() {
-  IMAGE_NAME="$1"
-  echo "🔧 Updating Deployment with image $IMAGE_NAME..."
-  kubectl set image deployment/$APP_NAME $APP_NAME="$IMAGE_NAME" -n $NAMESPACE || true
-}
-
 echo "Choose deployment target:"
 echo "1) Local Kubernetes (Minikube)"
 echo "2) Cloud Kubernetes (AWS EKS via Terraform)"
@@ -241,11 +302,12 @@ case "$DEPLOY_TARGET" in
     eval $(minikube docker-env)
     minikube addons enable ingress
 
+    configure_git_github
+    configure_dockerhub_username
     # Build & Push Image (Optional)
     read -p "Build & push Docker image to Docker Hub? (y/n): " BUILD_PUSH
     if [[ "$BUILD_PUSH" == "y" ]]; then
       build_and_push_image
-      update_deployment_image "$DOCKER_USER/devops-app:v1"
     else
       docker build -t devops-app:latest ./app
     fi
@@ -275,11 +337,13 @@ case "$DEPLOY_TARGET" in
       --name "$(terraform output -raw cluster_name)"
     cd ../../
 
+    configure_git_github
+    configure_dockerhub_username
+
     # Build & Push Image (Optional)
     read -p "Build & push Docker image to Docker Hub? (y/n): " BUILD_PUSH
     if [[ "$BUILD_PUSH" == "y" ]]; then
       build_and_push_image
-      update_deployment_image "$DOCKER_USER/devops-app:v1"
     fi
 
     deploy_kubernetes prod
