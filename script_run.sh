@@ -1,11 +1,12 @@
 #!/bin/bash
 
-set -o pipefail
-set -u
-set -e
+set -euo pipefail
 IFS=$'\n\t'
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_NAME="devops-app"
+NAMESPACE="devops-app"
+ARGO_APP="devops-app"
 
 # Verify passwordless sudo
 echo "⚠️ Some steps may require sudo privileges"
@@ -45,6 +46,23 @@ if [[ "$RUN_DOCKER" == "y" ]]; then
   exit 0
 fi
 
+build_and_push_image() {
+  echo "🚀 Build & Push Docker image to Docker Hub"
+
+  read -p "Docker Hub username: " DOCKER_USER
+  read -sp "Docker Hub password: " DOCKER_PASS
+  echo
+
+  IMAGE_TAG="v1"
+  IMAGE_NAME="$DOCKER_USER/$APP_NAME:$IMAGE_TAG"
+
+  echo "$DOCKER_PASS" | docker login --username "$DOCKER_USER" --password-stdin
+  docker build -t "$IMAGE_NAME" ./app
+  docker push "$IMAGE_NAME"
+
+  echo "✅ Image pushed: $IMAGE_NAME"
+}
+
 deploy_kubernetes() {
   local ENVIRONMENT="${1:-}"
 
@@ -64,6 +82,7 @@ deploy_kubernetes() {
 }
 
 deploy_monitoring() {
+  echo ""
   echo "📊 Deploying Monitoring Stack..."
 
   BASE_MONITORING_PATH="$PROJECT_ROOT/kubernetes/base/monitoring"
@@ -138,52 +157,69 @@ EOF
   PROM_URL=$(minikube service prometheus -n monitoring --url)
   GRAF_URL=$(minikube service grafana -n monitoring --url)
   APP_URL=$(minikube service devops-app-service -n devops-app --url)
-  echo "✅ Monitoring deployed successfully"
   echo "🌐 Prometheus: $PROM_URL"
   echo "🌐 Grafana: $GRAF_URL"
   echo "🌐 App URL: $APP_URL"
+  echo "✅ Monitoring deployed successfully"
+  echo ""
+  sleep 3
 }
 
 deploy_argocd() {
   echo "🚀 Installing Argo CD..."
-
-  # Ensure kubectl works
-  kubectl cluster-info >/dev/null 2>&1 || {
-    echo "❌ kubectl not configured for any cluster"
-    exit 1
-  }
-
-  # Create namespace (idempotent)
+  sleep 3
+  kubectl cluster-info >/dev/null 2>&1 || { echo "❌ kubectl not configured"; exit 1; }
   kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-
-  # Install Argo CD (idempotent)
   kubectl apply -n argocd \
     -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
   echo "⏳ Waiting for Argo CD components..."
-  sleep 5
-
-  echo "✅ Argo CD installed successfully"
-
-  echo "🔐 Argo CD admin password:"
-  kubectl get secret argocd-initial-admin-secret \
-    -n argocd \
-    -o jsonpath="{.data.password}" | base64 -d && echo
-
+  sleep 2
   echo ""
-  echo "🌐 To access Argo CD UI (portable method):"
-  echo "Type: kubectl port-forward svc/argocd-server -n argocd 8080:443"
+  echo "🌐 Argo CD UI: kubectl port-forward svc/argocd-server -n argocd 8080:443"
   echo "Then open: https://localhost:8080"
-  echo "📦 Deploying GitOps Application..."
-
+  echo "🔐 Admin password:"
+  kubectl get secret argocd-initial-admin-secret \
+    -n argocd -o jsonpath="{.data.password}" | base64 -d && echo
+  echo ""
   if [[ ! -f "$PROJECT_ROOT/argocd/application.yaml" ]]; then
-    echo "❌ argocd/application.yaml not found"
-    exit 1
+    echo "❌ argocd/application.yaml not found"; exit 1
+  fi
+  kubectl apply -f "$PROJECT_ROOT/argocd/application.yaml"
+  echo "✅ Argo CD Application applied"
+  echo ""
+}
+
+self_heal_app() {
+  echo "🛠️ Running self-healing for $APP_NAME..."
+  kubectl annotate application "$ARGO_APP" \
+  -n argocd \
+  argocd.argoproj.io/refresh=hard \
+  --overwrite
+  sleep 5
+  BAD_PODS=$(kubectl get pods -n "$NAMESPACE" --no-headers \
+      | grep -E "InvalidImageName|CrashLoopBackOff|ImagePullBackOff" \
+      | awk '{print $1}')
+
+  if [[ -z "$BAD_PODS" ]]; then
+      echo "✅ No bad pods found."
+  else
+      echo "⚠️ Found bad pods:"
+      echo "$BAD_PODS"
+      for pod in $BAD_PODS; do
+          echo "🗑️ Deleting pod $pod ..."
+          kubectl delete pod "$pod" -n "$NAMESPACE"
+      done
   fi
 
-  kubectl apply -f "$PROJECT_ROOT/argocd/application.yaml"
+  echo "⏳ Waiting for rollout to complete..."
+  kubectl rollout status deployment/$APP_NAME -n $NAMESPACE
+  kubectl get pods -n "$NAMESPACE"
+}
 
-  echo "✅ Argo CD Application applied"
-  echo "ℹ️ Argo CD will now manage Kubernetes state via GitOps"
+update_deployment_image() {
+  IMAGE_NAME="$1"
+  echo "🔧 Updating Deployment with image $IMAGE_NAME..."
+  kubectl set image deployment/$APP_NAME $APP_NAME="$IMAGE_NAME" -n $NAMESPACE || true
 }
 
 echo "Choose deployment target:"
@@ -204,11 +240,20 @@ case "$DEPLOY_TARGET" in
     fi
     eval $(minikube docker-env)
     minikube addons enable ingress
-    docker build -t devops-app:latest ./app
+
+    # Build & Push Image (Optional)
+    read -p "Build & push Docker image to Docker Hub? (y/n): " BUILD_PUSH
+    if [[ "$BUILD_PUSH" == "y" ]]; then
+      build_and_push_image
+      update_deployment_image "$DOCKER_USER/devops-app:v1"
+    else
+      docker build -t devops-app:latest ./app
+    fi
 
     deploy_kubernetes local
     deploy_monitoring
     deploy_argocd
+    self_heal_app
 
     MINIKUBE_IP=$(minikube ip)
     NODE_PORT=$(kubectl get svc devops-app-service -n devops-app -o jsonpath='{.spec.ports[0].nodePort}')
@@ -220,21 +265,27 @@ case "$DEPLOY_TARGET" in
 
   2)
     echo "☁️ Deploying to AWS EKS using Terraform..."
-
     command -v terraform >/dev/null || { echo "❌ Terraform not installed"; exit 1; }
     command -v aws >/dev/null || { echo "❌ AWS CLI not installed"; exit 1; }
     cd Infra/terraform || exit 1
     terraform init -upgrade
     terraform apply
-
     aws eks update-kubeconfig \
       --region "$(terraform output -raw region)" \
       --name "$(terraform output -raw cluster_name)"
     cd ../../
 
+    # Build & Push Image (Optional)
+    read -p "Build & push Docker image to Docker Hub? (y/n): " BUILD_PUSH
+    if [[ "$BUILD_PUSH" == "y" ]]; then
+      build_and_push_image
+      update_deployment_image "$DOCKER_USER/devops-app:v1"
+    fi
+
     deploy_kubernetes prod
     deploy_monitoring
     deploy_argocd
+    self_heal_app
 
     echo "✅ App deployed to AWS EKS"
     echo "ℹ️ Use LoadBalancer or Ingress to expose services"

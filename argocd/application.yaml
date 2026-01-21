@@ -12,14 +12,9 @@ spec:
 
   # Source of truth (GitOps)
   source:
-    repoURL: https://github.com/<YOUR_GITHUB_USERNAME>/Devops.git
+    repoURL: https://github.com/HiteshMondal/Devops.git
     targetRevision: main
     path: kubernetes/overlays/prod
-    kustomize:
-      commonLabels:
-        app.kubernetes.io/version: "v1"
-      images:
-        - devops-app=devops-app:latest
 
   # Destination cluster
   destination:
@@ -32,13 +27,11 @@ spec:
       prune: true
       selfHeal: true
       allowEmpty: false
-
     syncOptions:
       - CreateNamespace=true
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
       - RespectIgnoreDifferences=true
-
     retry:
       limit: 5
       backoff:
@@ -46,7 +39,7 @@ spec:
         factor: 2
         maxDuration: 3m
 
-  # Drift management
+  # Drift management (ignore replicas, so Argo CD won't overwrite scaling)
   ignoreDifferences:
     - group: apps
       kind: Deployment
