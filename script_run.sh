@@ -209,17 +209,6 @@ configure_git_github() {
     argocd/application.yaml && rm -f argocd/application.yaml.bak
   echo "✅ GitHub username injected"
 
-  # DockerHub username
-  read -p "Enter Docker Hub username: " DOCKERHUB_USERNAME
-  if [[ -z "$DOCKERHUB_USERNAME" ]]; then
-    echo "❌ Docker Hub username cannot be empty"
-    exit 1
-  fi
-
-  sed -i.bak "s|<DOCKERHUB_USERNAME>|$DOCKERHUB_USERNAME|g" \
-    kubernetes/overlays/prod/kustomization.yaml && rm -f kubernetes/overlays/prod/kustomization.yaml.bak
-  echo "✅ Docker Hub username injected"
-
   # Commit & push
   if git diff --quiet; then
     echo "ℹ️ No changes to commit"
