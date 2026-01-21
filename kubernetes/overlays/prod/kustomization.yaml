@@ -6,7 +6,7 @@ resources:
 
 images:
   - name: devops-app
-    newName: docker.io/<DOCKERHUB_USERNAME>/devops-app
+    newName: docker.io/hiteshmondaldocker/devops-app
     newTag: latest
 
 patches:
