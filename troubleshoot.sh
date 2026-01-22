@@ -16,7 +16,10 @@ read -p "Type y to continue: " CONFIRM
 
 # ---------------- Kubernetes cleanup ----------------
 kubectl delete deployments --all-namespaces --all || true
+minikube stop
 minikube delete || true
+rm -rf ~/.minikube
+rm -rf ~/.kube/cache
 echo "✅ Kubernetes & Minikube cleaned"
 echo ""
 
@@ -78,9 +81,14 @@ fi
 ss -lntp | grep -E '3000|3001|30001|30002|30003' || echo "✅ All target ports are free"
 
 #---------------Argo CD--------------------------
-kubectl delete application devops-app -n argocd
+kubectl delete application devops-app -n argocd --ignore-not-found
+kubectl delete application --all -n argocd
+kubectl delete namespace devops-app --ignore-not-found
+kubectl delete namespace monitoring --ignore-not-found
+kubectl delete namespace argocd --ignore-not-found
 kubectl delete secret -n argocd -l argocd.argoproj.io/secret-type=repo-creds
 kubectl delete secret -n argocd -l argocd.argoproj.io/secret-type=repository
+kubectl delete pod -n monitoring -l app=prometheus --field-selector=status.phase=Terminating 2>/dev/null || true
 
 echo ""
 echo "=== Cleanup & Restart Complete ==="

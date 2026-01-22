@@ -7,6 +7,8 @@ metadata:
     app: grafana
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: grafana
@@ -43,8 +45,9 @@ spec:
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 10
-            periodSeconds: 5
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
           securityContext:
             runAsNonRoot: true
             runAsUser: 472

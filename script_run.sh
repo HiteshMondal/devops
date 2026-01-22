@@ -102,8 +102,9 @@ deploy_monitoring() {
   echo "📊 Deploying Monitoring Stack..."
 
   BASE_MONITORING_PATH="$PROJECT_ROOT/kubernetes/base/monitoring"
-
-  # Create monitoring namespace (idempotent)
+  PROMETHEUS_CONFIG_PATH="$PROJECT_ROOT/monitoring/prometheus/prometheus.yml"
+  PROMETHEUS_ALERTS_PATH="$PROJECT_ROOT/monitoring/prometheus/alerts.yml"
+  # Namespace (idempotent)
   kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Namespace
@@ -111,18 +112,23 @@ metadata:
   name: monitoring
 EOF
 
-  # Use password from .env
-  : "${GRAFANA_ADMIN_PASSWORD:=admin123}"  # default if not set
+  # Grafana admin password
+  : "${GRAFANA_ADMIN_PASSWORD:=admin123}"
 
   kubectl create secret generic grafana-secrets \
     --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
     -n monitoring \
-    --dry-run=client -o yaml | kubectl apply -f - 
+    --dry-run=client -o yaml | kubectl apply -f -
 
-  # Grafana Dashboard ConfigMap
+  # ConfigMaps
   kubectl apply -f "$BASE_MONITORING_PATH/dashboard-configmap.yaml"
 
-  # Grafana datasource
+  kubectl create configmap prometheus-config \
+  --from-file=prometheus.yml="$PROMETHEUS_CONFIG_PATH" \
+  --from-file=alerts.yml="$PROMETHEUS_ALERTS_PATH" \
+  -n monitoring \
+  --dry-run=client -o yaml | kubectl apply -f -
+
   kubectl create configmap grafana-datasource \
     --from-literal=datasource.yaml="apiVersion: 1
 datasources:
@@ -134,9 +140,17 @@ datasources:
     -n monitoring \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  # Deploy monitoring workloads
+  # Ensure Grafana dashboard ConfigMaps exist (avoid stuck pods)
+  kubectl create configmap grafana-dashboard --from-literal=dummy=empty -n monitoring --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create configmap grafana-dashboard-config --from-literal=dummy=empty -n monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+  # Deploy workloads
   kubectl apply -f "$BASE_MONITORING_PATH/prometheus.yaml"
   kubectl apply -f "$BASE_MONITORING_PATH/grafana.yaml"
+
+  # Force rollout after configmaps (important!)
+  kubectl rollout restart deployment/prometheus -n monitoring
+  kubectl rollout restart deployment/grafana -n monitoring
 
   # Expose Prometheus and Grafana using NodePort
   kubectl apply -f - <<EOF
@@ -167,7 +181,6 @@ spec:
   type: NodePort
 EOF
 
-  # Wait for pods to be ready
   kubectl rollout status deployment/prometheus -n monitoring --timeout=300s
   kubectl rollout status deployment/grafana -n monitoring --timeout=300s
 
@@ -180,7 +193,7 @@ EOF
   echo "🌐 App URL: $APP_URL"
   echo "✅ Monitoring deployed successfully"
   echo ""
-  sleep 4
+  sleep 5
 }
 
 configure_dockerhub_username() {
@@ -221,15 +234,16 @@ deploy_argocd() {
   git config user.email "$GIT_AUTHOR_EMAIL"
 
   # Replace placeholder ONLY if still present
-  if grep -q "<GITHUB_USERNAME>" argocd/application.yaml; then
-    sed -i.bak \
-      "s|<GITHUB_USERNAME>|$GITHUB_USERNAME|g" \
-      argocd/application.yaml
-    rm -f argocd/application.yaml.bak
-    echo "✅ Placeholder resolved"
-  else
-    echo "ℹ️ Placeholder already resolved"
-  fi
+  if grep -q "GITHUB_USERNAME" argocd/application.yaml; then
+  sed -i.bak \
+    -e "s|<GITHUB_USERNAME>|$GITHUB_USERNAME|g" \
+    -e "s|GITHUB_USERNAME|$GITHUB_USERNAME|g" \
+    argocd/application.yaml
+  rm -f argocd/application.yaml.bak
+  echo "✅ Placeholder resolved"
+else
+  echo "ℹ️ Placeholder already resolved"
+fi
 
   # Commit & push if changed
   if ! git diff --quiet; then
@@ -278,7 +292,6 @@ deploy_argocd() {
   echo "✅ Argo CD Application applied"
   echo ""
 }
-
 
 self_heal_app() {
   echo "🛠️ Running self-healing for $APP_NAME..."
