@@ -77,6 +77,11 @@ fi
 
 ss -lntp | grep -E '3000|3001|30001|30002|30003' || echo "✅ All target ports are free"
 
+#---------------Argo CD--------------------------
+kubectl delete application devops-app -n argocd
+kubectl delete secret -n argocd -l argocd.argoproj.io/secret-type=repo-creds
+kubectl delete secret -n argocd -l argocd.argoproj.io/secret-type=repository
+
 echo ""
 echo "=== Cleanup & Restart Complete ==="
 echo "=== Troubleshooting Complete ==="
