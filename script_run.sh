@@ -3,6 +3,16 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# Load .env if exists
+ENV_FILE="$PWD/.env"
+if [[ -f "$ENV_FILE" ]]; then
+    export $(grep -v '^#' "$ENV_FILE" | xargs)
+else
+    echo "❌ .env file not found!"
+    exit 1
+fi
+
+
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="devops-app"
 NAMESPACE="devops-app"
@@ -189,20 +199,15 @@ configure_git_github() {
   echo "🧾 Configure Git & GitHub for GitOps (Argo CD)"
 
   # Git identity
-  read -p "Enter Git author name: " GIT_AUTHOR_NAME
-  read -p "Enter Git author email: " GIT_AUTHOR_EMAIL
-
-  if [[ -z "$GIT_AUTHOR_NAME" || -z "$GIT_AUTHOR_EMAIL" ]]; then
-    echo "❌ Git author name/email cannot be empty"
-    exit 1
-  fi
+  : "${GIT_AUTHOR_NAME:?Set GIT_AUTHOR_NAME in .env}"
+  : "${GIT_AUTHOR_EMAIL:?Set GIT_AUTHOR_EMAIL in .env}"
 
   git config user.name "$GIT_AUTHOR_NAME"
   git config user.email "$GIT_AUTHOR_EMAIL"
   echo "✅ Git identity set: $GIT_AUTHOR_NAME <$GIT_AUTHOR_EMAIL>"
 
   # GitHub username
-  read -p "Enter your GitHub username: " GITHUB_USERNAME
+  : "${GITHUB_USERNAME:?Set GITHUB_USERNAME in .env}"
   if [[ -z "$GITHUB_USERNAME" ]]; then
     echo "❌ GitHub username cannot be empty"
     exit 1
