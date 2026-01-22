@@ -6,7 +6,9 @@ IFS=$'\n\t'
 # Load .env if exists
 ENV_FILE="$PWD/.env"
 if [[ -f "$ENV_FILE" ]]; then
-    export $(grep -v '^#' "$ENV_FILE" | xargs)
+    set -a
+    source "$ENV_FILE"
+    set +a
 else
     echo "❌ .env file not found!"
     exit 1
@@ -67,7 +69,7 @@ build_and_push_image() {
   read -sp "Docker Hub password: " DOCKER_PASS
   echo
 
-  IMAGE_TAG="v1"
+  IMAGE_TAG=$(git rev-parse --short HEAD)
   IMAGE_NAME="$DOCKER_USER/$APP_NAME:$IMAGE_TAG"
 
   echo "$DOCKER_PASS" | docker login --username "$DOCKER_USER" --password-stdin
@@ -205,41 +207,78 @@ configure_git_github() {
     argocd/application.yaml && rm -f argocd/application.yaml.bak
   echo "✅ GitHub username injected into Argo CD Application"
   # Commit & push changes if any
-  if git diff --quiet; then
-    echo "ℹ️ No GitOps configuration changes to commit"
-    return
-  fi
-  git add argocd/application.yaml kubernetes/overlays/prod/kustomization.yaml
-  git commit -m "chore: configure GitOps placeholders"
-  git push origin main
-  echo "🚀 GitOps configuration committed & pushed"
 }
 
 deploy_argocd() {
+  echo "🔧 Resolving GitOps placeholders"
+
+  : "${GITHUB_USERNAME:?Missing GITHUB_USERNAME in .env}"
+  : "${GIT_AUTHOR_NAME:?Missing GIT_AUTHOR_NAME in .env}"
+  : "${GIT_AUTHOR_EMAIL:?Missing GIT_AUTHOR_EMAIL in .env}"
+
+  # Set Git identity
+  git config user.name "$GIT_AUTHOR_NAME"
+  git config user.email "$GIT_AUTHOR_EMAIL"
+
+  # Replace placeholder ONLY if still present
+  if grep -q "<GITHUB_USERNAME>" argocd/application.yaml; then
+    sed -i.bak \
+      "s|<GITHUB_USERNAME>|$GITHUB_USERNAME|g" \
+      argocd/application.yaml
+    rm -f argocd/application.yaml.bak
+    echo "✅ Placeholder resolved"
+  else
+    echo "ℹ️ Placeholder already resolved"
+  fi
+
+  # Commit & push if changed
+  if ! git diff --quiet; then
+    git add argocd/application.yaml
+    git commit -m "chore(gitops): resolve repository placeholders"
+    git push origin main
+    echo "🚀 GitOps config committed & pushed"
+  else
+    echo "ℹ️ No GitOps changes to commit"
+  fi
+
+  echo ""
   echo "🚀 Installing Argo CD..."
-  kubectl cluster-info >/dev/null 2>&1 || { echo "❌ kubectl not configured"; exit 1; }
+
+  kubectl cluster-info >/dev/null 2>&1 || {
+    echo "❌ kubectl not configured"
+    exit 1
+  }
+
   kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-  # Pin a stable version of Argo CD for reproducibility
+
   ARGO_CD_VERSION=${ARGO_CD_VERSION:-v2.9.3}
+
   kubectl apply -n argocd \
-    -f https://raw.githubusercontent.com/argoproj/argo-cd/$ARGO_CD_VERSION/manifests/install.yaml
-  echo "⏳ Waiting for Argo CD components to start..."
-  sleep 4
-  echo "🌐 Argo CD UI available via port-forward:"
+    -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGO_CD_VERSION}/manifests/install.yaml"
+
+  echo "⏳ Waiting for Argo CD components..."
+  kubectl rollout status deployment/argocd-server -n argocd --timeout=300s
+
+  echo "🌐 Argo CD UI:"
   echo "kubectl port-forward svc/argocd-server -n argocd 8080:443"
-  # Print admin password
+  echo "https://localhost:8080"
+
   ADMIN_PASSWORD=$(kubectl get secret argocd-initial-admin-secret \
-      -n argocd -o jsonpath="{.data.password}" | base64 -d)
-  echo "🔐 Argo CD initial admin password: $ADMIN_PASSWORD"
-  # Apply Argo CD Application
+    -n argocd -o jsonpath="{.data.password}" | base64 -d)
+
+  echo "🔐 Argo CD admin password: $ADMIN_PASSWORD"
+
   if [[ ! -f "$PROJECT_ROOT/argocd/application.yaml" ]]; then
     echo "❌ argocd/application.yaml not found"
     exit 1
   fi
+
   kubectl apply -f "$PROJECT_ROOT/argocd/application.yaml"
+
   echo "✅ Argo CD Application applied"
   echo ""
 }
+
 
 self_heal_app() {
   echo "🛠️ Running self-healing for $APP_NAME..."
@@ -269,6 +308,7 @@ self_heal_app() {
 }
 
 : "${DEPLOY_TARGET:?Set DEPLOY_TARGET in .env}"
+echo "DEBUG: DEPLOY_TARGET='$DEPLOY_TARGET'"
 
 echo "⚡ Deploying '$APP_NAME' to target: $DEPLOY_TARGET"
 

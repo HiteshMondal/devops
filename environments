@@ -1,16 +1,37 @@
-# .env
+# ===============================
+# DevOps Project Environment File
+# ===============================
+
 APP_NAME=devops-app
 NAMESPACE=devops-app
 ARGO_APP=devops-app
 
+# Docker / Image
 DOCKERHUB_USERNAME=yourdockerhubusername
-DOCKERHUB_PASSWORD=yourdockerhubpassword  # optional, or use Docker credential store
+DOCKERHUB_PASSWORD=YourDockerhubPasswordOrToken
+IMAGE_TAG=latest
 
+# Git / GitOps
 GIT_AUTHOR_NAME=Your Name
 GIT_AUTHOR_EMAIL=you@example.com
 GITHUB_USERNAME=yourgithubusername
 
-DEPLOY_TARGET=local  # local | prod
-BUILD_PUSH=false     # true | false
+# Deployment Control
+# local | prod
+DEPLOY_TARGET=local
+# true | false
+BUILD_PUSH=false
+CI=false
+DRY_RUN=false
 
-MINIKUBE_INGRESS=true  # true/false for Minikube only
+# Kubernetes Safety
+KUBE_CONTEXT=minikube
+
+# Monitoring
+GRAFANA_ADMIN_PASSWORD=change-me
+
+# Argo CD
+ARGO_CD_VERSION=v2.9.3
+
+# Minikube
+MINIKUBE_INGRESS=true
