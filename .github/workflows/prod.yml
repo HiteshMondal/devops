@@ -5,14 +5,15 @@ on:
     branches:
       - main
 
-env:
-  IMAGE_NAME: devops-app
-  IMAGE_TAG: latest
-
 jobs:
   build-and-deploy:
     runs-on: self-hosted   # Your machine with Minikube
 
+    env:
+      ENV_FILE: .env        # Load environment variables
+      DEPLOY_TARGET: local  # local | prod
+      BUILD_PUSH: false     # true to push Docker image
+      
     steps:
       - name: Checkout code
         uses: actions/checkout@v3

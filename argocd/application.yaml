@@ -12,7 +12,7 @@ spec:
 
   # Source of truth (GitOps)
   source:
-    repoURL: https://github.com/HiteshMondal/Devops.git
+    repoURL: https://github.com/GITHUB_USERNAME/Devops.git
     targetRevision: main
     path: kubernetes/overlays/prod
 

@@ -39,6 +39,7 @@ minikube version || true
 command -v docker kubectl minikube terraform aws>/dev/null || {
   echo "❌ Required tools missing"
   exit 1
+}  
 echo ""
 
 if ! docker info >/dev/null 2>&1; then
@@ -108,11 +109,13 @@ metadata:
   name: monitoring
 EOF
 
-  # Grafana admin secret
+  # Use password from .env
+  : "${GRAFANA_ADMIN_PASSWORD:=admin123}"  # default if not set
+
   kubectl create secret generic grafana-secrets \
-    --from-literal=admin-password=admin123 \
+    --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
     -n monitoring \
-    --dry-run=client -o yaml | kubectl apply -f -
+    --dry-run=client -o yaml | kubectl apply -f - 
 
   # Grafana Dashboard ConfigMap
   kubectl apply -f "$BASE_MONITORING_PATH/dashboard-configmap.yaml"
@@ -169,64 +172,46 @@ EOF
   # Get working URLs in Minikube
   PROM_URL=$(minikube service prometheus -n monitoring --url)
   GRAF_URL=$(minikube service grafana -n monitoring --url)
-  APP_URL=$(minikube service devops-app-service -n devops-app --url)
+  APP_URL=$(minikube service "$APP_NAME-service" -n "$NAMESPACE" --url)
   echo "🌐 Prometheus: $PROM_URL"
   echo "🌐 Grafana: $GRAF_URL"
   echo "🌐 App URL: $APP_URL"
   echo "✅ Monitoring deployed successfully"
   echo ""
-  sleep 3
+  sleep 4
 }
 
 configure_dockerhub_username() {
-  echo "🐳 Configure Docker Hub username for GitOps"
-  read -p "Enter Docker Hub username: " DOCKERHUB_USERNAME
-
-  if [[ -z "$DOCKERHUB_USERNAME" ]]; then
-    echo "❌ Docker Hub username cannot be empty"
-    exit 1
-  fi
-
+  echo "🐳 Configuring Docker Hub username for GitOps"
+  # Read from .env
+  : "${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME in .env}"
   echo "🔧 Replacing <DOCKERHUB_USERNAME> in kustomization.yaml"
-
-  sed -i "s|<DOCKERHUB_USERNAME>|$DOCKERHUB_USERNAME|g" \
-    kubernetes/overlays/prod/kustomization.yaml
-
+  sed -i.bak "s|<DOCKERHUB_USERNAME>|$DOCKERHUB_USERNAME|g" \
+    kubernetes/overlays/prod/kustomization.yaml && rm -f kubernetes/overlays/prod/kustomization.yaml.bak
   echo "✅ Docker Hub username configured"
 }
 
 configure_git_github() {
-  echo "🧾 Configure Git & GitHub for GitOps (Argo CD)"
-
-  # Git identity
+  echo "🧾 Configuring Git & GitHub for GitOps"
+  # Git identity from .env
   : "${GIT_AUTHOR_NAME:?Set GIT_AUTHOR_NAME in .env}"
   : "${GIT_AUTHOR_EMAIL:?Set GIT_AUTHOR_EMAIL in .env}"
-
   git config user.name "$GIT_AUTHOR_NAME"
   git config user.email "$GIT_AUTHOR_EMAIL"
   echo "✅ Git identity set: $GIT_AUTHOR_NAME <$GIT_AUTHOR_EMAIL>"
-
-  # GitHub username
+  # GitHub username from .env
   : "${GITHUB_USERNAME:?Set GITHUB_USERNAME in .env}"
-  if [[ -z "$GITHUB_USERNAME" ]]; then
-    echo "❌ GitHub username cannot be empty"
-    exit 1
-  fi
-
   sed -i.bak "s|<YOUR_GITHUB_USERNAME>|$GITHUB_USERNAME|g" \
     argocd/application.yaml && rm -f argocd/application.yaml.bak
-  echo "✅ GitHub username injected"
-
-  # Commit & push
+  echo "✅ GitHub username injected into Argo CD Application"
+  # Commit & push changes if any
   if git diff --quiet; then
-    echo "ℹ️ No changes to commit"
+    echo "ℹ️ No GitOps configuration changes to commit"
     return
   fi
-
   git add argocd/application.yaml kubernetes/overlays/prod/kustomization.yaml
-  git commit -m "chore: configure gitops placeholders"
+  git commit -m "chore: configure GitOps placeholders"
   git push origin main
-
   echo "🚀 GitOps configuration committed & pushed"
 }
 
@@ -234,19 +219,22 @@ deploy_argocd() {
   echo "🚀 Installing Argo CD..."
   kubectl cluster-info >/dev/null 2>&1 || { echo "❌ kubectl not configured"; exit 1; }
   kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+  # Pin a stable version of Argo CD for reproducibility
+  ARGO_CD_VERSION=${ARGO_CD_VERSION:-v2.9.3}
   kubectl apply -n argocd \
-    -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-  echo "⏳ Waiting for Argo CD components..."
-  sleep 2
-  echo ""
-  echo "🌐 Argo CD UI: kubectl port-forward svc/argocd-server -n argocd 8080:443"
-  echo "Then open: https://localhost:8080"
-  echo "🔐 Admin password:"
-  kubectl get secret argocd-initial-admin-secret \
-    -n argocd -o jsonpath="{.data.password}" | base64 -d && echo
-  echo ""
+    -f https://raw.githubusercontent.com/argoproj/argo-cd/$ARGO_CD_VERSION/manifests/install.yaml
+  echo "⏳ Waiting for Argo CD components to start..."
+  sleep 4
+  echo "🌐 Argo CD UI available via port-forward:"
+  echo "kubectl port-forward svc/argocd-server -n argocd 8080:443"
+  # Print admin password
+  ADMIN_PASSWORD=$(kubectl get secret argocd-initial-admin-secret \
+      -n argocd -o jsonpath="{.data.password}" | base64 -d)
+  echo "🔐 Argo CD initial admin password: $ADMIN_PASSWORD"
+  # Apply Argo CD Application
   if [[ ! -f "$PROJECT_ROOT/argocd/application.yaml" ]]; then
-    echo "❌ argocd/application.yaml not found"; exit 1
+    echo "❌ argocd/application.yaml not found"
+    exit 1
   fi
   kubectl apply -f "$PROJECT_ROOT/argocd/application.yaml"
   echo "✅ Argo CD Application applied"
@@ -261,7 +249,7 @@ self_heal_app() {
   --overwrite
   sleep 5
   BAD_PODS=$(kubectl get pods -n "$NAMESPACE" --no-headers \
-      | grep -E "CrashLoopBackOff|ImagePullBackOff|ErrImagePull|CreateContainerConfigError|OOMKilled"
+      | grep -E "CrashLoopBackOff|ImagePullBackOff|ErrImagePull|CreateContainerConfigError|OOMKilled" \
       | awk '{print $1}')
 
   if [[ -z "$BAD_PODS" ]]; then
@@ -280,33 +268,33 @@ self_heal_app() {
   kubectl get pods -n "$NAMESPACE"
 }
 
-echo "Choose deployment target:"
-echo "1) Local Kubernetes (Minikube)"
-echo "2) Cloud Kubernetes (AWS EKS via Terraform)"
-read -p "Enter choice [1-2]: " DEPLOY_TARGET
+: "${DEPLOY_TARGET:?Set DEPLOY_TARGET in .env}"
 
-case "$DEPLOY_TARGET" in
-  1)
+echo "⚡ Deploying '$APP_NAME' to target: $DEPLOY_TARGET"
+
+# --------- Minikube Deployment ----------
+if [[ "$DEPLOY_TARGET" == "local" ]]; then
     echo "🚀 Deploying to Minikube..."
-    if ! command -v minikube >/dev/null 2>&1; then
-    echo "❌ Minikube not installed"
-    exit 1
-    fi
+
+    command -v minikube >/dev/null 2>&1 || { echo "❌ Minikube not installed"; exit 1; }
     if [[ "$(minikube status --format='{{.Host}}')" != "Running" ]]; then
-      echo "❌ Minikube is not running. Start it using: minikube start"
-      exit 1
+        echo "❌ Minikube is not running. Start it using: minikube start"
+        exit 1
     fi
-    eval $(minikube docker-env)
-    minikube addons enable ingress
+
+    eval "$(minikube docker-env)"
+
+    if [[ "$MINIKUBE_INGRESS" == "true" ]]; then
+        minikube addons enable ingress
+    fi
 
     configure_git_github
     configure_dockerhub_username
-    # Build & Push Image (Optional)
-    read -p "Build & push Docker image to Docker Hub? (y/n): " BUILD_PUSH
-    if [[ "$BUILD_PUSH" == "y" ]]; then
-      build_and_push_image
+
+    if [[ "$BUILD_PUSH" == "true" ]]; then
+        build_and_push_image
     else
-      docker build -t devops-app:latest ./app
+        docker build -t "$APP_NAME:latest" ./app
     fi
 
     deploy_kubernetes local
@@ -315,32 +303,33 @@ case "$DEPLOY_TARGET" in
     self_heal_app
 
     MINIKUBE_IP=$(minikube ip)
-    NODE_PORT=$(kubectl get svc devops-app-service -n devops-app -o jsonpath='{.spec.ports[0].nodePort}')
+    NODE_PORT=$(kubectl get svc "$APP_NAME-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}')
 
     echo "✅ Application deployed to Minikube"
     echo "🌐 App URL: http://$MINIKUBE_IP:$NODE_PORT"
     echo "📊 Dashboard: minikube dashboard"
-    ;;
 
-  2)
+# --------- AWS EKS Deployment ----------
+elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
     echo "☁️ Deploying to AWS EKS using Terraform..."
-    command -v terraform >/dev/null || { echo "❌ Terraform not installed"; exit 1; }
-    command -v aws >/dev/null || { echo "❌ AWS CLI not installed"; exit 1; }
+
+    command -v terraform >/dev/null 2>&1 || { echo "❌ Terraform not installed"; exit 1; }
+    command -v aws >/dev/null 2>&1 || { echo "❌ AWS CLI not installed"; exit 1; }
+
     cd Infra/terraform || exit 1
     terraform init -upgrade
-    terraform apply
+    terraform apply -auto-approve
+
     aws eks update-kubeconfig \
-      --region "$(terraform output -raw region)" \
-      --name "$(terraform output -raw cluster_name)"
+        --region "$(terraform output -raw region)" \
+        --name "$(terraform output -raw cluster_name)"
     cd ../../
 
     configure_git_github
     configure_dockerhub_username
 
-    # Build & Push Image (Optional)
-    read -p "Build & push Docker image to Docker Hub? (y/n): " BUILD_PUSH
-    if [[ "$BUILD_PUSH" == "y" ]]; then
-      build_and_push_image
+    if [[ "$BUILD_PUSH" == "true" ]]; then
+        build_and_push_image
     fi
 
     deploy_kubernetes prod
@@ -350,10 +339,9 @@ case "$DEPLOY_TARGET" in
 
     echo "✅ App deployed to AWS EKS"
     echo "ℹ️ Use LoadBalancer or Ingress to expose services"
-    ;;
 
-  *)
-    echo "❌ Invalid choice. Use 1 or 2."
+# --------- Invalid Target ----------
+else
+    echo "❌ Invalid DEPLOY_TARGET in .env. Use 'local' or 'prod'."
     exit 1
-    ;;
-esac
+fi
