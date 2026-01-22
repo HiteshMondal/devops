@@ -26,6 +26,9 @@ kubectl version --client || true
 terraform --version | head -n 1 || true
 aws --version || true
 minikube version || true
+command -v docker kubectl minikube terraform aws>/dev/null || {
+  echo "❌ Required tools missing"
+  exit 1
 echo ""
 
 if ! docker info >/dev/null 2>&1; then

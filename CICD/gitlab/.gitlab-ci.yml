@@ -5,10 +5,11 @@ stages:
   - deploy
 
 variables:
-  DOCKER_IMAGE: $CI_REGISTRY_IMAGE/devops-app:latest
+  DOCKER_IMAGE: $CI_REGISTRY_IMAGE/devops-app:$CI_COMMIT_SHORT_SHA
   KUBECONFIG_PATH: /builds/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME/kubeconfig
 
 before_script:
+  - umask 077
   - echo "$KUBECONFIG_PROD" > $KUBECONFIG_PATH
   - export KUBECONFIG=$KUBECONFIG_PATH
 
