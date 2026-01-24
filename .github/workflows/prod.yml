@@ -69,11 +69,11 @@ jobs:
 
           # Namespace
           kubectl apply -f - <<EOF
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: monitoring
-EOF
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: monitoring
+          EOF
 
           # Grafana secret
           : "${GRAFANA_ADMIN_PASSWORD:=admin123}"
@@ -95,12 +95,12 @@ EOF
           # Grafana datasource
           kubectl create configmap grafana-datasource \
             --from-literal=datasource.yaml="apiVersion: 1
-datasources:
-  - name: Prometheus
-    type: prometheus
-    access: proxy
-    url: http://prometheus.monitoring.svc.cluster.local:9090
-    isDefault: true" \
+          datasources:
+            - name: Prometheus
+              type: prometheus
+              access: proxy
+              url: http://prometheus.monitoring.svc.cluster.local:9090
+              isDefault: true" \
             -n monitoring \
             --dry-run=client -o yaml | kubectl apply -f -
 
