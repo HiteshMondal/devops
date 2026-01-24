@@ -17,15 +17,10 @@ jobs:
     runs-on: self-hosted   # Machine with Docker + Minikube installed
 
     steps:
-      # ----------------------------
-      # Checkout
-      # ----------------------------
+
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # ----------------------------
-      # Load .env variables
-      # ----------------------------
       - name: Load environment variables
         run: |
           ENV_FILE="$GITHUB_WORKSPACE/.env"
@@ -39,9 +34,6 @@ jobs:
             exit 1
           fi
 
-      # ----------------------------
-      # Node setup
-      # ----------------------------
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
@@ -51,9 +43,6 @@ jobs:
         run: npm install
         working-directory: ./app
 
-      # ----------------------------
-      # Minikube
-      # ----------------------------
       - name: Ensure Minikube is running
         run: |
           if [[ "$(minikube status --format='{{.Host}}')" != "Running" ]]; then
@@ -61,24 +50,15 @@ jobs:
             minikube addons enable ingress
           fi
 
-      # ----------------------------
-      # Docker build (inside Minikube)
-      # ----------------------------
       - name: Build Docker image inside Minikube
         run: |
           eval $(minikube docker-env)
           docker build -t $IMAGE_NAME:$IMAGE_TAG ./app
 
-      # ----------------------------
-      # App Deployment
-      # ----------------------------
       - name: Deploy application (Kustomize)
         run: |
           kubectl kustomize kubernetes/overlays/local | kubectl apply -f -
 
-      # ----------------------------
-      # Monitoring Deployment
-      # ----------------------------
       - name: Deploy Monitoring Stack
         run: |
           echo "📊 Deploying Monitoring Stack..."
@@ -143,9 +123,6 @@ datasources:
           kubectl rollout restart deployment/prometheus -n monitoring
           kubectl rollout restart deployment/grafana -n monitoring
 
-      # ----------------------------
-      # Expose Services
-      # ----------------------------
       - name: Expose Monitoring Services (NodePort)
         run: |
           kubectl apply -f - <<EOF
@@ -176,22 +153,17 @@ spec:
   type: NodePort
 EOF
 
-      # ----------------------------
-      # Wait for rollouts
-      # ----------------------------
       - name: Wait for Monitoring Rollouts
         run: |
           kubectl rollout status deployment/prometheus -n monitoring --timeout=300s
           kubectl rollout status deployment/grafana -n monitoring --timeout=300s
 
-      # ----------------------------
-      # Output URLs (CI-safe)
-      # ----------------------------
-      - name: Output Service URLs
+      - name: Output Monitoring URLs (CI-safe)
         run: |
+          echo "📊 Resolving service URLs (NodePort)..."
           MINIKUBE_IP=$(minikube ip)
 
-          APP_PORT=$(kubectl get svc "$APP_NAME-service" -n "$NAMESPACE" \
+          APP_PORT=$(kubectl get svc devops-app-service -n devops-app \
             -o jsonpath='{.spec.ports[0].nodePort}')
 
           PROM_PORT=$(kubectl get svc prometheus -n monitoring \
@@ -200,9 +172,7 @@ EOF
           GRAF_PORT=$(kubectl get svc grafana -n monitoring \
             -o jsonpath='{.spec.ports[0].nodePort}')
 
-          echo ""
-          echo "🚀 Deployment successful"
           echo "🌐 App URL:        http://$MINIKUBE_IP:$APP_PORT"
           echo "📊 Prometheus URL: http://$MINIKUBE_IP:$PROM_PORT"
           echo "📊 Grafana URL:    http://$MINIKUBE_IP:$GRAF_PORT"
-          echo ""
+
