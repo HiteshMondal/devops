@@ -144,7 +144,7 @@ jobs:
         run: |
           kubectl rollout status deployment/prometheus -n monitoring --timeout=300s
           kubectl rollout status deployment/grafana -n monitoring --timeout=300s
-
+          sleep 10
       - name: Output Monitoring URLs (CI-safe)
         run: |
           echo "📊 Resolving service URLs (NodePort)..."
@@ -158,7 +158,7 @@ jobs:
 
           GRAF_PORT=$(kubectl get svc grafana -n monitoring \
             -o jsonpath='{.spec.ports[0].nodePort}')
-
+          sleep 5
           echo "## 🚀 Deployment URLs"
           echo ""
           echo "- App: http://$MINIKUBE_IP:$APP_PORT"
