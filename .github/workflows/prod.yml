@@ -126,32 +126,32 @@ datasources:
       - name: Expose Monitoring Services (NodePort)
         run: |
           kubectl apply -f - <<EOF
-apiVersion: v1
-kind: Service
-metadata:
-  name: prometheus
-  namespace: monitoring
-spec:
-  selector:
-    app: prometheus
-  ports:
-    - port: 9090
-      targetPort: 9090
-  type: NodePort
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: grafana
-  namespace: monitoring
-spec:
-  selector:
-    app: grafana
-  ports:
-    - port: 3000
-      targetPort: 3000
-  type: NodePort
-EOF
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: prometheus
+            namespace: monitoring
+          spec:
+            selector:
+              app: prometheus
+            ports:
+              - port: 9090
+                targetPort: 9090
+            type: NodePort
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: grafana
+            namespace: monitoring
+          spec:
+            selector:
+              app: grafana
+            ports:
+              - port: 3000
+                targetPort: 3000
+            type: NodePort
+          EOF
 
       - name: Wait for Monitoring Rollouts
         run: |
