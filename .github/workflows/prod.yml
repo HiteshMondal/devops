@@ -46,6 +46,10 @@ jobs:
           echo "🚀 Deploying application..."
           kubectl kustomize kubernetes/overlays/local | kubectl apply -f -
 
+      - name: Create monitoring namespace
+        run: |
+          kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Deploy Monitoring Stack
         run: |
           kubectl apply -f kubernetes/base/monitoring/prometheus.yaml
@@ -85,17 +89,28 @@ jobs:
 
       - name: Wait for Monitoring Rollouts
         run: |
+          sleep 5
           echo "⏳ Waiting for Prometheus & Grafana..."
           kubectl rollout status deployment/prometheus -n monitoring --timeout=300s
           kubectl rollout status deployment/grafana -n monitoring --timeout=300s
 
-      - name: Output Monitoring URLs (Minikube-native)
+      - name: Output Monitoring URLs (CI-safe)
         run: |
-          echo "📊 Resolving Minikube service URLs..."
-          APP_URL=$(minikube service devops-app-service -n devops-app --url)
-          PROM_URL=$(minikube service prometheus -n monitoring --url)
-          GRAF_URL=$(minikube service grafana -n monitoring --url)
-          echo "🌐 App URL: $APP_URL"
-          echo "📊 Prometheus: $PROM_URL"
-          echo "📊 Grafana: $GRAF_URL"
+          echo "📊 Resolving service URLs (NodePort)..."
+
+          MINIKUBE_IP=$(minikube ip)
+
+          APP_PORT=$(kubectl get svc devops-app-service -n devops-app \
+            -o jsonpath='{.spec.ports[0].nodePort}')
+
+          PROM_PORT=$(kubectl get svc prometheus -n monitoring \
+            -o jsonpath='{.spec.ports[0].nodePort}')
+
+          GRAF_PORT=$(kubectl get svc grafana -n monitoring \
+            -o jsonpath='{.spec.ports[0].nodePort}')
+
+          echo "🌐 App URL:        http://$MINIKUBE_IP:$APP_PORT"
+          echo "📊 Prometheus URL: http://$MINIKUBE_IP:$PROM_PORT"
+          echo "📊 Grafana URL:    http://$MINIKUBE_IP:$GRAF_PORT"
+
 

@@ -369,7 +369,7 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
     command -v terraform >/dev/null 2>&1 || { echo "❌ Terraform not installed"; exit 1; }
     command -v aws >/dev/null 2>&1 || { echo "❌ AWS CLI not installed"; exit 1; }
 
-    cd Infra/terraform || exit 1
+    cd infra/terraform || exit 1
     terraform init -upgrade
     terraform apply -auto-approve
 
