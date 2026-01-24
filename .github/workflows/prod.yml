@@ -21,19 +21,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Load environment variables
-        run: |
-          ENV_FILE="$GITHUB_WORKSPACE/.env"
-          if [[ -f "$ENV_FILE" ]]; then
-            set -a
-            source "$ENV_FILE"
-            set +a
-            env | grep -v '^_' >> $GITHUB_ENV
-          else
-            echo "❌ .env file not found"
-            exit 1
-          fi
-
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
@@ -172,7 +159,9 @@ jobs:
           GRAF_PORT=$(kubectl get svc grafana -n monitoring \
             -o jsonpath='{.spec.ports[0].nodePort}')
 
-          echo "🌐 App URL:        http://$MINIKUBE_IP:$APP_PORT"
-          echo "📊 Prometheus URL: http://$MINIKUBE_IP:$PROM_PORT"
-          echo "📊 Grafana URL:    http://$MINIKUBE_IP:$GRAF_PORT"
+          echo "## 🚀 Deployment URLs"
+          echo ""
+          echo "- App: http://$MINIKUBE_IP:$APP_PORT"
+          echo "- Prometheus: http://$MINIKUBE_IP:$PROM_PORT"
+          echo "- Grafana: http://$MINIKUBE_IP:$GRAF_PORT"
 
