@@ -6,6 +6,9 @@ on:
       - main
 
 env:
+  PROJECT_ROOT: $(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  APP_NAME: devops-app
+  NAMESPACE: devops-app
   ENV_FILE: .env        # Load environment variables
   DEPLOY_TARGET: local  # local | prod
   BUILD_PUSH: false     # true to push Docker image
@@ -17,8 +20,22 @@ jobs:
     runs-on: self-hosted   # Your machine with Minikube
       
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v3
+
+      - name: Load environment variables
+        run: |
+          ENV_FILE="$GITHUB_WORKSPACE/.env"
+          if [[ -f "$ENV_FILE" ]]; then
+            set -a
+            source "$ENV_FILE"
+            set +a
+            env | grep -v '^_' >> $GITHUB_ENV
+          else
+            echo "❌ .env file not found!"
+            exit 1
+          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
@@ -46,14 +63,59 @@ jobs:
           echo "🚀 Deploying application..."
           kubectl kustomize kubernetes/overlays/local | kubectl apply -f -
 
-      - name: Create monitoring namespace
-        run: |
-          kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
-
       - name: Deploy Monitoring Stack
         run: |
-          kubectl apply -f kubernetes/base/monitoring/prometheus.yaml
-          kubectl apply -f kubernetes/base/monitoring/grafana.yaml
+          echo "📊 Deploying Monitoring Stack..."
+          BASE_MONITORING_PATH="$PROJECT_ROOT/kubernetes/base/monitoring"
+          PROMETHEUS_CONFIG_PATH="$PROJECT_ROOT/monitoring/prometheus/prometheus.yml"
+          PROMETHEUS_ALERTS_PATH="$PROJECT_ROOT/monitoring/prometheus/alerts.yml"
+          # Namespace (idempotent)
+          kubectl apply -f - <<EOF
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: monitoring
+        EOF
+
+          # Grafana admin password
+          : "${GRAFANA_ADMIN_PASSWORD:=admin123}"
+
+          kubectl create secret generic grafana-secrets \
+            --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
+            -n monitoring \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # ConfigMaps
+          kubectl apply -f "$BASE_MONITORING_PATH/dashboard-configmap.yaml"
+
+          kubectl create configmap prometheus-config \
+          --from-file=prometheus.yml="$PROMETHEUS_CONFIG_PATH" \
+          --from-file=alerts.yml="$PROMETHEUS_ALERTS_PATH" \
+          -n monitoring \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create configmap grafana-datasource \
+            --from-literal=datasource.yaml="apiVersion: 1
+        datasources:
+          - name: Prometheus
+            type: prometheus
+            access: proxy
+            url: http://prometheus.monitoring.svc.cluster.local:9090
+            isDefault: true" \
+            -n monitoring \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # Ensure Grafana dashboard ConfigMaps exist (avoid stuck pods)
+          kubectl create configmap grafana-dashboard --from-literal=dummy=empty -n monitoring --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create configmap grafana-dashboard-config --from-literal=dummy=empty -n monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+          # Deploy workloads
+          kubectl apply -f "$BASE_MONITORING_PATH/prometheus.yaml"
+          kubectl apply -f "$BASE_MONITORING_PATH/grafana.yaml"
+
+          # Force rollout after configmaps (important!)
+          kubectl rollout restart deployment/prometheus -n monitoring
+          kubectl rollout restart deployment/grafana -n monitoring
 
       - name: Expose Monitoring Services (NodePort)
         run: |
@@ -98,19 +160,13 @@ jobs:
         run: |
           echo "📊 Resolving service URLs (NodePort)..."
 
-          MINIKUBE_IP=$(minikube ip)
-
-          APP_PORT=$(kubectl get svc devops-app-service -n devops-app \
-            -o jsonpath='{.spec.ports[0].nodePort}')
-
-          PROM_PORT=$(kubectl get svc prometheus -n monitoring \
-            -o jsonpath='{.spec.ports[0].nodePort}')
-
-          GRAF_PORT=$(kubectl get svc grafana -n monitoring \
-            -o jsonpath='{.spec.ports[0].nodePort}')
-
-          echo "🌐 App URL:        http://$MINIKUBE_IP:$APP_PORT"
-          echo "📊 Prometheus URL: http://$MINIKUBE_IP:$PROM_PORT"
-          echo "📊 Grafana URL:    http://$MINIKUBE_IP:$GRAF_PORT"
+          PROM_URL=$(minikube service prometheus -n monitoring --url)
+          GRAF_URL=$(minikube service grafana -n monitoring --url)
+          APP_URL=$(minikube service "$APP_NAME-service" -n "$NAMESPACE" --url)
+          echo "🌐 Prometheus: $PROM_URL"
+          echo "🌐 Grafana: $GRAF_URL"
+          echo "🌐 App URL: $APP_URL"
+          echo "✅ Monitoring deployed successfully"
+          echo ""
 
 
