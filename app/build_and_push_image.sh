@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -euo pipefail
+IFS=$'\n\t'
 
 build_and_push_image() {
   echo "🚀 Build & Push Docker image"

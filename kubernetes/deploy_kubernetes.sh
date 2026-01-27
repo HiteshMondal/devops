@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -euo pipefail
+IFS=$'\n\t'
 
 deploy_kubernetes() {
   local ENVIRONMENT="${1:-}"
@@ -19,3 +20,7 @@ deploy_kubernetes() {
 
   kubectl apply -k "kubernetes/overlays/$ENVIRONMENT"
 }
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  deploy_kubernetes "$@"
+fi

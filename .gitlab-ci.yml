@@ -1,2 +1,0 @@
-include:
-  - local: devops/cicd/gitlab/.gitlab-ci.yml
