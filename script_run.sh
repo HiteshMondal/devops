@@ -14,7 +14,6 @@ else
     exit 1
 fi
 
-
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="devops-app"
 NAMESPACE="devops-app"
@@ -25,7 +24,7 @@ echo "⚠️ Some steps may require sudo privileges"
 if ! sudo -n true 2>/dev/null; then
   echo "❌ Passwordless sudo required."
   echo "Run: sudo visudo"
-  echo "Add: $USER ALL=(ALL) NOPASSWD:ALL"
+  echo "Add: $USER ALL=(ALL) NOPASSWD: /usr/bin/docker, /usr/bin/kubectl"
   exit 1
 fi
 
@@ -120,7 +119,6 @@ EOF
     -n monitoring \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  # ConfigMaps
   kubectl apply -f "$BASE_MONITORING_PATH/dashboard-configmap.yaml"
 
   kubectl create configmap prometheus-config \
@@ -140,15 +138,13 @@ datasources:
     -n monitoring \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  # Ensure Grafana dashboard ConfigMaps exist (avoid stuck pods)
+  # Ensure Grafana dashboard ConfigMaps exist
   kubectl create configmap grafana-dashboard --from-literal=dummy=empty -n monitoring --dry-run=client -o yaml | kubectl apply -f -
   kubectl create configmap grafana-dashboard-config --from-literal=dummy=empty -n monitoring --dry-run=client -o yaml | kubectl apply -f -
 
-  # Deploy workloads
   kubectl apply -f "$BASE_MONITORING_PATH/prometheus.yaml"
   kubectl apply -f "$BASE_MONITORING_PATH/grafana.yaml"
 
-  # Force rollout after configmaps (important!)
   kubectl rollout restart deployment/prometheus -n monitoring
   kubectl rollout restart deployment/grafana -n monitoring
 
@@ -219,7 +215,81 @@ configure_git_github() {
   sed -i.bak "s|<YOUR_GITHUB_USERNAME>|$GITHUB_USERNAME|g" \
     argocd/application.yaml && rm -f argocd/application.yaml.bak
   echo "✅ GitHub username injected into Argo CD Application"
-  # Commit & push changes if any
+}
+
+configure_gitlab() {
+  echo "🦊 Configuring GitLab (CI/CD only — GitOps stays on GitHub)"
+
+  # -------- required envs --------
+  : "${GITLAB_NAMESPACE:?Missing GITLAB_NAMESPACE}"
+  : "${GITLAB_PROJECT_NAME:?Missing GITLAB_PROJECT_NAME}"
+  : "${GITLAB_TOKEN:?Missing GITLAB_TOKEN (api scope required)}"
+  : "${NAMESPACE:?Missing Kubernetes NAMESPACE}"
+  : "${CI_DEFAULT_BRANCH:=main}"
+
+  command -v jq >/dev/null || { echo "❌ jq required"; exit 1; }
+  command -v kubectl >/dev/null || { echo "❌ kubectl required"; exit 1; }
+
+  # -------- Git identity --------
+  : "${GIT_AUTHOR_NAME:?Missing GIT_AUTHOR_NAME}"
+  : "${GIT_AUTHOR_EMAIL:?Missing GIT_AUTHOR_EMAIL}"
+  git config user.name "$GIT_AUTHOR_NAME"
+  git config user.email "$GIT_AUTHOR_EMAIL"
+
+  # -------- GitLab remote (keep GitHub intact) --------
+  if ! git remote get-url gitlab >/dev/null 2>&1; then
+    git remote add gitlab \
+      "https://gitlab.com/$GITLAB_NAMESPACE/$GITLAB_PROJECT_NAME.git"
+  fi
+
+  git checkout -B "$CI_DEFAULT_BRANCH"
+  git push -u gitlab "$CI_DEFAULT_BRANCH"
+
+  echo "✅ Code pushed to GitLab (remote: gitlab)"
+
+  # -------- GitLab CI include --------
+  if [[ ! -f devops/cicd/gitlab/.gitlab-ci.yml ]]; then
+    echo "❌ devops/cicd/gitlab/.gitlab-ci.yml missing"
+    exit 1
+  fi
+
+  if [[ ! -f .gitlab-ci.yml ]]; then
+    cat <<EOF > .gitlab-ci.yml
+include:
+  - local: devops/cicd/gitlab/.gitlab-ci.yml
+EOF
+    git add .gitlab-ci.yml
+    git commit -m "ci(gitlab): enable GitLab CI pipeline"
+    git push gitlab "$CI_DEFAULT_BRANCH"
+  fi
+
+  echo "✅ GitLab CI configured"
+
+  # -------- Kubernetes registry secret --------
+  kubectl create secret docker-registry gitlab-regcred \
+    --docker-server="registry.gitlab.com" \
+    --docker-username="$CI_REGISTRY_USER" \
+    --docker-password="$CI_REGISTRY_PASSWORD" \
+    -n "$NAMESPACE" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+  echo "✅ GitLab registry secret created in namespace $NAMESPACE"
+
+  # -------- Trigger pipeline (optional but useful) --------
+  echo "🚀 Triggering GitLab pipeline..."
+
+  PROJECT_ID=$(curl -sf \
+    --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+    "https://gitlab.com/api/v4/projects/$GITLAB_NAMESPACE%2F$GITLAB_PROJECT_NAME" \
+    | jq -r .id)
+
+  curl -sf -X POST \
+    --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+    "https://gitlab.com/api/v4/projects/$PROJECT_ID/pipeline" \
+    --form ref="$CI_DEFAULT_BRANCH" >/dev/null
+
+  echo "✅ GitLab CI pipeline triggered"
+  echo "🧠 Argo CD remains connected to GitHub (unchanged)"
 }
 
 deploy_argocd() {
@@ -353,6 +423,7 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     deploy_kubernetes local
     deploy_monitoring
     deploy_argocd
+    configure_gitlab
     self_heal_app
 
     MINIKUBE_IP=$(minikube ip)
@@ -388,12 +459,12 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
     deploy_kubernetes prod
     deploy_monitoring
     deploy_argocd
+    configure_gitlab
     self_heal_app
 
     echo "✅ App deployed to AWS EKS"
     echo "ℹ️ Use LoadBalancer or Ingress to expose services"
 
-# --------- Invalid Target ----------
 else
     echo "❌ Invalid DEPLOY_TARGET in .env. Use 'local' or 'prod'."
     exit 1

@@ -86,6 +86,7 @@ desktop.ini
 tmp/
 temp/
 *.tmp
+config-demo
 
 # Archives
 *.zip

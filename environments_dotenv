@@ -1,10 +1,11 @@
-# ===============================
-# DevOps Project Environment File
-# ===============================
+# ========================================
+# DevOps Project Environment File example
+# ========================================
 
 APP_NAME=devops-app
 NAMESPACE=devops-app
 ARGO_APP=devops-app
+KUBECONFIG_PROD=$HOME/.kube/config
 
 # Docker / Image
 DOCKERHUB_USERNAME=yourdockerhubusername
@@ -15,6 +16,12 @@ IMAGE_TAG=latest
 GIT_AUTHOR_NAME=Your Name
 GIT_AUTHOR_EMAIL=you@example.com
 GITHUB_USERNAME=yourgithubusername
+
+# GitHub Actions / GitLab secrets and variables that need to be added in github project setting
+DOCKER_USERNAME=yourdockerhubusername
+DOCKER_PASSWORD=YourDockerhubPasswordOrToken
+CI_REGISTRY_USER=
+CI_REGISTRY_PASSWORD=
 
 # Deployment Control
 # local | prod
