@@ -13,15 +13,20 @@ DOCKERHUB_PASSWORD=YourDockerhubPasswordOrToken
 IMAGE_TAG=latest
 
 # Git / GitOps
-GIT_AUTHOR_NAME=Your Name
+GIT_AUTHOR_NAME=YourName
 GIT_AUTHOR_EMAIL=you@example.com
 GITHUB_USERNAME=yourgithubusername
 
-# GitHub Actions / GitLab secrets and variables that need to be added in github project setting
+# GitHub Actions secrets and variables
 DOCKER_USERNAME=yourdockerhubusername
 DOCKER_PASSWORD=YourDockerhubPasswordOrToken
+
+# GitLab secrets and variables
 CI_REGISTRY_USER=
 CI_REGISTRY_PASSWORD=
+GITLAB_NAMESPACE=yourusername
+GITLAB_PROJECT_NAME=
+GITLAB_TOKEN=
 
 # Deployment Control
 # local | prod
