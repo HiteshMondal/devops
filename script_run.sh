@@ -256,7 +256,7 @@ configure_gitlab() {
   echo "✅ Code pushed to GitLab (branch: $CI_DEFAULT_BRANCH)"
 
   # -------- GitLab CI include --------
-  GITLAB_CI_FILE="$PROJECT_ROOT/devops/cicd/gitlab/.gitlab-ci.yml"
+  GITLAB_CI_FILE="$PROJECT_ROOT/cicd/gitlab/.gitlab-ci.yml"
   GITLAB_ROOT_CI="$PROJECT_ROOT/.gitlab-ci.yml"
 
   if [[ ! -f "$GITLAB_CI_FILE" ]]; then
