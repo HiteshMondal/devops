@@ -44,37 +44,85 @@ The project is intentionally designed to reflect **real-world DevOps practices**
 ## 📂 Repository Structure
 
 ```
-.
-├── app/                    # Node.js application
-│   ├── Dockerfile
-│   ├── package.json
-│   └── src/index.js
+├── app/                            # Application & Docker image management
+│   ├── Dockerfile                  # App container definition
+│   ├── package.json                # Node.js dependencies
+│   ├── src/
+│   │   └── index.js                # Application entry point
+│   ├── .env.example                # Example environment variables
+│   ├── build_and_push_image.sh     # Build & push Docker image to registry
+│   └── configure_dockerhub_username.sh
 │
-├── CICD/                   # CI/CD configuration
+├── argocd/                         # GitOps (Argo CD)
+│   ├── application.yaml            # Argo CD Application definition
+│   ├── deploy_argocd.sh            # Install & configure Argo CD
+│   └── self_heal_app.sh             # Force GitOps sync & pod self-healing
+│
+├── cicd/                           # CI/CD configurations
+│   ├── github/
+│   │   └── configure_git_github.sh # Git & GitHub identity setup
+│   │
 │   ├── gitlab/
+│   │   ├── .gitlab-ci.yml          # GitLab CI pipeline
+│   │   └── configure_gitlab.sh     # GitLab CI & registry integration
+│   │
 │   └── jenkins/
-│       ├── Jenkinsfile
-│       └── jenkins-deployment.yaml
+│       ├── Jenkinsfile             # Jenkins pipeline definition
+│       ├── jenkins-deployment.yaml # Jenkins Kubernetes deployment
+│       └── deploy_jenkins.sh       # Jenkins installation script
 │
-├── Infra/                  # Infrastructure as Code
-│   ├── terraform/          # AWS provisioning (VPC, EKS, RDS)
+├── kubernetes/                     # Kubernetes manifests (Kustomize)
+│   ├── base/                       # Base manifests (shared across envs)
+│   │   ├── deployment.yaml
+│   │   ├── service.yaml
+│   │   ├── ingress.yaml
+│   │   ├── hpa.yaml
+│   │   ├── namespace.yaml
+│   │   ├── secrets.yaml
+│   │   ├── configmap.yaml
+│   │   └── monitoring/             # Monitoring manifests
+│   │       ├── prometheus.yaml
+│   │       ├── grafana.yaml
+│   │       └── dashboard-configmap.yaml
+│   │
+│   ├── overlays/                   # Environment-specific overlays
+│   │   ├── local/
+│   │   │   └── kustomization.yaml
+│   │   └── prod/
+│   │       └── kustomization.yaml
+│   │
+│   └── deploy_kubernetes.sh        # Kustomize-based deployment script
 │
-├── kubernetes/             # Kubernetes manifests
-│   ├── deployment.yaml
-│   ├── service.yaml
-│   ├── ingress.yaml
-│   ├── hpa.yaml
-│   ├── configmap.yaml
-│   ├── secrets.yaml
-│   └── monitoring/
-│
-├── monitoring/             # Prometheus configuration
+├── monitoring/                     # Observability configuration
+│   ├── deploy_monitoring.sh        # Prometheus & Grafana deployment
 │   └── prometheus/
+│       ├── prometheus.yml          # Prometheus scrape config
+│       └── alerts.yml              # Alerting rules
 │
-├── docker-compose.yml      # Local development
-├── script_run.sh           # Main automation script
-├── troubleshoot.sh         # Emergency cleanup script
-└── README.md
+├── infra/                          # Infrastructure as Code (Terraform)
+│   └── terraform/
+│       ├── provider.tf             # Terraform provider configuration
+│       ├── main.tf                 # Root Terraform module
+│       ├── variables.tf            # Input variables
+│       ├── outputs.tf              # Exported outputs
+│       ├── vpc.tf                  # AWS VPC
+│       ├── eks.tf                  # AWS EKS cluster
+│       ├── rds.tf                  # AWS RDS database
+│       └── .terraform.lock.hcl     # Provider lock file
+│
+├── .github/workflows/              # GitHub Actions workflows
+│   ├── prod.yml                    # Production pipeline
+│   └── terraform.yml               # Terraform CI pipeline
+│
+├── docker-compose.yml              # Local Docker Compose setup
+├── .env                            # Environment variables (ignored)
+├── .gitignore
+├── .gitlab-ci.yml                  # Root GitLab CI include
+├── kubeconfig.yaml                 # Kubernetes access config (local)
+├── script_run.sh                   # Main orchestration script
+├── troubleshoot.sh                 # Debug & recovery utilities
+└── README.md                       # Project documentation
+
 ```
 
 ---
