@@ -44,7 +44,7 @@ configure_gitlab() {
   GITLAB_CI_FILE="$PROJECT_ROOT/cicd/gitlab/.gitlab-ci.yml"
   GITLAB_ROOT_CI="$PROJECT_ROOT/.gitlab-ci.yml"
 
-  if [[ ! -f "$GITLAB_CI_FILE" ]]; then
+  if [[ ! -f "$GITLAB_ROOT_CI" ]] || ! grep -q "cicd/gitlab/.gitlab-ci.yml" "$GITLAB_ROOT_CI"; then
     echo "❌ $GITLAB_CI_FILE missing"
     exit 1
   fi
