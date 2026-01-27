@@ -22,11 +22,11 @@ DOCKER_USERNAME=yourdockerhubusername
 DOCKER_PASSWORD=YourDockerhubPasswordOrToken
 
 # GitLab secrets and variables
-CI_REGISTRY_USER=
-CI_REGISTRY_PASSWORD=
 GITLAB_NAMESPACE=yourusername
 GITLAB_PROJECT_NAME=
-GITLAB_TOKEN=
+CI_DEFAULT_BRANCH=main
+CI_REGISTRY_USER=
+CI_REGISTRY_PASSWORD=
 
 # Deployment Control
 # local | prod

@@ -218,17 +218,15 @@ configure_git_github() {
 }
 
 configure_gitlab() {
-  echo "🦊 Configuring GitLab (CI/CD only — GitOps stays on GitHub)"
+  echo "🦊 Configuring GitLab (CI/CD only — manual pipeline runs)"
 
   # -------- required envs --------
   : "${GITLAB_NAMESPACE:?Missing GITLAB_NAMESPACE}"
   : "${GITLAB_PROJECT_NAME:?Missing GITLAB_PROJECT_NAME}"
-  : "${GITLAB_TOKEN:?Missing GITLAB_TOKEN (api scope required)}"
   : "${NAMESPACE:?Missing Kubernetes NAMESPACE}"
   : "${CI_DEFAULT_BRANCH:=main}"
-
-  command -v jq >/dev/null || { echo "❌ jq required"; exit 1; }
-  command -v kubectl >/dev/null || { echo "❌ kubectl required"; exit 1; }
+  : "${CI_REGISTRY_USER:?Missing CI_REGISTRY_USER}"
+  : "${CI_REGISTRY_PASSWORD:?Missing CI_REGISTRY_PASSWORD}"
 
   # -------- Git identity --------
   : "${GIT_AUTHOR_NAME:?Missing GIT_AUTHOR_NAME}"
@@ -236,34 +234,48 @@ configure_gitlab() {
   git config user.name "$GIT_AUTHOR_NAME"
   git config user.email "$GIT_AUTHOR_EMAIL"
 
-  # -------- GitLab remote (keep GitHub intact) --------
+  cd "$PROJECT_ROOT"
+
+  # -------- safety check --------
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "❌ Uncommitted changes detected. Commit or stash first."
+    exit 1
+  fi
+
+  # -------- GitLab remote --------
   if ! git remote get-url gitlab >/dev/null 2>&1; then
     git remote add gitlab \
       "https://gitlab.com/$GITLAB_NAMESPACE/$GITLAB_PROJECT_NAME.git"
+    echo "➕ Added GitLab remote"
+  else
+    echo "ℹ️ GitLab remote already exists"
   fi
 
   git checkout -B "$CI_DEFAULT_BRANCH"
   git push -u gitlab "$CI_DEFAULT_BRANCH"
-
-  echo "✅ Code pushed to GitLab (remote: gitlab)"
+  echo "✅ Code pushed to GitLab (branch: $CI_DEFAULT_BRANCH)"
 
   # -------- GitLab CI include --------
-  if [[ ! -f devops/cicd/gitlab/.gitlab-ci.yml ]]; then
-    echo "❌ devops/cicd/gitlab/.gitlab-ci.yml missing"
+  GITLAB_CI_FILE="$PROJECT_ROOT/devops/cicd/gitlab/.gitlab-ci.yml"
+  GITLAB_ROOT_CI="$PROJECT_ROOT/.gitlab-ci.yml"
+
+  if [[ ! -f "$GITLAB_CI_FILE" ]]; then
+    echo "❌ $GITLAB_CI_FILE missing"
     exit 1
   fi
 
-  if [[ ! -f .gitlab-ci.yml ]]; then
-    cat <<EOF > .gitlab-ci.yml
+  if [[ ! -f "$GITLAB_ROOT_CI" ]]; then
+    cat <<EOF > "$GITLAB_ROOT_CI"
 include:
   - local: devops/cicd/gitlab/.gitlab-ci.yml
 EOF
     git add .gitlab-ci.yml
     git commit -m "ci(gitlab): enable GitLab CI pipeline"
     git push gitlab "$CI_DEFAULT_BRANCH"
+    echo "✅ GitLab CI enabled"
+  else
+    echo "ℹ️ .gitlab-ci.yml already present"
   fi
-
-  echo "✅ GitLab CI configured"
 
   # -------- Kubernetes registry secret --------
   kubectl create secret docker-registry gitlab-regcred \
@@ -272,24 +284,8 @@ EOF
     --docker-password="$CI_REGISTRY_PASSWORD" \
     -n "$NAMESPACE" \
     --dry-run=client -o yaml | kubectl apply -f -
-
   echo "✅ GitLab registry secret created in namespace $NAMESPACE"
-
-  # -------- Trigger pipeline (optional but useful) --------
-  echo "🚀 Triggering GitLab pipeline..."
-
-  PROJECT_ID=$(curl -sf \
-    --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-    "https://gitlab.com/api/v4/projects/$GITLAB_NAMESPACE%2F$GITLAB_PROJECT_NAME" \
-    | jq -r .id)
-
-  curl -sf -X POST \
-    --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-    "https://gitlab.com/api/v4/projects/$PROJECT_ID/pipeline" \
-    --form ref="$CI_DEFAULT_BRANCH" >/dev/null
-
-  echo "✅ GitLab CI pipeline triggered"
-  echo "🧠 Argo CD remains connected to GitHub (unchanged)"
+  echo ""
 }
 
 deploy_argocd() {
