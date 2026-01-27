@@ -52,7 +52,7 @@ configure_gitlab() {
   if [[ ! -f "$GITLAB_ROOT_CI" ]]; then
     cat <<EOF > "$GITLAB_ROOT_CI"
 include:
-  - local: devops/cicd/gitlab/.gitlab-ci.yml
+  - local: /cicd/gitlab/.gitlab-ci.yml
 EOF
     git add .gitlab-ci.yml
     git commit -m "ci(gitlab): enable GitLab CI pipeline"
