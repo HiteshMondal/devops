@@ -93,3 +93,6 @@ kubectl delete pod -n monitoring -l app=prometheus --field-selector=status.phase
 echo ""
 echo "=== Cleanup & Restart Complete ==="
 echo "=== Troubleshooting Complete ==="
+
+#-------------------------GitLab------------------------------
+sudo gitlab-runner stop

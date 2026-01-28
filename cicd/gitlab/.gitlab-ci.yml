@@ -11,22 +11,22 @@ variables:
 
 default:
   tags:
-    - self-hosted   # same idea as GitHub self-hosted runner
-
-before_script:
-  - node --version || true
-  - npm --version || true
-  - kubectl version --client
-  - minikube version
+    - self-hosted
 
 build-and-deploy:
   stage: deploy
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
 
-  script:
-    # Checkout is automatic in GitLab
+  image: node:18   # Docker executor ensures Node.js and npm are available
 
+  before_script:
+    - node --version
+    - npm --version
+    - kubectl version --client
+    - minikube version || echo "Minikube not found, will start later"
+
+  script:
     - echo "📦 Installing app dependencies"
     - cd app
     - npm install
@@ -34,7 +34,7 @@ build-and-deploy:
 
     # Ensure Minikube
     - |
-      if [[ "$(minikube status --format='{{.Host}}')" != "Running" ]]; then
+      if ! minikube status --format='{{.Host}}' | grep -q Running; then
         minikube start --driver=docker
         minikube addons enable ingress
       fi
@@ -103,7 +103,7 @@ build-and-deploy:
       kubectl rollout restart deployment/prometheus -n monitoring
       kubectl rollout restart deployment/grafana -n monitoring
 
-    # Expose services
+    # Expose Monitoring Services
     - |
       kubectl apply -f - <<EOF
       apiVersion: v1
