@@ -1,6 +1,7 @@
 node_modules
 .git
+.gitlab
 .gitignore
 Dockerfile
-npm-debug.log
-.env
+.env*
+README.md
