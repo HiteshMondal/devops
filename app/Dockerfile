@@ -1,29 +1,29 @@
 # Use official Node.js LTS image
 FROM node:18-alpine
 
-# Create a non-root user and group
+# Create non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 # Set working directory
 WORKDIR /app
 
-# Copy package files first (for caching)
+# Copy dependency files first (cache-friendly)
 COPY package*.json ./
 
-# Install dependencies
+# Install production dependencies
 RUN npm install --production
 
-# Copy app source code
-COPY src ./src
+# Copy full app source
+COPY . .
 
-# Change ownership of the app folder to the non-root user
+# Fix permissions
 RUN chown -R appuser:appgroup /app
 
-# Switch to the non-root user
+# Switch to non-root user
 USER appuser
 
-# Expose app port
+# Expose application port
 EXPOSE 3000
 
-# Start the app
-CMD ["npm", "start"]
+# Start application
+CMD ["node", "src/index.js"]
