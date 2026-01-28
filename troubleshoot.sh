@@ -95,4 +95,5 @@ echo "=== Cleanup & Restart Complete ==="
 echo "=== Troubleshooting Complete ==="
 
 #-------------------------GitLab------------------------------
+sudo gitlab-runner unregister --all
 sudo gitlab-runner stop

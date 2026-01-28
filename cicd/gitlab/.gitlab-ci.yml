@@ -11,7 +11,7 @@ variables:
 
 default:
   tags:
-    - self-hosted
+    - docker
 
 build-and-deploy:
   stage: deploy
