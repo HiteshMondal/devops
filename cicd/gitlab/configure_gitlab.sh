@@ -93,7 +93,7 @@ sudo gitlab-runner register \
   --executor docker \
   --docker-image yourdockerhubusername/devops-ci:latest \
   --description "minikube-node-runner" \
-  --tag-list "self-hosted,docker,minikube" \
+  --tag-list "self-hosted, docker, minikube" \
   --run-untagged="false" \
   --locked="false"
 
