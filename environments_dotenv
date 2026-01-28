@@ -1,6 +1,7 @@
 # ========================================
 # DevOps Project Environment File example
 # ========================================
+# Some Variables may required to be added in GitHub/Gitlab for cicd
 
 APP_NAME=devops-app
 NAMESPACE=devops-app
@@ -17,14 +18,7 @@ GIT_AUTHOR_NAME=YourName
 GIT_AUTHOR_EMAIL=you@example.com
 GITHUB_USERNAME=yourgithubusername
 
-# GitHub Actions secrets and variables
-DOCKER_USERNAME=yourdockerhubusername
-DOCKER_PASSWORD=YourDockerhubPasswordOrToken
-
 # GitLab secrets and variables
-CI_DEFAULT_BRANCH=main
-CI_REGISTRY_USER=
-CI_REGISTRY_PASSWORD=
 GITLAB_NAMESPACE=yourusername
 GITLAB_PROJECT_NAME=
 

@@ -1,3 +1,5 @@
+name: Production CI/CD (Minikube)
+
 stages:
   - deploy
 
@@ -8,52 +10,49 @@ variables:
   IMAGE_NAME: devops-app
   IMAGE_TAG: latest
 
-default:
-  image: yourdockerhubusername/devops-ci:latest
+build-and-deploy:
+  stage: deploy
+
+  # same idea as: runs-on: self-hosted
   tags:
     - self-hosted
-    - docker
     - minikube
+    - docker
 
-before_script:
-  - docker info
-  - kubectl version --client
-  - minikube version
+  # IMPORTANT:
+  # This image must already contain:
+  # node 18, npm, docker, kubectl, minikube
+  image: devops-ci:latest
 
-deploy:
-  stage: deploy
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
 
   script:
-    # Install Node deps
     - echo "📦 Installing app dependencies"
-    - cd app
-    - npm install
-    - cd "$PROJECT_ROOT"
+    - npm install --prefix app
 
-    # Start Minikube
+    - echo "🚀 Ensuring Minikube is running"
     - |
-      if [[ "$(sudo minikube status --format='{{.Host}}')" != "Running" ]]; then
-        sudo minikube start --driver=docker
-        sudo minikube addons enable ingress
+      if [[ "$(minikube status --format='{{.Host}}')" != "Running" ]]; then
+        minikube start --driver=docker
+        minikube addons enable ingress
       fi
 
-    # Build image inside Minikube
-    - eval "$(sudo minikube docker-env)"
+    - echo "🐳 Building Docker image inside Minikube"
+    - eval "$(minikube docker-env)"
     - docker build -t "$IMAGE_NAME:$IMAGE_TAG" ./app
 
-    # Deploy app
+    - echo "📦 Deploying application (Kustomize)"
     - kubectl kustomize kubernetes/overlays/local | kubectl apply -f -
 
-    # Monitoring stack
-    - |
-      echo "📊 Deploying Monitoring Stack"
+    - echo "📊 Deploying Monitoring Stack"
 
+    - |
       BASE_MONITORING_PATH="$PROJECT_ROOT/kubernetes/base/monitoring"
       PROM_CONFIG="$PROJECT_ROOT/monitoring/prometheus/prometheus.yml"
       PROM_ALERTS="$PROJECT_ROOT/monitoring/prometheus/alerts.yml"
 
+      # Namespace
       kubectl apply -f - <<EOF
       apiVersion: v1
       kind: Namespace
@@ -61,30 +60,69 @@ deploy:
         name: monitoring
       EOF
 
-      : "${GRAFANA_ADMIN_PASSWORD:=admin123}"
-
+      # Grafana secret
       kubectl create secret generic grafana-secrets \
         --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
         -n monitoring \
         --dry-run=client -o yaml | kubectl apply -f -
 
+      # Dashboards
       kubectl apply -f "$BASE_MONITORING_PATH/dashboard-configmap.yaml"
 
+      # Prometheus config
       kubectl create configmap prometheus-config \
         --from-file=prometheus.yml="$PROM_CONFIG" \
         --from-file=alerts.yml="$PROM_ALERTS" \
         -n monitoring \
         --dry-run=client -o yaml | kubectl apply -f -
 
+      # Grafana datasource
+      kubectl create configmap grafana-datasource \
+        --from-literal=datasource.yaml="apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus.monitoring.svc.cluster.local:9090
+          isDefault: true" \
+        -n monitoring \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+      # Dummy dashboard configmaps
+      kubectl create configmap grafana-dashboard \
+        --from-literal=dummy=empty \
+        -n monitoring \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+      kubectl create configmap grafana-dashboard-config \
+        --from-literal=dummy=empty \
+        -n monitoring \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+      # Deploy workloads
       kubectl apply -f "$BASE_MONITORING_PATH/prometheus.yaml"
       kubectl apply -f "$BASE_MONITORING_PATH/grafana.yaml"
 
+      # Restart
       kubectl rollout restart deployment/prometheus -n monitoring
       kubectl rollout restart deployment/grafana -n monitoring
 
-    # Expose services
+    - echo "🌐 Exposing Monitoring Services (NodePort)"
     - |
       kubectl apply -f - <<EOF
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: prometheus
+        namespace: monitoring
+      spec:
+        selector:
+          app: prometheus
+        ports:
+          - port: 9090
+            targetPort: 9090
+        type: NodePort
+      ---
       apiVersion: v1
       kind: Service
       metadata:
@@ -99,14 +137,22 @@ deploy:
         type: NodePort
       EOF
 
-    # Output URLs
+    - echo "⏳ Waiting for Monitoring Rollouts"
+    - kubectl rollout status deployment/prometheus -n monitoring --timeout=300s
+    - kubectl rollout status deployment/grafana -n monitoring --timeout=300s
+
+    - echo "📊 Resolving service URLs"
     - |
-      MINIKUBE_IP=$(sudo minikube ip)
+      MINIKUBE_IP=$(minikube ip)
 
-      APP_PORT=$(kubectl get svc devops-app-service -n devops-app -o jsonpath='{.spec.ports[0].nodePort}')
-      GRAF_PORT=$(kubectl get svc grafana -n monitoring -o jsonpath='{.spec.ports[0].nodePort}')
+      APP_PORT=$(kubectl get svc devops-app-service -n devops-app \
+        -o jsonpath='{.spec.ports[0].nodePort}')
+      PROM_PORT=$(kubectl get svc prometheus -n monitoring \
+        -o jsonpath='{.spec.ports[0].nodePort}')
+      GRAF_PORT=$(kubectl get svc grafana -n monitoring \
+        -o jsonpath='{.spec.ports[0].nodePort}')
 
-      echo ""
       echo "🚀 Deployment URLs"
       echo "- App: http://$MINIKUBE_IP:$APP_PORT"
+      echo "- Prometheus: http://$MINIKUBE_IP:$PROM_PORT"
       echo "- Grafana: http://$MINIKUBE_IP:$GRAF_PORT"

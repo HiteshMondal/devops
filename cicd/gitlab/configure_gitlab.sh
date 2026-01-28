@@ -78,25 +78,4 @@ EOF
 
   echo "✅ Registry secret applied to namespace: $NAMESPACE"
 
-  # GitLab Runner (manual step)
-  cat <<'EOF'
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️  MANUAL STEP REQUIRED (ONE TIME)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Run this on the GitLab runner host:
-
-sudo gitlab-runner register \
-  --url https://gitlab.com \
-  --registration-token <PROJECT_REGISTRATION_TOKEN> \
-  --executor docker \
-  --docker-image yourdockerhubusername/devops-ci:latest \
-  --description "minikube-node-runner" \
-  --tag-list "self-hosted, docker, minikube" \
-  --run-untagged="false" \
-  --locked="false"
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EOF
 }
