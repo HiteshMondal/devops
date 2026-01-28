@@ -43,3 +43,4 @@ configure_gitlab() {
   create_var "GRAFANA_ADMIN_PASSWORD" "${GRAFANA_ADMIN_PASSWORD:-admin123}"
   echo "✅ GitLab CI configured (matches GitHub Actions behavior)"
 }
+
