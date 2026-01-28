@@ -1,5 +1,3 @@
-name: Production CI/CD (Minikube)
-
 stages:
   - deploy
 
@@ -9,50 +7,57 @@ variables:
   NAMESPACE: devops-app
   IMAGE_NAME: devops-app
   IMAGE_TAG: latest
+  KUBE_CONTEXT: minikube
 
-build-and-deploy:
+deploy_minikube:
   stage: deploy
-
-  # same idea as: runs-on: self-hosted
   tags:
     - self-hosted
     - minikube
-    - docker
-
-  # IMPORTANT:
-  # This image must already contain:
-  # node 18, npm, docker, kubectl, minikube
-  image: devops-ci:latest
-
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
-
   script:
-    - echo "📦 Installing app dependencies"
-    - npm install --prefix app
+    - echo "🚀 Production CI/CD (Minikube) – GitLab"
 
-    - echo "🚀 Ensuring Minikube is running"
+    # Tool sanity checks
+    - docker --version
+    - kubectl version --client
+    - minikube version
+    - node --version || true
+
+    # Install app dependencies
+    - echo "📦 Installing Node.js dependencies"
+    - cd app
+    - npm install
+    - cd ..
+
+    # Ensure Minikube is running
     - |
       if [[ "$(minikube status --format='{{.Host}}')" != "Running" ]]; then
+        echo "🔧 Starting Minikube..."
         minikube start --driver=docker
         minikube addons enable ingress
       fi
 
+    # Build Docker image inside Minikube
     - echo "🐳 Building Docker image inside Minikube"
     - eval "$(minikube docker-env)"
     - docker build -t "$IMAGE_NAME:$IMAGE_TAG" ./app
 
-    - echo "📦 Deploying application (Kustomize)"
+    # Deploy application (Kustomize)
+    - echo "📦 Deploying application via Kustomize"
+    - kubectl config use-context "$KUBE_CONTEXT"
     - kubectl kustomize kubernetes/overlays/local | kubectl apply -f -
 
+    # Deploy Monitoring Stack
     - echo "📊 Deploying Monitoring Stack"
 
-    - |
-      BASE_MONITORING_PATH="$PROJECT_ROOT/kubernetes/base/monitoring"
-      PROM_CONFIG="$PROJECT_ROOT/monitoring/prometheus/prometheus.yml"
-      PROM_ALERTS="$PROJECT_ROOT/monitoring/prometheus/alerts.yml"
+    - export BASE_MONITORING_PATH="$PROJECT_ROOT/kubernetes/base/monitoring"
+    - export PROM_CONFIG="$PROJECT_ROOT/monitoring/prometheus/prometheus.yml"
+    - export PROM_ALERTS="$PROJECT_ROOT/monitoring/prometheus/alerts.yml"
 
-      # Namespace
+    # Namespace
+    - |
       kubectl apply -f - <<EOF
       apiVersion: v1
       kind: Namespace
@@ -60,23 +65,27 @@ build-and-deploy:
         name: monitoring
       EOF
 
-      # Grafana secret
+    # Grafana secret
+    - : "${GRAFANA_ADMIN_PASSWORD:=admin123}"
+    - |
       kubectl create secret generic grafana-secrets \
         --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
         -n monitoring \
         --dry-run=client -o yaml | kubectl apply -f -
 
-      # Dashboards
-      kubectl apply -f "$BASE_MONITORING_PATH/dashboard-configmap.yaml"
+    # Dashboards
+    - kubectl apply -f "$BASE_MONITORING_PATH/dashboard-configmap.yaml"
 
-      # Prometheus config
+    # Prometheus config
+    - |
       kubectl create configmap prometheus-config \
         --from-file=prometheus.yml="$PROM_CONFIG" \
         --from-file=alerts.yml="$PROM_ALERTS" \
         -n monitoring \
         --dry-run=client -o yaml | kubectl apply -f -
 
-      # Grafana datasource
+    # Grafana datasource
+    - |
       kubectl create configmap grafana-datasource \
         --from-literal=datasource.yaml="apiVersion: 1
       datasources:
@@ -88,26 +97,28 @@ build-and-deploy:
         -n monitoring \
         --dry-run=client -o yaml | kubectl apply -f -
 
-      # Dummy dashboard configmaps
+    # Dummy dashboards (avoid crashloops)
+    - |
       kubectl create configmap grafana-dashboard \
         --from-literal=dummy=empty \
         -n monitoring \
         --dry-run=client -o yaml | kubectl apply -f -
 
+    - |
       kubectl create configmap grafana-dashboard-config \
         --from-literal=dummy=empty \
         -n monitoring \
         --dry-run=client -o yaml | kubectl apply -f -
 
-      # Deploy workloads
-      kubectl apply -f "$BASE_MONITORING_PATH/prometheus.yaml"
-      kubectl apply -f "$BASE_MONITORING_PATH/grafana.yaml"
+    # Deploy workloads
+    - kubectl apply -f "$BASE_MONITORING_PATH/prometheus.yaml"
+    - kubectl apply -f "$BASE_MONITORING_PATH/grafana.yaml"
 
-      # Restart
-      kubectl rollout restart deployment/prometheus -n monitoring
-      kubectl rollout restart deployment/grafana -n monitoring
+    # Restart to pick up configs
+    - kubectl rollout restart deployment/prometheus -n monitoring
+    - kubectl rollout restart deployment/grafana -n monitoring
 
-    - echo "🌐 Exposing Monitoring Services (NodePort)"
+    # Expose Monitoring (NodePort)
     - |
       kubectl apply -f - <<EOF
       apiVersion: v1
@@ -137,22 +148,31 @@ build-and-deploy:
         type: NodePort
       EOF
 
-    - echo "⏳ Waiting for Monitoring Rollouts"
+    # Wait for rollouts
     - kubectl rollout status deployment/prometheus -n monitoring --timeout=300s
+    - |
+      until kubectl get pods -n monitoring -l app=grafana --no-headers | grep Running; do
+        echo "⏳ Waiting for Grafana pod..."
+        sleep 5
+      done
     - kubectl rollout status deployment/grafana -n monitoring --timeout=300s
 
-    - echo "📊 Resolving service URLs"
+    # Output URLs
     - |
+      echo "📊 Resolving service URLs..."
       MINIKUBE_IP=$(minikube ip)
 
       APP_PORT=$(kubectl get svc devops-app-service -n devops-app \
         -o jsonpath='{.spec.ports[0].nodePort}')
+
       PROM_PORT=$(kubectl get svc prometheus -n monitoring \
         -o jsonpath='{.spec.ports[0].nodePort}')
+
       GRAF_PORT=$(kubectl get svc grafana -n monitoring \
         -o jsonpath='{.spec.ports[0].nodePort}')
 
-      echo "🚀 Deployment URLs"
+      echo ""
+      echo "## 🚀 Deployment URLs"
       echo "- App: http://$MINIKUBE_IP:$APP_PORT"
       echo "- Prometheus: http://$MINIKUBE_IP:$PROM_PORT"
       echo "- Grafana: http://$MINIKUBE_IP:$GRAF_PORT"
