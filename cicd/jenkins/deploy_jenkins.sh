@@ -1,30 +1,31 @@
 #!/bin/bash
 set -euo pipefail
+export IMAGE_TAG="$(git rev-parse --short HEAD)"
 
-NAMESPACE="devops-app"
-JENKINS_IMAGE="your-dockerhub-username/jenkins:latest"
-JENKINS_DOCKERFILE="cicd/jenkins/Dockerfile"
+deploy_jenkins() {
+  : "${DOCKERHUB_USERNAME:?Missing DOCKERHUB_USERNAME}"
+  : "${IMAGE_TAG:?Missing IMAGE_TAG}"
+  : "${NAMESPACE:?Missing NAMESPACE}"
 
-deploy_jenkins () {
-    echo "🔨 Building Jenkins Docker image..."
-    docker build -t "$JENKINS_IMAGE" -f "$JENKINS_DOCKERFILE" cicd/jenkins
+  JENKINS_IMAGE="${DOCKERHUB_USERNAME}/jenkins:${IMAGE_TAG}"
+  echo ""
+  echo "🔨 Building Jenkins image: $JENKINS_IMAGE"
+  docker build -t "$JENKINS_IMAGE" -f cicd/jenkins/Dockerfile cicd/jenkins
 
-    echo "📦 Pushing Jenkins image to Docker Hub..."
+  if [[ "${BUILD_PUSH:-false}" == "true" ]]; then
+    echo "📦 Pushing Jenkins image"
     docker push "$JENKINS_IMAGE"
+  fi
 
-    echo "🚀 Deploying Jenkins to Kubernetes..."
-    # Ensure namespace exists
-    kubectl get namespace "$NAMESPACE" >/dev/null 2>&1 || kubectl create namespace "$NAMESPACE"
+  echo "🚀 Deploying Jenkins to Kubernetes"
+  kubectl get namespace "$NAMESPACE" >/dev/null 2>&1 || kubectl create namespace "$NAMESPACE"
 
-    # Apply deployment YAML (uses the image we just built)
-    kubectl apply -f cicd/jenkins/jenkins-deployment.yaml
+  export JENKINS_IMAGE
+  envsubst < cicd/jenkins/jenkins-deployment.yaml | kubectl apply -f -
 
-    echo "⏳ Waiting for Jenkins pod rollout..."
-    kubectl rollout status deployment/jenkins -n "$NAMESPACE"
+  kubectl rollout status deployment/jenkins -n "$NAMESPACE"
 
-    JENKINS_IP=$(minikube ip 2>/dev/null || echo "EXTERNAL-IP")
-    echo "✅ Jenkins deployed!"
-    echo "🌐 Jenkins URL: http://$JENKINS_IP:30080"
-    echo "🔑 Admin password:"
-    echo "kubectl exec -n $NAMESPACE deploy/jenkins -- cat /var/jenkins_home/secrets/initialAdminPassword"
+  JENKINS_IP=$(minikube ip 2>/dev/null || echo "EXTERNAL-IP")
+  echo "✅ Jenkins URL: http://$JENKINS_IP:30080"
+  echo ""
 }

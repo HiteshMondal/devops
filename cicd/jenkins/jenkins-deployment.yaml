@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: jenkins
-          image: your-dockerhub-username/jenkins:latest
+          image: ${JENKINS_IMAGE}
           ports:
             - containerPort: 8080
             - containerPort: 50000

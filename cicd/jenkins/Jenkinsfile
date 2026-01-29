@@ -1,34 +1,46 @@
 pipeline {
-    agent any
-    environment {
-        APP_NAME = "devops-app"
-        IMAGE_TAG = "${BUILD_NUMBER}"
-        DOCKER_IMAGE = "${DOCKERHUB_USERNAME}/${APP_NAME}:${IMAGE_TAG}"
-        KUBE_NAMESPACE = "devops-app"
+  agent any
+
+  environment {
+    APP_NAME = "devops-app"
+    IMAGE_TAG = "${BUILD_NUMBER}"
+    KUBE_NAMESPACE = "devops-app"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
     }
-    stages {
-        stage('Checkout') {
-            steps { checkout scm }
+
+    stage('Docker Login') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'dockerhub-creds',
+          usernameVariable: 'DOCKERHUB_USERNAME',
+          passwordVariable: 'DOCKERHUB_PASSWORD'
+        )]) {
+          sh 'echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin'
         }
-        stage('Build Docker Image') {
-            steps { sh "docker build -t $DOCKER_IMAGE ./app" }
-        }
-        stage('Docker Login') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
-                }
-            }
-        }
-        stage('Push Docker Image') {
-            steps { sh "docker push $DOCKER_IMAGE" }
-        }
-        stage('Deploy to Kubernetes') {
-            steps { sh "kubectl set image deployment/devops-app devops-app=$DOCKER_IMAGE -n $KUBE_NAMESPACE" }
-        }
+      }
     }
-    post {
-        success { echo "✅ Pipeline completed successfully!" }
-        failure { echo "❌ Pipeline failed!" }
+
+    stage('Build & Push Image') {
+      steps {
+        sh '''
+          IMAGE=$DOCKERHUB_USERNAME/$APP_NAME:$IMAGE_TAG
+          docker build -t $IMAGE ./app
+          docker push $IMAGE
+        '''
+      }
     }
+
+    stage('Deploy to Kubernetes') {
+      steps {
+        sh '''
+          IMAGE=$DOCKERHUB_USERNAME/$APP_NAME:$IMAGE_TAG
+          kubectl set image deployment/devops-app devops-app=$IMAGE -n $KUBE_NAMESPACE
+        '''
+      }
+    }
+  }
 }
