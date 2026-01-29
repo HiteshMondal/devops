@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: jenkins
-  namespace: cicd
+  namespace: devops-app
 spec:
   replicas: 1
   selector:
@@ -14,32 +14,51 @@ spec:
         app: jenkins
     spec:
       containers:
-      - name: jenkins
-        image: jenkins/jenkins:lts
-        ports:
-        - containerPort: 8080
-        - containerPort: 50000
-        volumeMounts:
-        - name: jenkins-data
-          mountPath: /var/jenkins_home
+        - name: jenkins
+          image: your-dockerhub-username/jenkins:latest
+          ports:
+            - containerPort: 8080
+            - containerPort: 50000
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: jenkins-home
+              mountPath: /var/jenkins_home
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+          env:
+            - name: DOCKER_HOST
+              value: unix:///var/run/docker.sock
       volumes:
-      - name: jenkins-data
-        persistentVolumeClaim:
-          claimName: jenkins-pvc
+        - name: jenkins-home
+          persistentVolumeClaim:
+            claimName: jenkins-pvc
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jenkins-pvc
+  namespace: devops-app
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: jenkins
-  namespace: cicd
+  namespace: devops-app
 spec:
   selector:
     app: jenkins
   ports:
-  - name: http
-    port: 8080
-    targetPort: 8080
-  - name: agent
-    port: 50000
-    targetPort: 50000
-  type: LoadBalancer
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30080
+  type: NodePort

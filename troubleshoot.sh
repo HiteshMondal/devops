@@ -1,6 +1,5 @@
 #!/bin/bash
 
-set -euo pipefail
 IFS=$'\n\t'
 
 echo "=== DevOps Full Cleanup & Troubleshooting Script ==="
@@ -90,10 +89,10 @@ kubectl delete secret -n argocd -l argocd.argoproj.io/secret-type=repo-creds
 kubectl delete secret -n argocd -l argocd.argoproj.io/secret-type=repository
 kubectl delete pod -n monitoring -l app=prometheus --field-selector=status.phase=Terminating 2>/dev/null || true
 
-echo ""
-echo "=== Cleanup & Restart Complete ==="
-echo "=== Troubleshooting Complete ==="
-
 #-------------------------GitLab------------------------------
 sudo gitlab-runner unregister --all
 sudo gitlab-runner stop
+
+echo ""
+echo "=== Cleanup & Restart Complete ==="
+echo "=== Troubleshooting Complete ==="

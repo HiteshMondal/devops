@@ -1,52 +1,34 @@
 pipeline {
     agent any
-
     environment {
-        DOCKER_IMAGE = "docker.io/YOUR_USERNAME/devops-app:latest"
-        KUBECONFIG_CREDENTIALS_ID = "kubeconfig-prod" // Jenkins secret credentials
+        APP_NAME = "devops-app"
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        DOCKER_IMAGE = "${DOCKERHUB_USERNAME}/${APP_NAME}:${IMAGE_TAG}"
+        KUBE_NAMESPACE = "devops-app"
     }
-
     stages {
         stage('Checkout') {
-            steps {
-                checkout scm
-            }
+            steps { checkout scm }
         }
-
-        stage('Build & Test') {
+        stage('Build Docker Image') {
+            steps { sh "docker build -t $DOCKER_IMAGE ./app" }
+        }
+        stage('Docker Login') {
             steps {
-                dir('app') {
-                    sh 'npm install'
-                    sh 'npm test'
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
                 }
-                sh 'docker build -t $DOCKER_IMAGE ./app'
             }
         }
-
         stage('Push Docker Image') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
-                    sh 'docker push $DOCKER_IMAGE'
-                }
-            }
+            steps { sh "docker push $DOCKER_IMAGE" }
         }
-
         stage('Deploy to Kubernetes') {
-            steps {
-                withCredentials([file(credentialsId: KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG')]) {
-                    sh 'kubectl apply -k kubernetes/overlays/prod'
-                }
-            }
+            steps { sh "kubectl set image deployment/devops-app devops-app=$DOCKER_IMAGE -n $KUBE_NAMESPACE" }
         }
     }
-
     post {
-        success {
-            echo "✅ Production pipeline completed successfully"
-        }
-        failure {
-            echo "❌ Production pipeline failed"
-        }
+        success { echo "✅ Pipeline completed successfully!" }
+        failure { echo "❌ Pipeline failed!" }
     }
 }

@@ -39,15 +39,15 @@ spec:
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 30
+            initialDelaySeconds: 60
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 30
+            initialDelaySeconds: 90
             periodSeconds: 10
-            failureThreshold: 6
+            failureThreshold: 18
           securityContext:
             runAsNonRoot: true
             runAsUser: 472
@@ -55,16 +55,10 @@ spec:
           volumeMounts:
             - name: dashboards
               mountPath: /etc/grafana/provisioning/dashboards
-            #- name: dashboards-config
-            #  mountPath: /etc/grafana/provisioning/dashboards/provider.yaml
-            #  subPath: provider.yaml
       volumes:
         - name: dashboards
           configMap:
             name: grafana-dashboard
-        - name: dashboards-config
-          configMap:
-            name: grafana-dashboard-config
 ---
 apiVersion: v1
 kind: Service

@@ -51,23 +51,12 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-# Run Application (Docker)
-echo "Choose Docker Compose to ONLY run app or minikube to run app with monitoring"
-read -p "Run app using Docker Compose? (y/n): " RUN_DOCKER
-if [[ "$RUN_DOCKER" == "y" ]]; then
-  echo "Running app using Docker Compose..."
-  docker compose up -d
-  echo "App running at http://localhost:3000"
-  echo "Jenkins running at http://localhost:8080"
-  echo "Skipping Kubernetes and monitoring."
-  exit 0
-fi
-
 load_scripts() {
   source "$PROJECT_ROOT/app/build_and_push_image.sh"
   source "$PROJECT_ROOT/app/configure_dockerhub_username.sh"
   source "$PROJECT_ROOT/kubernetes/deploy_kubernetes.sh"
   source "$PROJECT_ROOT/monitoring/deploy_monitoring.sh"
+  source "$PROJECT_ROOT/cicd/jenkins/deploy_jenkins.sh"
   source "$PROJECT_ROOT/cicd/github/configure_git_github.sh"
   source "$PROJECT_ROOT/cicd/gitlab/configure_gitlab.sh"
   source "$PROJECT_ROOT/argocd/deploy_argocd.sh"
@@ -87,7 +76,8 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
 
     command -v minikube >/dev/null 2>&1 || { echo "❌ Minikube not installed"; exit 1; }
     if [[ "$(minikube status --format='{{.Host}}')" != "Running" ]]; then
-        echo "❌ Minikube is not running. Start it using: minikube start"
+        echo "❌ Minikube is not running"
+        echo "Start it using: minikube start --memory=4096 --cpus=2"
         exit 1
     fi
 
@@ -108,6 +98,7 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
 
     deploy_kubernetes local
     deploy_monitoring
+    deploy_jenkins
     deploy_argocd
     configure_gitlab
     self_heal_app
@@ -144,6 +135,7 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
 
     deploy_kubernetes prod
     deploy_monitoring
+    deploy_jenkins
     deploy_argocd
     configure_gitlab
     self_heal_app
