@@ -5,6 +5,8 @@ pipeline {
     APP_NAME = "devops-app"
     IMAGE_TAG = "${BUILD_NUMBER}"
     KUBE_NAMESPACE = "devops-app"
+    PROJECT_ROOT = "${WORKSPACE}"
+    NAMESPACE = "devops-app"
   }
 
   stages {
@@ -41,6 +43,83 @@ pipeline {
           kubectl set image deployment/devops-app devops-app=$IMAGE -n $KUBE_NAMESPACE
         '''
       }
+    }
+    stage('Deploy Monitoring (Prometheus + Grafana)') {
+      environment {
+        MON_NS = "monitoring"
+        GRAFANA_ADMIN_PASSWORD = "admin123"
+        BASE_MONITORING_PATH = "${WORKSPACE}/kubernetes/base/monitoring"
+        PROM_CONFIG = "${WORKSPACE}/monitoring/prometheus/prometheus.yml"
+        ALERTS_CONFIG = "${WORKSPACE}/monitoring/prometheus/alerts.yml"
+      }
+
+      steps {
+        sh '''
+          set -e
+
+          echo ""
+          echo "📊 Deploying Monitoring Stack..."
+
+          # Namespace
+          kubectl get namespace "$MON_NS" >/dev/null 2>&1 || \
+            kubectl create namespace "$MON_NS"
+
+          # Grafana secret
+          kubectl create secret generic grafana-secrets \
+            --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
+            -n "$MON_NS" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # Dashboards
+          kubectl apply -f "$BASE_MONITORING_PATH/dashboard-configmap.yaml"
+
+          # Prometheus config
+          kubectl create configmap prometheus-config \
+            --from-file=prometheus.yml="$PROM_CONFIG" \
+            --from-file=alerts.yml="$ALERTS_CONFIG" \
+            -n "$MON_NS" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # Grafana datasource
+          kubectl create configmap grafana-datasource \
+            --from-literal=datasource.yaml="apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus.$MON_NS.svc.cluster.local:9090
+        isDefault: true" \
+            -n "$MON_NS" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # Prevent stuck rollout
+          kubectl delete pod -l app=grafana -n "$MON_NS" --ignore-not-found
+
+          # Deploy Prometheus + Grafana
+          kubectl apply -f "$BASE_MONITORING_PATH/prometheus.yaml"
+          kubectl apply -f "$BASE_MONITORING_PATH/grafana.yaml"
+
+          # Wait for readiness
+          echo "⏳ Waiting for Prometheus..."
+          kubectl wait --for=condition=ready pod \
+            -l app=prometheus -n "$MON_NS" --timeout=600s
+
+          echo "⏳ Waiting for Grafana..."
+          kubectl wait --for=condition=ready pod \
+            -l app=grafana -n "$MON_NS" --timeout=600s
+
+          echo "✅ Monitoring deployed successfully"
+        '''
+      }
+    }
+
+  }
+  post {
+    success {
+      echo "✅ CI/CD + Monitoring deployed successfully"
+    }
+    failure {
+      echo "❌ Pipeline failed"
     }
   }
 }

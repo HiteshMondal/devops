@@ -1,7 +1,7 @@
 # ========================================
 # DevOps Project Environment File example
 # ========================================
-# Some Variables may required to be added in GitHub/Gitlab for cicd
+# Some Variables may required to be added in GitHub, Gitlab and Jenkins for cicd
 
 APP_NAME=devops-app
 NAMESPACE=devops-app
@@ -21,6 +21,10 @@ GITHUB_USERNAME=yourgithubusername
 # GitLab secrets and variables
 GITLAB_NAMESPACE=yourusername
 GITLAB_PROJECT_NAME=
+
+# Jenkins Credentials (Add in Project Configuration)
+github-creds=GitHubPersonalAccessToken
+dockerhub-creds=
 
 # Deployment Control
 # local | prod

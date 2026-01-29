@@ -27,5 +27,20 @@ deploy_jenkins() {
 
   JENKINS_IP=$(minikube ip 2>/dev/null || echo "EXTERNAL-IP")
   echo "✅ Jenkins URL: http://$JENKINS_IP:30080"
+  echo "Open Jenkins URL to enable setup wizard"
+  echo "⏳ Waiting for Jenkins to initialize..."
+  for i in {1..12}; do
+    if kubectl exec -n "$NAMESPACE" deploy/jenkins -- \
+       test -f /var/jenkins_home/secrets/initialAdminPassword 2>/dev/null; then
+      break
+    fi
+    sleep 5
+  done
+
+  echo "🔑 Jenkins admin password (if setup wizard is enabled):"
+  kubectl exec -n "$NAMESPACE" deploy/jenkins -- \
+    sh -c 'test -f /var/jenkins_home/secrets/initialAdminPassword && \
+           cat /var/jenkins_home/secrets/initialAdminPassword || \
+           echo "⚠️ Setup wizard disabled or Jenkins already initialized"'
   echo ""
 }

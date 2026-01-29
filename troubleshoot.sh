@@ -13,6 +13,35 @@ read -p "Type y to continue: " CONFIRM
   exit 1
 }
 
+# ---------------- Port cleanup ----------------
+read -p "Type y to kill processes on common DevOps ports: " CONFIRM_PORTS
+if [[ "$CONFIRM_PORTS" == "y" ]]; then
+  PORTS=(3000 3001 30001 30002 30003)
+  for port in "${PORTS[@]}"; do
+    sudo fuser -k ${port}/tcp 2>/dev/null || true
+  done
+  echo "✅ Ports cleared"
+else
+  echo "⏭ Skipping port cleanup"
+fi
+
+ss -lntp | grep -E '3000|3001|30001|30002|30003' || echo "✅ All target ports are free"
+
+#---------------Argo CD--------------------------
+kubectl delete application devops-app -n argocd --ignore-not-found
+kubectl delete application --all -n argocd
+kubectl delete namespace devops-app --ignore-not-found
+kubectl delete namespace monitoring --ignore-not-found
+kubectl delete namespace argocd --ignore-not-found
+kubectl delete secret -n argocd -l argocd.argoproj.io/secret-type=repo-creds
+kubectl delete secret -n argocd -l argocd.argoproj.io/secret-type=repository
+kubectl delete pod -n monitoring -l app=prometheus --field-selector=status.phase=Terminating 2>/dev/null || true
+
+# Delete Jenkins deployment + service + PVC
+kubectl delete deployment jenkins -n devops-app --ignore-not-found
+kubectl delete svc jenkins -n devops-app --ignore-not-found
+kubectl delete pvc jenkins-pvc -n devops-app --ignore-not-found
+
 # ---------------- Kubernetes cleanup ----------------
 kubectl delete deployments --all-namespaces --all || true
 minikube stop
@@ -64,30 +93,6 @@ if [[ "$DOCKER_TOUCHED" == true ]]; then
   echo "🔄 Docker restarted"
 fi
 echo ""
-
-# ---------------- Port cleanup ----------------
-read -p "Type y to kill processes on common DevOps ports: " CONFIRM_PORTS
-if [[ "$CONFIRM_PORTS" == "y" ]]; then
-  PORTS=(3000 3001 30001 30002 30003)
-  for port in "${PORTS[@]}"; do
-    sudo fuser -k ${port}/tcp 2>/dev/null || true
-  done
-  echo "✅ Ports cleared"
-else
-  echo "⏭ Skipping port cleanup"
-fi
-
-ss -lntp | grep -E '3000|3001|30001|30002|30003' || echo "✅ All target ports are free"
-
-#---------------Argo CD--------------------------
-kubectl delete application devops-app -n argocd --ignore-not-found
-kubectl delete application --all -n argocd
-kubectl delete namespace devops-app --ignore-not-found
-kubectl delete namespace monitoring --ignore-not-found
-kubectl delete namespace argocd --ignore-not-found
-kubectl delete secret -n argocd -l argocd.argoproj.io/secret-type=repo-creds
-kubectl delete secret -n argocd -l argocd.argoproj.io/secret-type=repository
-kubectl delete pod -n monitoring -l app=prometheus --field-selector=status.phase=Terminating 2>/dev/null || true
 
 #-------------------------GitLab------------------------------
 sudo gitlab-runner unregister --all
