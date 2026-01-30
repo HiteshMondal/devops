@@ -29,7 +29,4 @@ RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | \
     tee /etc/apt/sources.list.d/kubernetes.list && \
     apt-get update && apt-get install -y kubectl
 
-# Docker CLI (if not already there)
-RUN apt-get install -y docker.io
-
 USER jenkins
