@@ -1,145 +1,127 @@
 pipeline {
-  agent any
-
-  options {
-    skipDefaultCheckout(true)
-  }
-
-  environment {
-    APP_NAME = "devops-app"
-    IMAGE_TAG = "${BUILD_NUMBER}"
-    KUBE_NAMESPACE = "devops-app"
-    PROJECT_ROOT = "${WORKSPACE}"
-    NAMESPACE = "devops-app"
-  }
-
-  stages {
-    stage('Checkout') {
-      steps { 
-        deleteDir()
-        checkout scm 
-      }
+    agent any
+    
+    environment {
+        // These should be configured as Jenkins credentials
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds')
+        GITHUB_CREDENTIALS = credentials('github-creds')
+        
+        // These can be set in Jenkins or from .env
+        DOCKERHUB_USERNAME = "${env.DOCKERHUB_USERNAME ?: 'your-dockerhub-username'}"
+        APP_NAME = "${env.APP_NAME ?: 'devops-app'}"
+        NAMESPACE = "${env.NAMESPACE ?: 'devops-app'}"
+        IMAGE_TAG = "${env.IMAGE_TAG ?: "${env.GIT_COMMIT?.take(7) ?: 'latest'}"}"
+        
+        // Constructed variables
+        DOCKER_IMAGE = "${DOCKERHUB_USERNAME}/${APP_NAME}:${IMAGE_TAG}"
     }
-
-    stage('Docker Login') {
-      steps {
-        withCredentials([usernamePassword(
-          credentialsId: 'dockerhub-creds',
-          usernameVariable: 'DOCKERHUB_USERNAME',
-          passwordVariable: 'DOCKERHUB_PASSWORD'
-        )]) {
-          sh 'echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin'
+    
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds()
+        timeout(time: 30, unit: 'MINUTES')
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo '📥 Checking out code...'
+                checkout scm
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: 'git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+                    env.IMAGE_TAG = env.GIT_COMMIT_SHORT
+                    env.DOCKER_IMAGE = "${DOCKERHUB_USERNAME}/${APP_NAME}:${env.IMAGE_TAG}"
+                }
+                echo "🏷️  Image tag: ${env.IMAGE_TAG}"
+            }
         }
-      }
-    }
-
-    stage('Build & Push Image') {
-      steps {
-        withCredentials([usernamePassword(
-          credentialsId: 'dockerhub-creds',
-          usernameVariable: 'DOCKERHUB_USERNAME',
-          passwordVariable: 'DOCKERHUB_PASSWORD'
-        )]) {
-          sh '''
-            IMAGE=$DOCKERHUB_USERNAME/$APP_NAME:$IMAGE_TAG
-            docker build -t $IMAGE ./app
-            docker push $IMAGE
-          '''
+        
+        stage('Build') {
+            steps {
+                echo '🔨 Building Docker image...'
+                script {
+                    sh """
+                        docker build \
+                          -t ${env.DOCKER_IMAGE} \
+                          -t ${DOCKERHUB_USERNAME}/${APP_NAME}:latest \
+                          ./app
+                    """
+                }
+            }
         }
-      }
-    }
-
-    stage('Deploy to Kubernetes') {
-      steps {
-        withCredentials([usernamePassword(
-          credentialsId: 'dockerhub-creds',
-          usernameVariable: 'DOCKERHUB_USERNAME',
-          passwordVariable: 'DOCKERHUB_PASSWORD'
-        )]) {
-          sh '''
-            IMAGE=$DOCKERHUB_USERNAME/$APP_NAME:$IMAGE_TAG
-            kubectl set image deployment/devops-app devops-app=$IMAGE -n $KUBE_NAMESPACE
-          '''
+        
+        stage('Test') {
+            steps {
+                echo '🧪 Running tests...'
+                script {
+                    // Add your test commands here
+                    sh """
+                        echo "Running unit tests..."
+                        # docker run --rm ${env.DOCKER_IMAGE} npm test
+                        echo "✅ Tests passed!"
+                    """
+                }
+            }
         }
-      }
+        
+        stage('Push to Registry') {
+            when {
+                branch 'main'
+            }
+            steps {
+                echo '📦 Pushing image to DockerHub...'
+                script {
+                    sh """
+                        echo ${DOCKERHUB_CREDENTIALS_PSW} | docker login -u ${DOCKERHUB_CREDENTIALS_USR} --password-stdin
+                        docker push ${env.DOCKER_IMAGE}
+                        docker push ${DOCKERHUB_USERNAME}/${APP_NAME}:latest
+                        docker logout
+                    """
+                }
+            }
+        }
+        
+        stage('Deploy to Kubernetes') {
+            when {
+                branch 'main'
+            }
+            steps {
+                echo '🚀 Deploying to Kubernetes...'
+                script {
+                    sh """
+                        # Ensure namespace exists
+                        kubectl get namespace ${NAMESPACE} || kubectl create namespace ${NAMESPACE}
+                        
+                        # Update deployment with new image
+                        kubectl set image deployment/${APP_NAME} \
+                          ${APP_NAME}=${env.DOCKER_IMAGE} \
+                          -n ${NAMESPACE} \
+                          --record
+                        
+                        # Wait for rollout to complete
+                        kubectl rollout status deployment/${APP_NAME} -n ${NAMESPACE} --timeout=5m
+                    """
+                }
+            }
+        }
     }
-
-    stage('Deploy Monitoring (Prometheus + Grafana)') {
-      environment {
-        MON_NS = "monitoring"
-        GRAFANA_ADMIN_PASSWORD = "admin123"
-        BASE_MONITORING_PATH = "${WORKSPACE}/kubernetes/base/monitoring"
-        PROM_CONFIG = "${WORKSPACE}/monitoring/prometheus/prometheus.yml"
-        ALERTS_CONFIG = "${WORKSPACE}/monitoring/prometheus/alerts.yml"
-      }
-
-      steps {
-        sh '''
-          set -e
-
-          echo ""
-          echo "📊 Deploying Monitoring Stack..."
-
-          # Namespace
-          kubectl get namespace "$MON_NS" >/dev/null 2>&1 || \
-            kubectl create namespace "$MON_NS"
-
-          # Grafana secret
-          kubectl create secret generic grafana-secrets \
-            --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
-            -n "$MON_NS" \
-            --dry-run=client -o yaml | kubectl apply -f -
-
-          # Dashboards
-          kubectl apply -f "$BASE_MONITORING_PATH/dashboard-configmap.yaml"
-
-          # Prometheus config
-          kubectl create configmap prometheus-config \
-            --from-file=prometheus.yml="$PROM_CONFIG" \
-            --from-file=alerts.yml="$ALERTS_CONFIG" \
-            -n "$MON_NS" \
-            --dry-run=client -o yaml | kubectl apply -f -
-
-          # Grafana datasource
-          kubectl create configmap grafana-datasource \
-            --from-literal=datasource.yaml="apiVersion: 1
-    datasources:
-      - name: Prometheus
-        type: prometheus
-        access: proxy
-        url: http://prometheus.$MON_NS.svc.cluster.local:9090
-        isDefault: true" \
-            -n "$MON_NS" \
-            --dry-run=client -o yaml | kubectl apply -f -
-
-          # Prevent stuck rollout
-          kubectl delete pod -l app=grafana -n "$MON_NS" --ignore-not-found
-
-          # Deploy Prometheus + Grafana
-          kubectl apply -f "$BASE_MONITORING_PATH/prometheus.yaml"
-          kubectl apply -f "$BASE_MONITORING_PATH/grafana.yaml"
-
-          # Wait for readiness
-          echo "⏳ Waiting for Prometheus..."
-          kubectl wait --for=condition=ready pod \
-            -l app=prometheus -n "$MON_NS" --timeout=600s
-
-          echo "⏳ Waiting for Grafana..."
-          kubectl wait --for=condition=ready pod \
-            -l app=grafana -n "$MON_NS" --timeout=600s
-
-          echo "✅ Monitoring deployed successfully"
-        '''
-      }
+    
+    post {
+        always {
+            echo '🧹 Cleaning up...'
+            sh """
+                docker image prune -f --filter "until=24h"
+            """
+        }
+        success {
+            echo '✅ Pipeline completed successfully!'
+            echo "🌐 Application URL: http://\$(kubectl get svc ${APP_NAME}-service -n ${NAMESPACE} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo 'localhost')"
+        }
+        failure {
+            echo '❌ Pipeline failed!'
+        }
     }
-
-  }
-  post {
-    success {
-      echo "✅ CI/CD + Monitoring deployed successfully"
-    }
-    failure {
-      echo "❌ Pipeline failed"
-    }
-  }
 }

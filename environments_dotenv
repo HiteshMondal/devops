@@ -1,48 +1,99 @@
 # ========================================
-# DevOps Project Environment File example
+# DevOps Project Environment Configuration
 # ========================================
-# Some Variables may required to be added in GitHub, Gitlab and Jenkins for cicd
+# Update the values according to your setup
 
+# Project Configuration
 APP_NAME=devops-app
 NAMESPACE=devops-app
 ARGO_APP=devops-app
+
+# Kubernetes Configuration
 KUBECONFIG_PROD=$HOME/.kube/config
-
-# Docker / Image
-DOCKERHUB_USERNAME=yourdockerhubusername
-DOCKERHUB_PASSWORD=YourDockerhubPasswordOrToken
-IMAGE_TAG=latest
-
-# Git / GitOps
-GIT_AUTHOR_NAME=YourName
-GIT_AUTHOR_EMAIL=you@example.com
-GITHUB_USERNAME=yourgithubusername
-
-# GitLab secrets and variables
-GITLAB_NAMESPACE=yourusername
-GITLAB_PROJECT_NAME=
-GITLAB_TOKEN=
-
-# Jenkins Credentials (Add in Project Configuration)
-github-creds=GitHubPersonalAccessToken
-dockerhub-creds=
-
-# Deployment Control
-# local | prod
-DEPLOY_TARGET=local
-# true | false
-BUILD_PUSH=false
-CI=false
-DRY_RUN=false
-
-# Kubernetes Safety
 KUBE_CONTEXT=minikube
 
-# Monitoring
-GRAFANA_ADMIN_PASSWORD=change-me
+# Docker / Container Registry
+# DockerHub credentials (required for pushing images)
+DOCKERHUB_USERNAME=yourdockerhubusername
+DOCKERHUB_PASSWORD=your-dockerhub-password-or-token
 
-# Argo CD
-ARGO_CD_VERSION=v2.9.3
+# Image configuration
+IMAGE_TAG=latest
 
-# Minikube
+# Git Configuration
+GIT_AUTHOR_NAME=Your Name
+GIT_AUTHOR_EMAIL=you@example.com
+
+# GitHub configuration
+GITHUB_USERNAME=yourgithubusername
+GITHUB_TOKEN=your-github-personal-access-token
+
+# GitLab Configuration
+GITLAB_NAMESPACE=yourusername
+GITLAB_PROJECT_NAME=your-project-name
+GITLAB_TOKEN=your-gitlab-token
+
+# Jenkins Configuration
+# Jenkins will be deployed automatically
+# These credentials need to be added in Jenkins UI after deployment:
+# - GitHub credentials ID: github-creds (Personal Access Token)
+# - DockerHub credentials ID: dockerhub-creds (Username + Password/Token)
+
+# Jenkins node port (default: 30080)
+JENKINS_NODE_PORT=30080
+
+# Jenkins initial admin user (optional, for automation)
+JENKINS_ADMIN_USER=admin
+# Leave empty to use auto-generated password from setup wizard
+JENKINS_ADMIN_PASSWORD=
+
+# Deployment Configuration
+# Deployment target: 'local' for Minikube, 'prod' for AWS EKS
+DEPLOY_TARGET=local
+
+# Build and push images to DockerHub
+BUILD_PUSH=false
+
+# CI mode (affects certain behaviors)
+CI=false
+
+# Dry run mode (test without actual deployment)
+DRY_RUN=false
+
+# Minikube Configuration
+# Enable Minikube ingress addon
 MINIKUBE_INGRESS=true
+
+# Minikube resources
+MINIKUBE_MEMORY=4096
+MINIKUBE_CPUS=2
+
+# Monitoring Configuration
+# Grafana admin password
+GRAFANA_ADMIN_PASSWORD=change-me-please
+
+# ArgoCD Configuration
+ARGO_CD_VERSION=v2.9.3
+ARGO_CD_ADMIN_PASSWORD=
+
+# AWS Configuration (for prod deployment)
+AWS_REGION=us-east-1
+AWS_ACCOUNT_ID=123456789012
+EKS_CLUSTER_NAME=devops-cluster
+
+# Feature Flags
+# Enable/disable specific components
+DEPLOY_JENKINS=true
+DEPLOY_ARGOCD=true
+DEPLOY_MONITORING=true
+DEPLOY_GITLAB=false
+
+# Advanced Configuration
+# Log level: DEBUG, INFO, WARN, ERROR
+LOG_LEVEL=INFO
+
+# Timeout for deployments (in minutes)
+DEPLOYMENT_TIMEOUT=10
+
+# Number of retries for failed operations
+MAX_RETRIES=3
