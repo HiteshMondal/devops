@@ -1,17 +1,25 @@
 pipeline {
   agent any
 
+  options {
+  skipDefaultCheckout(true)
+  }
+
   environment {
     APP_NAME = "devops-app"
     IMAGE_TAG = "${BUILD_NUMBER}"
     KUBE_NAMESPACE = "devops-app"
     PROJECT_ROOT = "${WORKSPACE}"
     NAMESPACE = "devops-app"
+    DOCKERHUB_USERNAME = credentials('dockerhub-creds').username
   }
 
   stages {
     stage('Checkout') {
-      steps { checkout scm }
+      steps { 
+        deleteDir()
+        checkout scm 
+      }
     }
 
     stage('Docker Login') {

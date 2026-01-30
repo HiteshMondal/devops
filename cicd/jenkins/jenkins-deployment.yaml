@@ -13,6 +13,9 @@ spec:
       labels:
         app: jenkins
     spec:
+      securityContext:
+        runAsUser: 0
+        fsGroup: 0
       containers:
         - name: jenkins
           image: ${JENKINS_IMAGE}

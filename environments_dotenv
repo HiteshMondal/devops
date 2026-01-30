@@ -21,6 +21,7 @@ GITHUB_USERNAME=yourgithubusername
 # GitLab secrets and variables
 GITLAB_NAMESPACE=yourusername
 GITLAB_PROJECT_NAME=
+GITLAB_TOKEN=
 
 # Jenkins Credentials (Add in Project Configuration)
 github-creds=GitHubPersonalAccessToken
