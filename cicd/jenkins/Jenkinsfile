@@ -51,12 +51,19 @@ pipeline {
 
     stage('Deploy to Kubernetes') {
       steps {
-        sh '''
-          IMAGE=$DOCKERHUB_USERNAME/$APP_NAME:$IMAGE_TAG
-          kubectl set image deployment/devops-app devops-app=$IMAGE -n $KUBE_NAMESPACE
-        '''
+        withCredentials([usernamePassword(
+          credentialsId: 'dockerhub-creds',
+          usernameVariable: 'DOCKERHUB_USERNAME',
+          passwordVariable: 'DOCKERHUB_PASSWORD'
+        )]) {
+          sh '''
+            IMAGE=$DOCKERHUB_USERNAME/$APP_NAME:$IMAGE_TAG
+            kubectl set image deployment/devops-app devops-app=$IMAGE -n $KUBE_NAMESPACE
+          '''
+        }
       }
     }
+
     stage('Deploy Monitoring (Prometheus + Grafana)') {
       environment {
         MON_NS = "monitoring"
