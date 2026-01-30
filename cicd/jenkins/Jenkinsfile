@@ -35,11 +35,17 @@ pipeline {
 
     stage('Build & Push Image') {
       steps {
-        sh '''
-          IMAGE=$DOCKERHUB_USERNAME/$APP_NAME:$IMAGE_TAG
-          docker build -t $IMAGE ./app
-          docker push $IMAGE
-        '''
+        withCredentials([usernamePassword(
+          credentialsId: 'dockerhub-creds',
+          usernameVariable: 'DOCKERHUB_USERNAME',
+          passwordVariable: 'DOCKERHUB_PASSWORD'
+        )]) {
+          sh '''
+            IMAGE=$DOCKERHUB_USERNAME/$APP_NAME:$IMAGE_TAG
+            docker build -t $IMAGE ./app
+            docker push $IMAGE
+          '''
+        }
       }
     }
 

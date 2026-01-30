@@ -97,7 +97,7 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     fi
 
     deploy_kubernetes local
-    deploy_monitoring
+    #deploy_monitoring
     deploy_jenkins
     deploy_argocd
     configure_gitlab
