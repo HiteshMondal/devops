@@ -14,12 +14,12 @@ deploy_argocd() {
   git config user.email "$GIT_AUTHOR_EMAIL"
 
   # Replace placeholder ONLY if still present
-  if grep -q "GITHUB_USERNAME" argocd/application.yaml; then
+  if grep -q "GITHUB_USERNAME" cicd/argocd/application.yaml; then
   sed -i.bak \
     -e "s|<GITHUB_USERNAME>|$GITHUB_USERNAME|g" \
     -e "s|GITHUB_USERNAME|$GITHUB_USERNAME|g" \
-    argocd/application.yaml
-  rm -f argocd/application.yaml.bak
+    cicd/argocd/application.yaml
+  rm -f cicd/argocd/application.yaml.bak
   echo "✅ Placeholder resolved"
 else
   echo "ℹ️ Placeholder already resolved"
@@ -27,7 +27,7 @@ fi
 
   # Commit & push if changed
   if ! git diff --quiet; then
-    git add argocd/application.yaml
+    git add cicd/argocd/application.yaml
     git commit -m "chore(gitops): resolve repository placeholders"
     git push origin main
     echo "🚀 GitOps config committed & pushed"
@@ -62,12 +62,12 @@ fi
 
   echo "🔐 Argo CD admin password: $ADMIN_PASSWORD"
 
-  if [[ ! -f "$PROJECT_ROOT/argocd/application.yaml" ]]; then
-    echo "❌ argocd/application.yaml not found"
+  if [[ ! -f "$PROJECT_ROOT/cicd/argocd/application.yaml" ]]; then
+    echo "❌ cicd/argocd/application.yaml not found"
     exit 1
   fi
 
-  kubectl apply -f "$PROJECT_ROOT/argocd/application.yaml"
+  kubectl apply -f "$PROJECT_ROOT/cicd/argocd/application.yaml"
 
   echo "✅ Argo CD Application applied"
   echo ""

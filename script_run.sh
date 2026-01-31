@@ -59,8 +59,8 @@ load_scripts() {
   source "$PROJECT_ROOT/cicd/jenkins/deploy_jenkins.sh"
   source "$PROJECT_ROOT/cicd/github/configure_git_github.sh"
   source "$PROJECT_ROOT/cicd/gitlab/configure_gitlab.sh"
-  source "$PROJECT_ROOT/argocd/deploy_argocd.sh"
-  source "$PROJECT_ROOT/argocd/self_heal_app.sh"
+  source "$PROJECT_ROOT/cicd/argocd/deploy_argocd.sh"
+  source "$PROJECT_ROOT/cicd/argocd/self_heal_app.sh"
 }
 
 load_scripts
@@ -97,8 +97,8 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     fi
 
     deploy_kubernetes local
-    deploy_monitoring
-    deploy_jenkins
+    #deploy_monitoring
+    #deploy_jenkins
     deploy_argocd
     configure_gitlab
     self_heal_app
