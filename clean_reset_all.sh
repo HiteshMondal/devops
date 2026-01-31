@@ -2,7 +2,7 @@
 
 IFS=$'\n\t'
 
-echo "=== DevOps Full Cleanup & Troubleshooting Script ==="
+echo "=== DevOps Full Cleanup & Reset Script ==="
 echo "⚠️ WARNING: This will DESTROY Docker, Minikube, and Kubernetes state"
 echo "⚠️ Use ONLY when recovery is impossible"
 echo ""
@@ -99,5 +99,9 @@ sudo gitlab-runner unregister --all
 sudo gitlab-runner stop
 
 echo ""
-echo "=== Cleanup & Restart Complete ==="
-echo "=== Troubleshooting Complete ==="
+echo "=== Cleanup & Reset Complete ==="
+echo ""
+echo "⚠️Restarting system in few second seconds........."
+echo "❌ Press: CTRL+C to Cancel"
+sleep 12
+echo "sudo reboot"

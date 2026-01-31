@@ -109,12 +109,12 @@ deploy_monitoring() {
     fi
     
     # Display monitoring stack information
-    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "✅ Monitoring stack deployment completed successfully!"
     echo ""
     echo "📊 Monitoring Components:"
     kubectl get all -n "$PROMETHEUS_NAMESPACE"
-    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
     # Get service URLs
     if [[ "${DEPLOY_TARGET:-local}" == "local" ]]; then
@@ -128,17 +128,21 @@ deploy_monitoring() {
         if [[ "${GRAFANA_ENABLED:-true}" == "true" ]]; then
             GRAFANA_PORT=$(kubectl get svc grafana -n "$PROMETHEUS_NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
             if [[ -n "$GRAFANA_PORT" ]]; then
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 echo "📈 Grafana URL: http://$MINIKUBE_IP:$GRAFANA_PORT"
                 echo "   Username: ${GRAFANA_ADMIN_USER}"
                 echo "   Password: ${GRAFANA_ADMIN_PASSWORD}"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             fi
         fi
     else
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "🌐 For production, check the LoadBalancer external IPs:"
         echo "   Prometheus: kubectl get svc prometheus -n $PROMETHEUS_NAMESPACE"
         if [[ "${GRAFANA_ENABLED:-true}" == "true" ]]; then
             echo "   Grafana: kubectl get svc grafana -n $PROMETHEUS_NAMESPACE"
         fi
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     fi
     
     # Cleanup temporary directory

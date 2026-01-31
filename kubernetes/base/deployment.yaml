@@ -107,9 +107,30 @@ spec:
           limits:
             cpu: ${APP_CPU_LIMIT}
             memory: ${APP_MEMORY_LIMIT}
+        # SIMPLIFIED HEALTH CHECKS - Only enable if your app has these endpoints
+        # Comment out these probes if your app doesn't have /health and /ready endpoints
+        # livenessProbe:
+        #   httpGet:
+        #     path: /health
+        #     port: http
+        #   initialDelaySeconds: 30
+        #   periodSeconds: 10
+        #   timeoutSeconds: 5
+        #   successThreshold: 1
+        #   failureThreshold: 3
+        # readinessProbe:
+        #   httpGet:
+        #     path: /ready
+        #     port: http
+        #   initialDelaySeconds: 10
+        #   periodSeconds: 5
+        #   timeoutSeconds: 3
+        #   successThreshold: 1
+        #   failureThreshold: 3
+        
+        # ALTERNATIVE: TCP-based health checks (works even without /health endpoint)
         livenessProbe:
-          httpGet:
-            path: /health
+          tcpSocket:
             port: http
           initialDelaySeconds: 30
           periodSeconds: 10
@@ -117,8 +138,7 @@ spec:
           successThreshold: 1
           failureThreshold: 3
         readinessProbe:
-          httpGet:
-            path: /ready
+          tcpSocket:
             port: http
           initialDelaySeconds: 10
           periodSeconds: 5

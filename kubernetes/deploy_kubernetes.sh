@@ -118,7 +118,7 @@ deploy_kubernetes() {
     echo "📦 Pods:"
     kubectl get pods -n "$NAMESPACE"
     echo ""
-    
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     # Show how to access the application
     if [[ "$environment" == "local" ]]; then
         NODE_PORT=$(kubectl get svc "${APP_NAME}-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
@@ -135,7 +135,8 @@ deploy_kubernetes() {
         echo "🌐 For production, check the LoadBalancer external IP:"
         echo "   kubectl get svc ${APP_NAME}-service -n $NAMESPACE"
     fi
-    
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
     # Cleanup temporary directory
     rm -rf "$WORK_DIR"
     

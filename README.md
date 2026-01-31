@@ -120,7 +120,7 @@ The project is intentionally designed to reflect **real-world DevOps practices**
 ├── .gitlab-ci.yml                  # Root GitLab CI include
 ├── kubeconfig.yaml                 # Kubernetes access config (local)
 ├── run.sh                          # Main orchestration script
-├── troubleshoot.sh                 # Debug & recovery utilities
+├── reset_all.sh                    # Reset Everything
 └── README.md                       # Project documentation
 
 ```
