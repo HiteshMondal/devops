@@ -15,6 +15,10 @@ override.tf.json
 terraform.rc
 terraform.tfstate
 
+# Kubernetes temporary files
+*.tmp
+*.bak
+
 # Ansible
 *.retry
 *.log
@@ -23,12 +27,6 @@ ansible/inventories/*/hosts.yml
 ansible/inventories/*/terraform_outputs.json
 /tmp/
 .ansible_facts/
-
-# SSH Keys
-*.pem
-*.key
-id_rsa*
-*.ppk
 
 # Environment Variables
 .env
@@ -73,24 +71,45 @@ log/
 *.old
 
 # Secrets
-secrets/
+*.pem
+*.key
+*.crt
+*.ppk
 *.secret
+secrets/
+credentials/
+secrets/
 credentials.json
 service-account.json
+id_rsa*
 
 # OS
 Thumbs.db
 desktop.ini
+
+# Monitoring data
+prometheus-data/
+grafana-data/
 
 # Temporary files
 tmp/
 temp/
 *.tmp
 
+# Build artifacts
+dist/
+build/
+builds/
+*.log
+
 # Archives
 *.zip
 *.tar
 *.tar.gz
+
+# Monitoring data
+prometheus-data/
+grafana-data/
 
 # Node modules in specific project
 devops-webapp/node_modules
@@ -100,4 +119,6 @@ config-demo
 
 # GitLab Runner
 **/.gitlab-runner/
-**/builds/
+
+# ArgoCD
+argocd-values.yaml

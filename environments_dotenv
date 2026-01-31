@@ -7,18 +7,91 @@
 APP_NAME=devops-app
 NAMESPACE=devops-app
 ARGO_APP=devops-app
-
-# Kubernetes Configuration
-KUBECONFIG_PROD=$HOME/.kube/config
-KUBE_CONTEXT=minikube
+APP_PORT=3000
+REPLICAS=2
+MIN_REPLICAS=2
+MAX_REPLICAS=10
+CPU_TARGET_UTILIZATION=70
+MEMORY_TARGET_UTILIZATION=80
 
 # Docker / Container Registry
 # DockerHub credentials (required for pushing images)
 DOCKERHUB_USERNAME=yourdockerhubusername
 DOCKERHUB_PASSWORD=your-dockerhub-password-or-token
+DOCKER_IMAGE_TAG=latest
+
+# Kubernetes Configuration
+KUBECONFIG_PROD=$HOME/.kube/config
+KUBE_CONTEXT=minikube
 
 # Image configuration
 IMAGE_TAG=latest
+
+# INGRESS CONFIGURATION
+INGRESS_ENABLED=true
+INGRESS_HOST=devops-app.local
+INGRESS_CLASS=nginx
+TLS_ENABLED=false
+TLS_SECRET_NAME=devops-app-tls
+
+# DATABASE CONFIGURATION (Secrets)
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=devopsdb
+DB_USERNAME=dbuser
+DB_PASSWORD=SecurePassword123!
+
+# APPLICATION SECRETS
+JWT_SECRET=your-super-secret-jwt-key-change-this
+API_KEY=your-api-key-here
+SESSION_SECRET=your-session-secret-here
+
+# MONITORING - PROMETHEUS
+PROMETHEUS_ENABLED=true
+PROMETHEUS_NAMESPACE=monitoring
+PROMETHEUS_RETENTION=15d
+PROMETHEUS_STORAGE_SIZE=10Gi
+PROMETHEUS_SCRAPE_INTERVAL=15s
+PROMETHEUS_SCRAPE_TIMEOUT=10s
+
+# MONITORING - GRAFANA
+GRAFANA_ENABLED=true
+GRAFANA_ADMIN_USER=admin
+GRAFANA_ADMIN_PASSWORD=admin123
+GRAFANA_PORT=3000
+GRAFANA_STORAGE_SIZE=5Gi
+
+# ALERTING CONFIGURATION
+ALERT_EMAIL_ENABLED=false
+ALERT_EMAIL_TO=alerts@example.com
+ALERT_EMAIL_FROM=monitoring@example.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your-email@gmail.com
+SMTP_PASSWORD=your-email-password
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+
+# RESOURCE LIMITS & REQUESTS
+# Application
+APP_CPU_REQUEST=100m
+APP_CPU_LIMIT=500m
+APP_MEMORY_REQUEST=128Mi
+APP_MEMORY_LIMIT=512Mi
+# Prometheus
+PROMETHEUS_CPU_REQUEST=500m
+PROMETHEUS_CPU_LIMIT=2000m
+PROMETHEUS_MEMORY_REQUEST=1Gi
+PROMETHEUS_MEMORY_LIMIT=4Gi
+# Grafana
+GRAFANA_CPU_REQUEST=100m
+GRAFANA_CPU_LIMIT=500m
+GRAFANA_MEMORY_REQUEST=256Mi
+GRAFANA_MEMORY_LIMIT=1Gi
+
+# AWS CONFIGURATION (for prod deployment)
+AWS_REGION=us-east-1
+AWS_ACCOUNT_ID=123456789012
+EKS_CLUSTER_NAME=devops-cluster
 
 # Git Configuration
 GIT_AUTHOR_NAME=Your Name
@@ -32,20 +105,6 @@ GITHUB_TOKEN=your-github-personal-access-token
 GITLAB_NAMESPACE=yourusername
 GITLAB_PROJECT_NAME=your-project-name
 GITLAB_TOKEN=your-gitlab-token
-
-# Jenkins Configuration
-# Jenkins will be deployed automatically
-# These credentials need to be added in Jenkins UI after deployment:
-# - GitHub credentials ID: github-creds (Personal Access Token)
-# - DockerHub credentials ID: dockerhub-creds (Username + Password/Token)
-
-# Jenkins node port (default: 30080)
-JENKINS_NODE_PORT=30080
-
-# Jenkins initial admin user (optional, for automation)
-JENKINS_ADMIN_USER=admin
-# Leave empty to use auto-generated password from setup wizard
-JENKINS_ADMIN_PASSWORD=
 
 # Deployment Configuration
 # Deployment target: 'local' for Minikube, 'prod' for AWS EKS
@@ -68,9 +127,6 @@ MINIKUBE_INGRESS=true
 MINIKUBE_MEMORY=4096
 MINIKUBE_CPUS=2
 
-# Monitoring Configuration
-# Grafana admin password
-GRAFANA_ADMIN_PASSWORD=change-me-please
 
 # ArgoCD Configuration
 ARGO_CD_VERSION=v2.9.3
@@ -88,12 +144,3 @@ DEPLOY_ARGOCD=true
 DEPLOY_MONITORING=true
 DEPLOY_GITLAB=false
 
-# Advanced Configuration
-# Log level: DEBUG, INFO, WARN, ERROR
-LOG_LEVEL=INFO
-
-# Timeout for deployments (in minutes)
-DEPLOYMENT_TIMEOUT=10
-
-# Number of retries for failed operations
-MAX_RETRIES=3

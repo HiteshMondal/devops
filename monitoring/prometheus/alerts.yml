@@ -1,20 +1,112 @@
 groups:
-  - name: app_alerts
+  - name: kubernetes_alerts
+    interval: 30s
     rules:
-    - alert: HighCPUUsage
-      expr: cpu_usage > 80
-      for: 5m
-      labels:
-        severity: warning
-      annotations:
-        summary: "High CPU usage detected"
-        description: "CPU usage is above 80% for 5 minutes"
-    
-    - alert: PodDown
-      expr: up == 0
-      for: 2m
-      labels:
-        severity: critical
-      annotations:
-        summary: "Pod is down"
-        description: "Pod has been down for 2 minutes"
+      # Pod alerts
+      - alert: PodCrashLooping
+        expr: rate(kube_pod_container_status_restarts_total{namespace="${NAMESPACE}"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          namespace: ${NAMESPACE}
+        annotations:
+          summary: "Pod {{ $labels.pod }} is crash looping"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is restarting frequently"
+
+      - alert: PodNotReady
+        expr: kube_pod_status_ready{condition="false",namespace="${NAMESPACE}"} == 1
+        for: 5m
+        labels:
+          severity: warning
+          namespace: ${NAMESPACE}
+        annotations:
+          summary: "Pod {{ $labels.pod }} not ready"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been not ready for more than 5 minutes"
+
+      # Container resource alerts
+      - alert: ContainerHighCPU
+        expr: sum(rate(container_cpu_usage_seconds_total{namespace="${NAMESPACE}",pod=~"${APP_NAME}.*"}[5m])) by (pod) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          namespace: ${NAMESPACE}
+        annotations:
+          summary: "High CPU usage on {{ $labels.pod }}"
+          description: "Container {{ $labels.pod }} CPU usage is above 80%"
+
+      - alert: ContainerHighMemory
+        expr: sum(container_memory_usage_bytes{namespace="${NAMESPACE}",pod=~"${APP_NAME}.*"}) by (pod) / sum(container_spec_memory_limit_bytes{namespace="${NAMESPACE}",pod=~"${APP_NAME}.*"}) by (pod) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          namespace: ${NAMESPACE}
+        annotations:
+          summary: "High memory usage on {{ $labels.pod }}"
+          description: "Container {{ $labels.pod }} memory usage is above 90%"
+
+      # Deployment alerts
+      - alert: DeploymentReplicasMismatch
+        expr: kube_deployment_spec_replicas{namespace="${NAMESPACE}"} != kube_deployment_status_replicas_available{namespace="${NAMESPACE}"}
+        for: 5m
+        labels:
+          severity: warning
+          namespace: ${NAMESPACE}
+        annotations:
+          summary: "Deployment {{ $labels.deployment }} replicas mismatch"
+          description: "Deployment {{ $labels.deployment }} has {{ $value }} replicas available, expected {{ $labels.spec_replicas }}"
+
+  - name: application_alerts
+    interval: 30s
+    rules:
+      # HTTP errors
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5..",namespace="${NAMESPACE}"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          namespace: ${NAMESPACE}
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value }} errors per second"
+
+      # Response time
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{namespace="${NAMESPACE}"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          namespace: ${NAMESPACE}
+        annotations:
+          summary: "High response time"
+          description: "99th percentile response time is {{ $value }}s"
+
+  - name: node_alerts
+    interval: 30s
+    rules:
+      # Node resource alerts
+      - alert: NodeHighCPU
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node {{ $labels.instance }} high CPU"
+          description: "Node CPU usage is above 80%"
+
+      - alert: NodeHighMemory
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node {{ $labels.instance }} high memory"
+          description: "Node memory usage is above 85%"
+
+      - alert: NodeDiskPressure
+        expr: kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Node {{ $labels.node }} disk pressure"
+          description: "Node {{ $labels.node }} is under disk pressure"

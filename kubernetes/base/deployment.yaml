@@ -1,13 +1,13 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: devops-app
-  namespace: devops-app
+  name: ${APP_NAME}
+  namespace: ${NAMESPACE}
   labels:
-    app: devops-app
+    app: ${APP_NAME}
+    version: v1
 spec:
-  replicas: 3
-  revisionHistoryLimit: 3
+  replicas: ${REPLICAS}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -15,53 +15,121 @@ spec:
       maxUnavailable: 0
   selector:
     matchLabels:
-      app: devops-app
+      app: ${APP_NAME}
   template:
     metadata:
       labels:
-        app: devops-app
+        app: ${APP_NAME}
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "${APP_PORT}"
+        prometheus.io/path: "/metrics"
     spec:
-      terminationGracePeriodSeconds: 30
+      serviceAccountName: default
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
-        - name: app
-          image: devops-app:latest
-          imagePullPolicy: Never
-          ports:
-            - containerPort: 3000
-          envFrom:
-            - configMapRef:
-                name: app-config
-            - secretRef:
-                name: app-secrets
-
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 3000
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 2
-            failureThreshold: 3
-
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 3000
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 2
-            failureThreshold: 3
-
-          resources:
-            requests:
-              cpu: "100m"
-              memory: "128Mi"
-            limits:
-              cpu: "200m"
-              memory: "256Mi"
-
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 1000
-            allowPrivilegeEscalation: false
-
+      - name: ${APP_NAME}
+        image: ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: ${APP_PORT}
+          protocol: TCP
+        env:
+        - name: APP_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: ${APP_NAME}-config
+              key: APP_NAME
+        - name: APP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: ${APP_NAME}-config
+              key: APP_PORT
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: ${APP_NAME}-config
+              key: NODE_ENV
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: ${APP_NAME}-config
+              key: LOG_LEVEL
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: ${APP_NAME}-config
+              key: DB_HOST
+        - name: DB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: ${APP_NAME}-config
+              key: DB_PORT
+        - name: DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: ${APP_NAME}-config
+              key: DB_NAME
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: ${APP_NAME}-secrets
+              key: DB_USERNAME
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${APP_NAME}-secrets
+              key: DB_PASSWORD
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: ${APP_NAME}-secrets
+              key: JWT_SECRET
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ${APP_NAME}-secrets
+              key: API_KEY
+        - name: SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: ${APP_NAME}-secrets
+              key: SESSION_SECRET
+        resources:
+          requests:
+            cpu: ${APP_CPU_REQUEST}
+            memory: ${APP_MEMORY_REQUEST}
+          limits:
+            cpu: ${APP_CPU_LIMIT}
+            memory: ${APP_MEMORY_LIMIT}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL

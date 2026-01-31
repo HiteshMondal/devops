@@ -27,7 +27,7 @@ The project is intentionally designed to reflect **real-world DevOps practices**
 - CI/CD pipelines (Jenkins/GitLab) build Docker images and push them to a registry.
 - The same Kubernetes manifests are reused for both Minikube and EKS.
 - Monitoring is handled using **Prometheus + Grafana** deployed inside the cluster.
-- Deployment mode is selected interactively using `script_run.sh`.
+- Deployment mode is selected interactively using `run.sh`.
 
 
 **Key components:**
@@ -119,7 +119,7 @@ The project is intentionally designed to reflect **real-world DevOps practices**
 ├── .gitignore
 ├── .gitlab-ci.yml                  # Root GitLab CI include
 ├── kubeconfig.yaml                 # Kubernetes access config (local)
-├── script_run.sh                   # Main orchestration script
+├── run.sh                          # Main orchestration script
 ├── troubleshoot.sh                 # Debug & recovery utilities
 └── README.md                       # Project documentation
 
@@ -149,8 +149,8 @@ newgrp docker
 ### Run Application
 
 ```bash
-chmod +x script_run.sh
-./script_run.sh
+chmod +x run.sh
+./run.sh
 ```
 
 Choose **Docker Compose** when prompted.
@@ -193,7 +193,7 @@ The project supports Kubernetes deployment with:
 
 ```bash
 minikube start
-./script_run.sh
+./run.sh
 ```
 
 ---

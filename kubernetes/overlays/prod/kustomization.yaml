@@ -1,19 +1,40 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-resources:
+bases:
   - ../../base
 
-images:
-  - name: devops-app
-    newName: docker.io/hiteshmondaldocker/devops-app
-    newTag: latest
+namespace: ${NAMESPACE}
 
-patches:
-  - target:
-      kind: Deployment
-      name: devops-app
-    patch: |-
-      - op: replace
-        path: /spec/template/spec/containers/0/imagePullPolicy
-        value: Always
+namePrefix: prod-
+
+commonLabels:
+  environment: production
+  deployment: eks
+
+patchesStrategicMerge:
+  - |-
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: ${APP_NAME}-service
+      namespace: ${NAMESPACE}
+    spec:
+      type: LoadBalancer
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: nlb
+        service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+
+  - |-
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: ${APP_NAME}-ingress
+      namespace: ${NAMESPACE}
+      annotations:
+        kubernetes.io/ingress.class: alb
+        alb.ingress.kubernetes.io/scheme: internet-facing
+        alb.ingress.kubernetes.io/target-type: ip
+        alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+        alb.ingress.kubernetes.io/ssl-redirect: '443'
+        cert-manager.io/cluster-issuer: letsencrypt-prod
