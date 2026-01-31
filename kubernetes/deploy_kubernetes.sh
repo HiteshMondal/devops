@@ -2,13 +2,41 @@
 
 set -euo pipefail
 
+# Export env vars
+set -a
+source .env
+set +a
+
+if grep -E '^(REPLICAS|APP_PORT)=["'\'']' .env; then
+  echo "❌ Numeric values must not be quoted in .env"
+  exit 1
+fi
+
 # Function to substitute environment variables in YAML files
 substitute_env_vars() {
     local file=$1
     local temp_file="${file}.tmp"
     
-    # Use envsubst to replace variables
+    # CRITICAL FIX: Export all variables before using envsubst
+    # This ensures envsubst can actually substitute the values
+    export APP_NAME NAMESPACE DOCKERHUB_USERNAME DOCKER_IMAGE_TAG APP_PORT
+    export REPLICAS MIN_REPLICAS MAX_REPLICAS 
+    export CPU_TARGET_UTILIZATION MEMORY_TARGET_UTILIZATION
+    export APP_CPU_REQUEST APP_CPU_LIMIT APP_MEMORY_REQUEST APP_MEMORY_LIMIT
+    export DB_HOST DB_PORT DB_NAME DB_USERNAME DB_PASSWORD
+    export JWT_SECRET API_KEY SESSION_SECRET
+    export INGRESS_HOST INGRESS_CLASS TLS_SECRET_NAME
+    export PROMETHEUS_NAMESPACE
+    
+    # Use envsubst WITHOUT specifying variables (will substitute all exported vars)
     envsubst < "$file" > "$temp_file"
+    
+    # Verify substitution worked (no ${VAR} patterns should remain)
+    if grep -q '\${[A-Z_]*}' "$temp_file"; then
+        echo "⚠️  Warning: Unsubstituted variables found in $file:"
+        grep -o '\${[A-Z_]*}' "$temp_file" | sort -u
+    fi
+    
     mv "$temp_file" "$file"
 }
 
@@ -63,6 +91,9 @@ deploy_kubernetes() {
     # Create temporary working directory
     WORK_DIR="/tmp/k8s-deployment-$$"
     mkdir -p "$WORK_DIR"
+    
+    # Setup cleanup trap
+    trap "rm -rf $WORK_DIR" EXIT
     
     # Copy Kubernetes manifests to working directory
     echo "📋 Copying Kubernetes manifests..."
@@ -136,9 +167,6 @@ deploy_kubernetes() {
         echo "   kubectl get svc ${APP_NAME}-service -n $NAMESPACE"
     fi
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-    # Cleanup temporary directory
-    rm -rf "$WORK_DIR"
     
     echo ""
     echo "💡 Useful commands:"

@@ -19,16 +19,43 @@ if [[ -f "$ENV_FILE" ]]; then
     set -a
     source "$ENV_FILE"
     set +a
+    # Check for quoted numeric values
+    if grep -qE '^(REPLICAS|APP_PORT|MIN_REPLICAS|MAX_REPLICAS)=["'\'']' "$PROJECT_ROOT/.env"; then
+        echo "⚠️  WARNING: Numeric values should NOT be quoted in .env"
+        echo ""
+        echo "Found quoted numeric values:"
+        grep -E '^(REPLICAS|APP_PORT|MIN_REPLICAS|MAX_REPLICAS)=["'\'']' "$PROJECT_ROOT/.env" || true
+        echo ""
+        echo "These should be:"
+        echo "  REPLICAS=2          (not REPLICAS=\"2\")"
+        echo "  APP_PORT=3000       (not APP_PORT='3000')"
+        echo ""
+    else
+        echo "✅ Numeric values are correctly unquoted"
+    fi
+    # Check for required variables
+    required_vars=("APP_NAME" "NAMESPACE" "DOCKERHUB_USERNAME" "DOCKER_IMAGE_TAG" "APP_PORT" "REPLICAS")
+    missing_vars=()
+    
+    for var in "${required_vars[@]}"; do
+        if ! grep -q "^${var}=" "$PROJECT_ROOT/.env"; then
+            missing_vars+=("$var")
+        fi
+    done
+    
+    if [[ ${#missing_vars[@]} -gt 0 ]]; then
+        echo "⚠️  WARNING: Missing required variables:"
+        for var in "${missing_vars[@]}"; do
+            echo "   - $var"
+        done
+        echo ""
+    else
+        echo "✅ All required variables are present"
+    fi
 else
     echo "❌ .env file not found!"
     exit 1
 fi
-
-# Project configuration
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_NAME="devops-app"
-NAMESPACE="devops-app"
-ARGO_APP="devops-app"
 
 # Verify passwordless sudo
 echo "⚠️  Some steps may require sudo privileges"
