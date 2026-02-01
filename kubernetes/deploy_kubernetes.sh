@@ -64,7 +64,6 @@ deploy_kubernetes() {
         set -a
         source "$PROJECT_ROOT/.env"
         set +a
-        echo "✅ Environment variables loaded from .env"
     else
         echo "❌ .env file not found at $PROJECT_ROOT/.env"
         exit 1
@@ -85,9 +84,7 @@ deploy_kubernetes() {
             exit 1
         fi
     done
-    
-    echo "✅ All required environment variables are set"
-    
+        
     # Create temporary working directory
     WORK_DIR="/tmp/k8s-deployment-$$"
     mkdir -p "$WORK_DIR"
@@ -149,6 +146,7 @@ deploy_kubernetes() {
     echo "📦 Pods:"
     kubectl get pods -n "$NAMESPACE"
     echo ""
+    echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     # Show how to access the application
     if [[ "$environment" == "local" ]]; then
@@ -167,7 +165,7 @@ deploy_kubernetes() {
         echo "   kubectl get svc ${APP_NAME}-service -n $NAMESPACE"
     fi
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    
+    echo ""
     echo ""
     echo "💡 Useful commands:"
     echo "   View logs: kubectl logs -f deployment/$APP_NAME -n $NAMESPACE"

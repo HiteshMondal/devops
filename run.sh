@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# ============================================================================
-# DevOps Project Deployment Runner
-# ============================================================================
-# Description: Orchestrates deployment to Minikube (local) or AWS EKS (prod)
-# Usage: ./run.sh
-# Requirements: .env file configured with DEPLOY_TARGET
-# ============================================================================
+echo "============================================================================"
+echo "DevOps Project Deployment Runner"
+echo "============================================================================"
+echo "Usage: ./run.sh"
+echo "Description: Orchestrates deployment to Minikube (local) or AWS EKS (prod)"
+echo "Requirements: .env file configured with DEPLOY_TARGET either local or prod"
+echo "============================================================================"
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -54,6 +54,8 @@ if [[ -f "$ENV_FILE" ]]; then
     fi
 else
     echo "❌ .env file not found!"
+    echo "Create a .env file"
+    echo "Open dotenv_example to see how to configure .env file"
     exit 1
 fi
 
@@ -67,16 +69,14 @@ if ! sudo -n true 2>/dev/null; then
 fi
 
 # Check prerequisites
-echo "🔍 Checking prerequisites..."
 echo ""
+echo "🔍 Checking prerequisites..."
 echo "Tool versions:"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 docker --version || true
 kubectl version --client || true
 terraform --version | head -n 1 || true
 aws --version || true
 minikube version || true
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
 # Validate required tools
@@ -168,9 +168,9 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     MINIKUBE_IP=$(minikube ip)
     NODE_PORT=$(kubectl get svc "$APP_NAME-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}')
     
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     echo "  ✅ Application deployed to Minikube"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     echo "  🌐 App URL:       http://$MINIKUBE_IP:$NODE_PORT"
     echo "  📊 Dashboard:     minikube dashboard"

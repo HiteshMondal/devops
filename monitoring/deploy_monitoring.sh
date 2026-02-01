@@ -88,6 +88,7 @@ process_yaml_files() {
 
 # Main monitoring deployment function
 deploy_monitoring() {
+    sleep 5
     echo "📊 Starting Monitoring Stack Deployment"
     
     # Load environment variables
@@ -95,7 +96,6 @@ deploy_monitoring() {
         set -a
         source "$PROJECT_ROOT/.env"
         set +a
-        echo "✅ Environment variables loaded from .env"
     else
         echo "❌ .env file not found at $PROJECT_ROOT/.env"
         exit 1
@@ -124,9 +124,7 @@ deploy_monitoring() {
             exit 1
         fi
     done
-    
-    echo "✅ All required environment variables are set"
-    
+        
     # Create temporary working directory
     WORK_DIR="/tmp/monitoring-deployment-$$"
     mkdir -p "$WORK_DIR/monitoring"
@@ -185,6 +183,8 @@ deploy_monitoring() {
     echo "⏳ Waiting for Prometheus to be ready..."
     if ! kubectl rollout status deployment/prometheus -n "$PROMETHEUS_NAMESPACE" --timeout=300s; then
         echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
         echo "❌ Prometheus deployment failed. Checking logs..."
         echo ""
         kubectl describe pod -l app=prometheus -n "$PROMETHEUS_NAMESPACE"
@@ -194,6 +194,9 @@ deploy_monitoring() {
         echo ""
         echo "Pod logs:"
         kubectl logs -l app=prometheus -n "$PROMETHEUS_NAMESPACE" --tail=50 || true
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
         exit 1
     fi
     
@@ -233,31 +236,29 @@ deploy_monitoring() {
         
         PROMETHEUS_PORT=$(kubectl get svc prometheus -n "$PROMETHEUS_NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
         if [[ -n "$PROMETHEUS_PORT" ]]; then
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
             echo "🔍 Prometheus URL: http://$MINIKUBE_IP:$PROMETHEUS_PORT"
         fi
         
         if [[ "${GRAFANA_ENABLED:-true}" == "true" ]]; then
             GRAFANA_PORT=$(kubectl get svc grafana -n "$PROMETHEUS_NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
             if [[ -n "$GRAFANA_PORT" ]]; then
-                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 echo "📈 Grafana URL: http://$MINIKUBE_IP:$GRAFANA_PORT"
                 echo "   Username: ${GRAFANA_ADMIN_USER}"
                 echo "   Password: ${GRAFANA_ADMIN_PASSWORD}"
-                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             fi
         fi
     else
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "🌐 For production, check the LoadBalancer external IPs:"
         echo "   Prometheus: kubectl get svc prometheus -n $PROMETHEUS_NAMESPACE"
         if [[ "${GRAFANA_ENABLED:-true}" == "true" ]]; then
             echo "   Grafana: kubectl get svc grafana -n $PROMETHEUS_NAMESPACE"
         fi
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     fi
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
     echo "💡 Useful commands:"
     echo "   View Prometheus logs: kubectl logs -f deployment/prometheus -n $PROMETHEUS_NAMESPACE"
     echo "   Port forward Prometheus: kubectl port-forward svc/prometheus 9090:9090 -n $PROMETHEUS_NAMESPACE"
