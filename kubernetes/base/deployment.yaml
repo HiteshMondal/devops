@@ -25,6 +25,7 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "${APP_PORT}"
         prometheus.io/path: "/metrics"
+        prometheus.io/scheme: "http"
     spec:
       serviceAccountName: default
       securityContext:
@@ -153,3 +154,11 @@ spec:
           capabilities:
             drop:
             - ALL
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${APP_NAME}-sa
+  namespace: ${NAMESPACE}
+  labels:
+    app: ${APP_NAME}

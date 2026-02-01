@@ -110,3 +110,36 @@ groups:
         annotations:
           summary: "Node {{ $labels.node }} disk pressure"
           description: "Node {{ $labels.node }} is under disk pressure"
+
+  - name: prometheus_alerts
+    interval: 30s
+    rules:
+      - alert: PrometheusConfigReloadFailed
+        expr: prometheus_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "Prometheus configuration reload failed"
+          description: "Prometheus configuration reload has failed"
+
+      - alert: PrometheusTooManyRestarts
+        expr: changes(process_start_time_seconds{job="prometheus"}[15m]) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "Prometheus restarting too frequently"
+          description: "Prometheus has restarted {{ $value }} times in the last 15 minutes"
+
+      - alert: PrometheusTargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "Prometheus target down"
+          description: "Target {{ $labels.job }} is down"

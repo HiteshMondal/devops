@@ -3,288 +3,131 @@ kind: ConfigMap
 metadata:
   name: grafana-dashboards
   namespace: ${PROMETHEUS_NAMESPACE}
+  labels:
+    grafana_dashboard: "1"
 data:
-  kubernetes-cluster.json: |
+  app-monitoring.json: |-
     {
-      "annotations": {
-        "list": [
+      "dashboard": {
+        "title": "DevOps Application Monitoring",
+        "tags": ["kubernetes", "nodejs", "application"],
+        "timezone": "browser",
+        "refresh": "30s",
+        "time": {"from": "now-1h", "to": "now"},
+        "panels": [
           {
-            "builtIn": 1,
-            "datasource": "-- Grafana --",
-            "enable": true,
-            "hide": true,
-            "iconColor": "rgba(0, 211, 255, 1)",
-            "name": "Annotations & Alerts",
-            "type": "dashboard"
+            "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+            "id": 1,
+            "title": "Application Overview",
+            "type": "row"
+          },
+          {
+            "gridPos": {"h": 8, "w": 8, "x": 0, "y": 1},
+            "id": 2,
+            "title": "Request Rate",
+            "type": "graph",
+            "targets": [{
+              "expr": "rate(http_requests_total{namespace=\"devops-app\"}[5m])",
+              "legendFormat": "{{pod}} - {{method}}"
+            }],
+            "yaxes": [{"format": "reqps", "label": "Requests/sec"}, {"format": "short"}]
+          },
+          {
+            "gridPos": {"h": 8, "w": 8, "x": 8, "y": 1},
+            "id": 3,
+            "title": "Response Time (p95)",
+            "type": "graph",
+            "targets": [{
+              "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{namespace=\"devops-app\"}[5m]))",
+              "legendFormat": "{{pod}}"
+            }],
+            "yaxes": [{"format": "s", "label": "Duration"}, {"format": "short"}]
+          },
+          {
+            "gridPos": {"h": 8, "w": 8, "x": 16, "y": 1},
+            "id": 4,
+            "title": "Error Rate",
+            "type": "graph",
+            "targets": [{
+              "expr": "rate(http_requests_total{namespace=\"devops-app\", status_code=~\"5..\"}[5m])",
+              "legendFormat": "{{pod}} - {{status_code}}"
+            }],
+            "yaxes": [{"format": "reqps", "label": "Errors/sec"}, {"format": "short"}]
+          },
+          {
+            "gridPos": {"h": 1, "w": 24, "x": 0, "y": 9},
+            "id": 5,
+            "title": "Resource Usage",
+            "type": "row"
+          },
+          {
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 10},
+            "id": 6,
+            "title": "CPU Usage",
+            "type": "graph",
+            "targets": [{
+              "expr": "rate(container_cpu_usage_seconds_total{namespace=\"devops-app\", container!=\"\"}[5m]) * 100",
+              "legendFormat": "{{pod}}"
+            }],
+            "yaxes": [{"format": "percent", "label": "CPU %"}, {"format": "short"}]
+          },
+          {
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 10},
+            "id": 7,
+            "title": "Memory Usage",
+            "type": "graph",
+            "targets": [{
+              "expr": "container_memory_working_set_bytes{namespace=\"devops-app\", container!=\"\"}",
+              "legendFormat": "{{pod}}"
+            }],
+            "yaxes": [{"format": "bytes", "label": "Memory"}, {"format": "short"}]
           }
         ]
-      },
-      "editable": true,
-      "gnetId": null,
-      "graphTooltip": 0,
-      "id": null,
-      "links": [],
-      "panels": [
-        {
-          "datasource": "Prometheus",
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "tooltip": false,
-                  "viz": false,
-                  "legend": false
-                },
-                "lineInterpolation": "linear",
-                "lineWidth": 1,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "never",
-                "spanNulls": true
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "unit": "percentunit"
-            },
-            "overrides": []
+      }
+    }
+  kubernetes-cluster.json: |-
+    {
+      "dashboard": {
+        "title": "Kubernetes Cluster Overview",
+        "tags": ["kubernetes", "cluster"],
+        "timezone": "browser",
+        "refresh": "30s",
+        "time": {"from": "now-1h", "to": "now"},
+        "panels": [
+          {
+            "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+            "id": 1,
+            "title": "Total Pods",
+            "type": "stat",
+            "targets": [{"expr": "count(kube_pod_info)"}]
           },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 0,
-            "y": 0
+          {
+            "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+            "id": 2,
+            "title": "Running Pods",
+            "type": "stat",
+            "targets": [{"expr": "count(kube_pod_status_phase{phase=\"Running\"})"}]
           },
-          "id": 1,
-          "options": {
-            "legend": {
-              "calcs": [],
-              "displayMode": "list",
-              "placement": "bottom"
-            },
-            "tooltip": {
-              "mode": "single"
-            }
+          {
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+            "id": 3,
+            "title": "CPU Usage by Namespace",
+            "type": "graph",
+            "targets": [{
+              "expr": "sum(rate(container_cpu_usage_seconds_total{container!=\"\"}[5m])) by (namespace)",
+              "legendFormat": "{{namespace}}"
+            }]
           },
-          "pluginVersion": "8.0.0",
-          "targets": [
-            {
-              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"${NAMESPACE}\",pod=~\"${APP_NAME}.*\"}[5m])) by (pod)",
-              "refId": "A",
-              "legendFormat": "{{pod}}"
-            }
-          ],
-          "title": "CPU Usage by Pod",
-          "type": "timeseries"
-        },
-        {
-          "datasource": "Prometheus",
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "tooltip": false,
-                  "viz": false,
-                  "legend": false
-                },
-                "lineInterpolation": "linear",
-                "lineWidth": 1,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "never",
-                "spanNulls": true
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "unit": "bytes"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 0
-          },
-          "id": 2,
-          "options": {
-            "legend": {
-              "calcs": [],
-              "displayMode": "list",
-              "placement": "bottom"
-            },
-            "tooltip": {
-              "mode": "single"
-            }
-          },
-          "pluginVersion": "8.0.0",
-          "targets": [
-            {
-              "expr": "sum(container_memory_usage_bytes{namespace=\"${NAMESPACE}\",pod=~\"${APP_NAME}.*\"}) by (pod)",
-              "refId": "A",
-              "legendFormat": "{{pod}}"
-            }
-          ],
-          "title": "Memory Usage by Pod",
-          "type": "timeseries"
-        },
-        {
-          "datasource": "Prometheus",
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "thresholds"
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "unit": "short"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 4,
-            "w": 6,
-            "x": 0,
-            "y": 8
-          },
-          "id": 3,
-          "options": {
-            "orientation": "auto",
-            "reduceOptions": {
-              "values": false,
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": ""
-            },
-            "showThresholdLabels": false,
-            "showThresholdMarkers": true,
-            "text": {}
-          },
-          "pluginVersion": "8.0.0",
-          "targets": [
-            {
-              "expr": "count(kube_pod_status_phase{namespace=\"${NAMESPACE}\",phase=\"Running\"})",
-              "refId": "A"
-            }
-          ],
-          "title": "Running Pods",
-          "type": "gauge"
-        },
-        {
-          "datasource": "Prometheus",
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "thresholds"
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "red",
-                    "value": 1
-                  }
-                ]
-              },
-              "unit": "short"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 4,
-            "w": 6,
-            "x": 6,
-            "y": 8
-          },
-          "id": 4,
-          "options": {
-            "orientation": "auto",
-            "reduceOptions": {
-              "values": false,
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": ""
-            },
-            "showThresholdLabels": false,
-            "showThresholdMarkers": true,
-            "text": {}
-          },
-          "pluginVersion": "8.0.0",
-          "targets": [
-            {
-              "expr": "count(kube_pod_status_phase{namespace=\"${NAMESPACE}\",phase!=\"Running\"})",
-              "refId": "A"
-            }
-          ],
-          "title": "Failed Pods",
-          "type": "gauge"
-        }
-      ],
-      "schemaVersion": 27,
-      "style": "dark",
-      "tags": ["kubernetes", "${APP_NAME}"],
-      "templating": {
-        "list": []
-      },
-      "time": {
-        "from": "now-6h",
-        "to": "now"
-      },
-      "timepicker": {},
-      "timezone": "",
-      "title": "Kubernetes Cluster Monitoring",
-      "uid": "kubernetes-cluster",
-      "version": 1
+          {
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+            "id": 4,
+            "title": "Memory Usage by Namespace",
+            "type": "graph",
+            "targets": [{
+              "expr": "sum(container_memory_working_set_bytes{container!=\"\"}) by (namespace)",
+              "legendFormat": "{{namespace}}"
+            }]
+          }
+        ]
+      }
     }

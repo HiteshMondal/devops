@@ -4,7 +4,6 @@
 # Update the values according to your setup
 
 # Project Configuration
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME=devops-app
 NAMESPACE=devops-app
 ARGO_APP=devops-app

@@ -11,6 +11,8 @@ echo "==========================================================================
 set -euo pipefail
 IFS=$'\n\t'
 
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # CONFIGURATION & INITIALIZATION
 
 # Load environment variables
