@@ -1,3 +1,5 @@
+#/kubernetes/base/monitoring/prometheus.yaml
+
 apiVersion: v1
 kind: Namespace
 metadata:

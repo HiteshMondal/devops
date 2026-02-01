@@ -1,3 +1,5 @@
+#/kubernetes/base/monitoring/dashboard-configmap.yaml
+
 apiVersion: v1
 kind: ConfigMap
 metadata:

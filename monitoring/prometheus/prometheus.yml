@@ -1,3 +1,4 @@
+#/monitoring/prometheus/prometheus.yml
 global:
   scrape_interval: ${PROMETHEUS_SCRAPE_INTERVAL}
   scrape_timeout: ${PROMETHEUS_SCRAPE_TIMEOUT}
@@ -41,12 +42,13 @@ scrape_configs:
         regex: default;kubernetes;https
 
   # KUBERNETES NODES (kubelet)
-  - job_name: 'kubernetes-nodes'
+  - job_name: 'kubelet'
     kubernetes_sd_configs:
       - role: node
     scheme: https
     tls_config:
       ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      insecure_skip_verify: true
     bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
     relabel_configs:
       - action: labelmap
@@ -56,15 +58,16 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_node_name]
         regex: (.+)
         target_label: __metrics_path__
-        replacement: /api/v1/nodes/$${1}/proxy/metrics
+        replacement: /api/v1/nodes/${1}/proxy/metrics
 
   # KUBERNETES CADVISOR (container metrics)
-  - job_name: 'kubernetes-cadvisor'
+  - job_name: 'kubelet-cadvisor'
     kubernetes_sd_configs:
       - role: node
     scheme: https
     tls_config:
       ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      insecure_skip_verify: true
     bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
     relabel_configs:
       - action: labelmap
@@ -74,7 +77,7 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_node_name]
         regex: (.+)
         target_label: __metrics_path__
-        replacement: /api/v1/nodes/$${1}/proxy/metrics/cadvisor
+        replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
     metric_relabel_configs:
       # Only keep container metrics
       - source_labels: [__name__]
@@ -168,6 +171,28 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_pod_container_name]
         target_label: kubernetes_container_name
 
+  - job_name: 'kube-state-metrics'
+    static_configs:
+      - targets:
+          - kube-state-metrics.kube-system.svc.cluster.local:8080
+
+  - job_name: 'node-exporter'
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - monitoring
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        regex: node-exporter
+        action: keep
+      - target_label: __metrics_path__
+        replacement: /metrics
+      - source_labels: [__address__]
+        target_label: __address__
+        regex: (.+):.*
+        replacement: $1:9100
+
   # APPLICATION-SPECIFIC SCRAPE (devops-app)
   - job_name: '${APP_NAME}'
     kubernetes_sd_configs:
@@ -181,24 +206,23 @@ scrape_configs:
         action: keep
         regex: ${APP_NAME}
       
-      # Set metrics path
+      # Check if custom path is specified, otherwise use /metrics
       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
         action: replace
         target_label: __metrics_path__
         regex: (.+)
-        replacement: $${1}
       
-      - target_label: __metrics_path__
-        replacement: /metrics
-      
-      # Use pod IP and port
-      - source_labels: [__meta_kubernetes_pod_ip, __meta_kubernetes_pod_container_port_number]
+      # Use custom port if specified, otherwise use container port
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
         action: replace
-        regex: ([^:]+);(\d+)
-        replacement: $${1}:$${2}
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
         target_label: __address__
       
       # Add labels
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      
       - source_labels: [__meta_kubernetes_namespace]
         target_label: namespace
       
@@ -207,27 +231,3 @@ scrape_configs:
       
       - source_labels: [__meta_kubernetes_pod_node_name]
         target_label: node
-      
-      - source_labels: [__meta_kubernetes_pod_label_app]
-        target_label: app
-      
-      - source_labels: [__meta_kubernetes_pod_label_version]
-        target_label: version
-
-  # GRAFANA (if deployed)
-  - job_name: 'grafana'
-    kubernetes_sd_configs:
-      - role: pod
-        namespaces:
-          names:
-            - ${PROMETHEUS_NAMESPACE}
-    relabel_configs:
-      - source_labels: [__meta_kubernetes_pod_label_app]
-        action: keep
-        regex: grafana
-      - source_labels: [__meta_kubernetes_pod_ip]
-        action: replace
-        target_label: __address__
-        replacement: $${1}:3000
-      - target_label: __metrics_path__
-        replacement: /metrics

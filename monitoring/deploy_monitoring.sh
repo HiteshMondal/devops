@@ -5,8 +5,10 @@ set -a
 source .env
 set +a
 
+#/monitoring/deploy_monitoring.sh
 # Function to substitute environment variables in YAML files
 # Special handling for files with embedded YAML (like ConfigMaps)
+
 substitute_env_vars() {
     local file=$1
     local temp_file="${file}.tmp"
@@ -155,7 +157,6 @@ deploy_monitoring() {
     else
         echo "⚠️  Using embedded ConfigMap from prometheus.yaml"
     fi
-    
     # Create ConfigMap for Prometheus alerts
     if [[ -f "$WORK_DIR/prometheus/alerts.yml" ]]; then
         echo "🔔 Creating Prometheus alerts ConfigMap..."
@@ -179,6 +180,9 @@ deploy_monitoring() {
     # Apply resources in order
     kubectl apply -f "$WORK_DIR/monitoring/prometheus.yaml"
     
+    cp -r "$PROJECT_ROOT/monitoring/kube-state-metrics" "$WORK_DIR/monitoring/"
+    kubectl apply -f "$WORK_DIR/monitoring/kube-state-metrics/"
+
     # Wait for Prometheus to be ready
     echo "⏳ Waiting for Prometheus to be ready..."
     if ! kubectl rollout status deployment/prometheus -n "$PROMETHEUS_NAMESPACE" --timeout=300s; then
