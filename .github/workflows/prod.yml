@@ -122,18 +122,21 @@ env:
 
 jobs:
   deploy:
+    name: Deploy to ${{ github.event.inputs.deploy_target || vars.DEPLOY_TARGET || 'prod' }}
     runs-on: ubuntu-latest
     
     steps:
+      # SETUP & VALIDATION      
       - name: 🎯 Deployment Banner
         run: |
           echo "============================================================================"
-          echo "DevOps Project Deployment Runner (GitHub Actions)"
+          echo "DevOps Project - GitHub Actions Deployment"
           echo "============================================================================"
           echo "Deployment Target: ${{ env.DEPLOY_TARGET }}"
           echo "Triggered by: ${{ github.event_name }}"
           echo "Branch: ${{ github.ref_name }}"
           echo "Commit: ${{ github.sha }}"
+          echo "Actor: ${{ github.actor }}"
           echo "============================================================================"
           echo ""
 
@@ -145,40 +148,6 @@ jobs:
           echo "🔍 Validating configuration..."
           echo ""
           
-          # Check required secrets
-          REQUIRED_SECRETS=(
-            "DOCKERHUB_USERNAME"
-            "DOCKERHUB_PASSWORD"
-          )
-          
-          MISSING_SECRETS=()
-          
-          if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
-            MISSING_SECRETS+=("DOCKERHUB_USERNAME")
-          fi
-          
-          if [ -z "${{ secrets.DOCKERHUB_PASSWORD }}" ]; then
-            MISSING_SECRETS+=("DOCKERHUB_PASSWORD")
-          fi
-          
-          if [ "${{ env.DEPLOY_TARGET }}" == "prod" ]; then
-            if [ -z "${{ secrets.AWS_ACCOUNT_ID }}" ]; then
-              MISSING_SECRETS+=("AWS_ACCOUNT_ID")
-            fi
-          fi
-          
-          if [ ${#MISSING_SECRETS[@]} -gt 0 ]; then
-            echo "❌ Missing required secrets:"
-            for secret in "${MISSING_SECRETS[@]}"; do
-              echo "   - $secret"
-            done
-            echo ""
-            echo "Please add these secrets in GitHub Settings → Secrets and variables → Actions"
-            exit 1
-          else
-            echo "✅ All required secrets are configured"
-          fi
-          
           # Validate deployment target
           if [[ "${{ env.DEPLOY_TARGET }}" != "local" && "${{ env.DEPLOY_TARGET }}" != "prod" ]]; then
             echo "❌ Invalid DEPLOY_TARGET: ${{ env.DEPLOY_TARGET }}"
@@ -188,13 +157,34 @@ jobs:
           
           echo "✅ Deployment target validated: ${{ env.DEPLOY_TARGET }}"
           echo ""
+          
+          # Check required secrets
+          if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
+            echo "❌ Missing required secret: DOCKERHUB_USERNAME"
+            exit 1
+          fi
+          
+          if [ -z "${{ secrets.DOCKERHUB_PASSWORD }}" ]; then
+            echo "❌ Missing required secret: DOCKERHUB_PASSWORD"
+            exit 1
+          fi
+          
+          if [ "${{ env.DEPLOY_TARGET }}" == "prod" ]; then
+            if [ -z "${{ secrets.AWS_ACCOUNT_ID }}" ]; then
+              echo "❌ Missing required secret for production: AWS_ACCOUNT_ID"
+              exit 1
+            fi
+          fi
+          
+          echo "✅ All required secrets are configured"
+          echo ""
 
       - name: 🔧 Setup Prerequisites
         run: |
-          echo "🔧 Setting up prerequisites..."
+          echo "🔧 Installing prerequisites..."
           echo ""
           
-          # Update package lists
+          # Update package lists quietly
           sudo apt-get update -qq
           
           # Install kubectl
@@ -208,12 +198,15 @@ jobs:
           sudo mv kustomize /usr/local/bin/
           
           echo ""
+          echo "✅ Prerequisites installed"
+          echo ""
           echo "Tool versions:"
           docker --version
           kubectl version --client
           kustomize version
           echo ""
 
+      # DOCKER BUILD & PUSH
       - name: 🐳 Docker Login
         uses: docker/login-action@v3
         with:
@@ -232,8 +225,10 @@ jobs:
             -t "${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ github.sha }}" \
             ./app
           
+          echo ""
           echo "✅ Docker image built successfully"
           echo "   Image: $IMAGE_NAME"
+          echo "   Commit tag: ${{ github.sha }}"
           echo ""
 
       - name: 🚀 Push Docker Image
@@ -242,21 +237,18 @@ jobs:
           echo "🚀 Pushing Docker image to DockerHub..."
           echo ""
           
-          IMAGE_NAME="${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ env.DOCKER_IMAGE_TAG }}"
-          
-          docker push "$IMAGE_NAME"
+          docker push "${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ env.DOCKER_IMAGE_TAG }}"
           docker push "${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ github.sha }}"
           
+          echo ""
           echo "✅ Docker image pushed successfully"
-          echo "   Repository: ${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}"
-          echo "   Tags: ${{ env.DOCKER_IMAGE_TAG }}, ${{ github.sha }}"
           echo ""
 
-      # ========== LOCAL DEPLOYMENT (MINIKUBE) ==========
-      - name: 🚀 Deploy to Minikube (Local)
+      # LOCAL DEPLOYMENT (MINIKUBE)
+      - name: 🚀 Setup Minikube
         if: env.DEPLOY_TARGET == 'local'
         run: |
-          echo "🚀 Deploying to Minikube (Local Environment)"
+          echo "🚀 Setting up Minikube..."
           echo ""
           
           # Install Minikube
@@ -265,7 +257,8 @@ jobs:
           sudo install minikube-linux-amd64 /usr/local/bin/minikube
           
           # Start Minikube
-          echo "▶️  Starting Minikube..."
+          echo ""
+          echo "▶️  Starting Minikube cluster..."
           minikube start \
             --driver=docker \
             --memory=${{ env.MINIKUBE_MEMORY }} \
@@ -273,85 +266,72 @@ jobs:
           
           # Enable ingress if configured
           if [[ "${{ env.MINIKUBE_INGRESS }}" == "true" ]]; then
+            echo ""
             echo "🌐 Enabling Ingress addon..."
             minikube addons enable ingress
           fi
           
           # Use Minikube's Docker daemon
+          echo ""
+          echo "🐳 Configuring Docker to use Minikube's daemon..."
           eval $(minikube docker-env)
           
           # Rebuild image in Minikube's Docker
+          echo ""
           echo "🔨 Building image in Minikube Docker..."
           docker build -t "${{ env.APP_NAME }}:latest" ./app
           
+          echo ""
           echo "✅ Minikube setup complete"
           echo ""
 
-      - name: 📦 Deploy Kubernetes Resources (Local)
+      - name: 📦 Deploy to Kubernetes (Local)
         if: env.DEPLOY_TARGET == 'local'
         run: |
-          echo "============================================================================"
-          echo "📦 Deploying Kubernetes Resources (Local Environment)"
-          echo "============================================================================"
-          echo ""
-          
-          # Make deployment script executable
+          # Make script executable
           chmod +x ./kubernetes/deploy_kubernetes.sh
           
-          # Source and execute the deployment script
+          # Export PROJECT_ROOT for the script
           export PROJECT_ROOT="${GITHUB_WORKSPACE}"
           
-          # Run the deployment
-          echo "🚀 Executing deployment script..."
+          # Run deployment script - it handles all output
           ./kubernetes/deploy_kubernetes.sh local
-          
-          echo ""
-          echo "✅ Kubernetes deployment completed"
-          echo ""
 
-      - name: 📊 Deploy Monitoring Stack (Local)
+      - name: 📊 Deploy Monitoring (Local)
         if: env.DEPLOY_TARGET == 'local' && env.PROMETHEUS_ENABLED == 'true'
         run: |
-          echo "============================================================================"
-          echo "📊 Deploying Monitoring Stack (Local Environment)"
-          echo "============================================================================"
-          echo ""
-          
-          # Make monitoring script executable
+          # Make script executable
           chmod +x ./monitoring/deploy_monitoring.sh
           
-          # Source and execute the monitoring script
+          # Export PROJECT_ROOT for the script
           export PROJECT_ROOT="${GITHUB_WORKSPACE}"
           
-          # Run the monitoring deployment
-          echo "🚀 Executing monitoring deployment..."
+          # Run monitoring deployment script - it handles all output
           ./monitoring/deploy_monitoring.sh
-          
-          echo ""
-          echo "✅ Monitoring stack deployment completed"
-          echo ""
 
       - name: ✅ Local Deployment Summary
         if: env.DEPLOY_TARGET == 'local'
         run: |
+          echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
-          echo "  ✅ Application deployed to Minikube"
+          echo "  ✅ Local Deployment Complete"
           echo ""
           
-          MINIKUBE_IP=$(minikube ip)
+          MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "N/A")
           NODE_PORT=$(kubectl get svc "${{ env.APP_NAME }}-service" -n "${{ env.NAMESPACE }}" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "N/A")
           
-          echo "  🌐 Minikube IP:   $MINIKUBE_IP"
-          echo "  🔌 Service Port:  $NODE_PORT"
-          echo "  📱 App URL:       http://$MINIKUBE_IP:$NODE_PORT"
-          echo ""
-          echo "  📊 Resources:"
-          kubectl get all -n "${{ env.NAMESPACE }}"
+          echo "  🌐 Minikube IP: $MINIKUBE_IP"
+          echo "  🔌 Node Port: $NODE_PORT"
+          
+          if [[ "$NODE_PORT" != "N/A" ]] && [[ "$MINIKUBE_IP" != "N/A" ]]; then
+            echo "  📱 App URL: http://$MINIKUBE_IP:$NODE_PORT"
+          fi
+          
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-      # ========== PRODUCTION DEPLOYMENT (AWS EKS) ==========
+      # PRODUCTION DEPLOYMENT (AWS EKS)
       - name: ⚙️ Configure AWS Credentials
         if: env.DEPLOY_TARGET == 'prod'
         uses: aws-actions/configure-aws-credentials@v4
@@ -370,19 +350,18 @@ jobs:
         if: env.DEPLOY_TARGET == 'prod'
         working-directory: ./infra/terraform
         run: |
-          echo "☁️  Deploying to AWS EKS (Production Environment)"
-          echo ""
-          echo "🏗️  Deploying infrastructure with Terraform..."
+          echo "🏗️  Deploying AWS infrastructure with Terraform..."
           echo ""
           
+          echo "Initializing Terraform..."
           terraform init -upgrade
           
           echo ""
-          echo "📋 Terraform Plan:"
+          echo "Planning Terraform changes..."
           terraform plan
           
           echo ""
-          echo "🚀 Applying Terraform configuration..."
+          echo "Applying Terraform configuration..."
           terraform apply -auto-approve
           
           echo ""
@@ -393,7 +372,7 @@ jobs:
         if: env.DEPLOY_TARGET == 'prod'
         working-directory: ./infra/terraform
         run: |
-          echo "⚙️  Configuring kubectl context for EKS..."
+          echo "⚙️  Configuring kubectl for EKS cluster..."
           echo ""
           
           REGION=$(terraform output -raw region)
@@ -403,73 +382,55 @@ jobs:
             --region "$REGION" \
             --name "$CLUSTER_NAME"
           
-          echo "✅ kubectl configured for EKS cluster: $CLUSTER_NAME"
+          echo ""
+          echo "✅ kubectl configured for cluster: $CLUSTER_NAME"
           echo ""
           
-          # Verify connection
           echo "🔍 Verifying cluster connection..."
           kubectl cluster-info
+          echo ""
           kubectl get nodes
           echo ""
 
-      - name: 📦 Deploy Kubernetes Resources (Production)
+      - name: 📦 Deploy to Kubernetes (Production)
         if: env.DEPLOY_TARGET == 'prod'
         run: |
-          echo "============================================================================"
-          echo "📦 Deploying Kubernetes Resources (Production Environment)"
-          echo "============================================================================"
-          echo ""
-          
-          # Make deployment script executable
+          # Make script executable
           chmod +x ./kubernetes/deploy_kubernetes.sh
           
-          # Source and execute the deployment script
+          # Export PROJECT_ROOT for the script
           export PROJECT_ROOT="${GITHUB_WORKSPACE}"
           
-          # Run the deployment
-          echo "🚀 Executing deployment script..."
+          # Run deployment script - it handles all output
           ./kubernetes/deploy_kubernetes.sh prod
-          
-          echo ""
-          echo "✅ Kubernetes deployment completed"
-          echo ""
 
-      - name: 📊 Deploy Monitoring Stack (Production)
+      - name: 📊 Deploy Monitoring (Production)
         if: env.DEPLOY_TARGET == 'prod' && env.PROMETHEUS_ENABLED == 'true'
         run: |
-          echo "============================================================================"
-          echo "📊 Deploying Monitoring Stack (Production Environment)"
-          echo "============================================================================"
-          echo ""
-          
-          # Make monitoring script executable
+          # Make script executable
           chmod +x ./monitoring/deploy_monitoring.sh
           
-          # Source and execute the monitoring script
+          # Export PROJECT_ROOT for the script
           export PROJECT_ROOT="${GITHUB_WORKSPACE}"
           
-          # Run the monitoring deployment
-          echo "🚀 Executing monitoring deployment..."
+          # Run monitoring deployment script - it handles all output
           ./monitoring/deploy_monitoring.sh
-          
-          echo ""
-          echo "✅ Monitoring stack deployment completed"
-          echo ""
 
       - name: ✅ Production Deployment Summary
         if: env.DEPLOY_TARGET == 'prod'
         run: |
+          echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
-          echo "  ✅ Application deployed to AWS EKS"
+          echo "  ✅ Production Deployment Complete"
           echo ""
-          echo "  📊 Deployment Resources:"
-          kubectl get all -n "${{ env.NAMESPACE }}"
+          echo "  📊 Application Resources:"
+          kubectl get all -n "${{ env.NAMESPACE }}" -o wide
           echo ""
           
           if [[ "${{ env.PROMETHEUS_ENABLED }}" == "true" ]]; then
             echo "  📈 Monitoring Resources:"
-            kubectl get all -n "${{ env.PROMETHEUS_NAMESPACE }}"
+            kubectl get all -n "${{ env.PROMETHEUS_NAMESPACE }}" -o wide
             echo ""
           fi
           
@@ -478,30 +439,30 @@ jobs:
           echo ""
           
           echo "  🔗 Ingress:"
-          kubectl get ingress -n "${{ env.NAMESPACE }}"
+          kubectl get ingress -n "${{ env.NAMESPACE }}" 2>/dev/null || echo "  No ingress configured"
           echo ""
           
-          echo "  ℹ️  Note: Use LoadBalancer or Ingress to expose services externally"
-          echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
+      # FINAL HEALTH CHECK
       - name: 🔍 Final Health Check
         if: always()
         run: |
+          echo ""
           echo "🔍 Final Health Check"
           echo ""
           
-          echo "📋 Pod Status:"
-          kubectl get pods -n "${{ env.NAMESPACE }}" -o wide || true
+          echo "📋 Application Pods:"
+          kubectl get pods -n "${{ env.NAMESPACE }}" -o wide || echo "No pods found"
           echo ""
           
-          echo "📋 Service Status:"
-          kubectl get svc -n "${{ env.NAMESPACE }}" || true
+          echo "📋 Application Services:"
+          kubectl get svc -n "${{ env.NAMESPACE }}" || echo "No services found"
           echo ""
           
           if [[ "${{ env.PROMETHEUS_ENABLED }}" == "true" ]]; then
-            echo "📋 Monitoring Pod Status:"
-            kubectl get pods -n "${{ env.PROMETHEUS_NAMESPACE }}" || true
+            echo "📋 Monitoring Pods:"
+            kubectl get pods -n "${{ env.PROMETHEUS_NAMESPACE }}" -o wide || echo "No monitoring pods found"
             echo ""
           fi
           

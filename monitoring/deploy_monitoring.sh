@@ -388,12 +388,7 @@ deploy_monitoring() {
         echo "⏭️  Skipping Grafana deployment (GRAFANA_ENABLED=false)"
     fi
     
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
     echo "✅ Monitoring stack deployment completed successfully!"
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     
     # Display monitoring stack information
@@ -402,6 +397,9 @@ deploy_monitoring() {
     echo ""
     
     # Get service URLs based on environment
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
     if [[ "${DEPLOY_TARGET}" == "local" ]]; then
         echo "🌐 Access URLs (Local):"
         echo ""
@@ -442,7 +440,6 @@ deploy_monitoring() {
             echo "  📈 Grafana: kubectl get svc grafana -n $PROMETHEUS_NAMESPACE"
         fi
     fi
-    
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""

@@ -120,7 +120,6 @@ deploy_kubernetes() {
     local environment=${1:-local}
     
     echo ""
-    echo "============================================================================"
     echo "🚀 Kubernetes Deployment"
     echo "============================================================================"
     echo "Environment: $environment"
@@ -265,14 +264,8 @@ deploy_kubernetes() {
         exit 1
     fi
     
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
     echo "✅ Kubernetes deployment completed successfully!"
     echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    
     # Display deployment information
     echo "📊 Deployment Status:"
     kubectl get deployments -n "$NAMESPACE" -o wide
@@ -283,7 +276,6 @@ deploy_kubernetes() {
     echo "📦 Pods:"
     kubectl get pods -n "$NAMESPACE" -o wide
     echo ""
-    
     # Show access information based on environment
     if [[ "$environment" == "local" ]]; then
         echo "🌐 Access Information (Local):"
