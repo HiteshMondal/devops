@@ -2,15 +2,6 @@
 
 set -euo pipefail
 
-# Export env vars
-set -a
-source .env
-set +a
-
-if grep -E '^(REPLICAS|APP_PORT)=["'\'']' .env; then
-  echo "❌ Numeric values must not be quoted in .env"
-  exit 1
-fi
 
 # /kubernetes/deploy_kubernetes.sh
 # Function to substitute environment variables in YAML files
@@ -59,16 +50,6 @@ deploy_kubernetes() {
     local environment=${1:-local}
     
     echo "🚀 Starting Kubernetes deployment for environment: $environment"
-    
-    # Load environment variables
-    if [[ -f "$PROJECT_ROOT/.env" ]]; then
-        set -a
-        source "$PROJECT_ROOT/.env"
-        set +a
-    else
-        echo "❌ .env file not found at $PROJECT_ROOT/.env"
-        exit 1
-    fi
     
     # Validate required environment variables
     required_vars=(

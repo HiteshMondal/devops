@@ -1,9 +1,6 @@
 #!/bin/bash
 
 set -euo pipefail
-set -a
-source .env
-set +a
 
 #/monitoring/deploy_monitoring.sh
 # Function to substitute environment variables in YAML files
@@ -92,16 +89,6 @@ process_yaml_files() {
 deploy_monitoring() {
     sleep 5
     echo "📊 Starting Monitoring Stack Deployment"
-    
-    # Load environment variables
-    if [[ -f "$PROJECT_ROOT/.env" ]]; then
-        set -a
-        source "$PROJECT_ROOT/.env"
-        set +a
-    else
-        echo "❌ .env file not found at $PROJECT_ROOT/.env"
-        exit 1
-    fi
     
     # Check if monitoring is enabled
     if [[ "${PROMETHEUS_ENABLED:-true}" != "true" ]]; then
