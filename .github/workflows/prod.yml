@@ -339,7 +339,13 @@ jobs:
             --from-literal=db-username='${{ env.DB_USERNAME }}' \
             --namespace=${{ env.NAMESPACE }} \
             --dry-run=client -o yaml | kubectl apply -f -
-      
+      - name: Install kustomize
+        run: |
+          echo "📦 Installing kustomize..."
+          curl -s https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh | bash
+          sudo mv kustomize /usr/local/bin/
+          kustomize version
+
       - name: Deploy application with Kustomize
         run: |
           echo "📦 Deploying application with Kustomize..."
