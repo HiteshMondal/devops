@@ -412,6 +412,22 @@ jobs:
         run: |
           kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
       
+      - name: Wait for ingress controller to be ready
+        run: |
+          echo "⏳ Waiting for ingress controller to be ready..."
+          kubectl wait --namespace ingress-nginx \
+            --for=condition=ready pod \
+            --selector=app.kubernetes.io/component=controller \
+            --timeout=300s
+          
+          # Additional wait for webhook to be fully operational
+          echo "⏳ Waiting for ingress webhook to be ready..."
+          sleep 30
+          
+          # Verify webhook is accessible
+          kubectl get validatingwebhookconfigurations -n ingress-nginx
+          echo "✅ Ingress controller is ready"
+      
       - name: Deploy base Kubernetes resources
         run: |
           echo "🔧 Deploying base Kubernetes resources to Minikube..."
@@ -424,6 +440,7 @@ jobs:
           kubectl apply -f "$WORK_DIR/base/hpa.yaml"
           
           if [[ "${{ env.INGRESS_ENABLED }}" == "true" ]]; then
+            echo "🌐 Deploying ingress resource..."
             kubectl apply -f "$WORK_DIR/base/ingress.yaml"
           fi
       
