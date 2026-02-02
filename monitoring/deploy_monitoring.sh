@@ -137,7 +137,7 @@ deploy_monitoring() {
     
     # Copy monitoring manifests to working directory
     echo "📋 Copying monitoring manifests..."
-    cp -r "$PROJECT_ROOT/kubernetes/base/monitoring/"* "$WORK_DIR/monitoring/"
+    cp -r "$PROJECT_ROOT/monitoring/prometheus_grafana/"* "$WORK_DIR/monitoring/"
     
     # Copy Prometheus config files
     if [[ -d "$PROJECT_ROOT/monitoring/prometheus" ]]; then

@@ -1,4 +1,4 @@
-#/kubernetes/base/monitoring/dashboard-configmap.yaml
+#/monitoring/prometheus_grafana/dashboard-configmap.yaml
 
 apiVersion: v1
 kind: ConfigMap

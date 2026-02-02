@@ -1,4 +1,4 @@
-#/kubernetes/base/monitoring/prometheus.yaml
+#/monitoring/prometheus_grafana/prometheus.yaml
 
 apiVersion: v1
 kind: Namespace

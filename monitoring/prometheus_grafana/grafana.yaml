@@ -1,4 +1,4 @@
-#/kubernetes/base/monitoring/grafana.yaml
+#/monitoring/prometheus_grafana/grafana.yaml
 
 apiVersion: v1
 kind: ConfigMap
