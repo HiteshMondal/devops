@@ -20,7 +20,6 @@ MEMORY_TARGET_UTILIZATION=80
 DOCKERHUB_USERNAME=yourdockerhubusername
 DOCKERHUB_PASSWORD=your-dockerhub-password-or-token
 DOCKER_IMAGE_TAG=latest
-DOCKERHUB_TOKEN=dckr_pat_xxxx
 
 # Kubernetes Configuration
 KUBECONFIG_PROD=$HOME/.kube/config
