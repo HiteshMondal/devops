@@ -1,39 +1,25 @@
-name: Production Deployment Pipeline
+name: Production Deployment
 
 on:
   push:
     branches:
       - main
-      - master
-  pull_request:
-    branches:
-      - main
-      - master
+      - production
   workflow_dispatch:
     inputs:
       deploy_target:
         description: 'Deployment target (local/prod)'
         required: true
-        default: 'local'
+        default: 'prod'
         type: choice
         options:
           - local
           - prod
-      build_push:
-        description: 'Build and push Docker image'
-        required: true
-        default: 'true'
-        type: boolean
-      dry_run:
-        description: 'Dry run mode (test without deployment)'
-        required: false
-        default: false
-        type: boolean
 
 env:
-  # Project Configuration (from .env or secrets)
-  APP_NAME: ${{ vars.APP_NAME || 'devops-app' }}
-  NAMESPACE: ${{ vars.NAMESPACE || 'devops-app' }}
+  # Project Configuration
+  APP_NAME: ${{ secrets.APP_NAME || 'devops-app' }}
+  NAMESPACE: ${{ secrets.NAMESPACE || 'devops-app' }}
   APP_PORT: ${{ vars.APP_PORT || '3000' }}
   REPLICAS: ${{ vars.REPLICAS || '2' }}
   MIN_REPLICAS: ${{ vars.MIN_REPLICAS || '2' }}
@@ -42,9 +28,13 @@ env:
   MEMORY_TARGET_UTILIZATION: ${{ vars.MEMORY_TARGET_UTILIZATION || '80' }}
   
   # Docker Configuration
-  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || vars.DOCKERHUB_USERNAME }}
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
   DOCKER_IMAGE_TAG: ${{ vars.DOCKER_IMAGE_TAG || 'latest' }}
   IMAGE_TAG: ${{ vars.IMAGE_TAG || 'latest' }}
+  
+  # Kubernetes Configuration
+  KUBE_CONTEXT: ${{ vars.KUBE_CONTEXT || 'minikube' }}
   
   # Ingress Configuration
   INGRESS_ENABLED: ${{ vars.INGRESS_ENABLED || 'true' }}
@@ -54,10 +44,16 @@ env:
   TLS_SECRET_NAME: ${{ vars.TLS_SECRET_NAME || 'devops-app-tls' }}
   
   # Database Configuration
-  DB_HOST: ${{ vars.DB_HOST || 'localhost' }}
-  DB_PORT: ${{ vars.DB_PORT || '5432' }}
-  DB_NAME: ${{ vars.DB_NAME || 'devopsdb' }}
-  DB_USERNAME: ${{ secrets.DB_USERNAME || 'dbuser' }}
+  DB_HOST: ${{ secrets.DB_HOST || 'localhost' }}
+  DB_PORT: ${{ secrets.DB_PORT || '5432' }}
+  DB_NAME: ${{ secrets.DB_NAME || 'devopsdb' }}
+  DB_USERNAME: ${{ secrets.DB_USERNAME }}
+  DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+  
+  # Application Secrets
+  JWT_SECRET: ${{ secrets.JWT_SECRET }}
+  API_KEY: ${{ secrets.API_KEY }}
+  SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
   
   # Monitoring - Prometheus
   PROMETHEUS_ENABLED: ${{ vars.PROMETHEUS_ENABLED || 'true' }}
@@ -69,117 +65,119 @@ env:
   
   # Monitoring - Grafana
   GRAFANA_ENABLED: ${{ vars.GRAFANA_ENABLED || 'true' }}
-  GRAFANA_ADMIN_USER: ${{ vars.GRAFANA_ADMIN_USER || 'admin' }}
+  GRAFANA_ADMIN_USER: ${{ secrets.GRAFANA_ADMIN_USER || 'admin' }}
+  GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
   GRAFANA_PORT: ${{ vars.GRAFANA_PORT || '3000' }}
   GRAFANA_STORAGE_SIZE: ${{ vars.GRAFANA_STORAGE_SIZE || '5Gi' }}
   
-  # Resource Limits
+  # Alerting Configuration
+  ALERT_EMAIL_ENABLED: ${{ vars.ALERT_EMAIL_ENABLED || 'false' }}
+  ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+  ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
+  SMTP_HOST: ${{ secrets.SMTP_HOST }}
+  SMTP_PORT: ${{ secrets.SMTP_PORT || '587' }}
+  SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+  SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  
+  # Resource Limits - Application
   APP_CPU_REQUEST: ${{ vars.APP_CPU_REQUEST || '100m' }}
   APP_CPU_LIMIT: ${{ vars.APP_CPU_LIMIT || '500m' }}
   APP_MEMORY_REQUEST: ${{ vars.APP_MEMORY_REQUEST || '128Mi' }}
   APP_MEMORY_LIMIT: ${{ vars.APP_MEMORY_LIMIT || '512Mi' }}
   
+  # Resource Limits - Prometheus
   PROMETHEUS_CPU_REQUEST: ${{ vars.PROMETHEUS_CPU_REQUEST || '500m' }}
   PROMETHEUS_CPU_LIMIT: ${{ vars.PROMETHEUS_CPU_LIMIT || '2000m' }}
   PROMETHEUS_MEMORY_REQUEST: ${{ vars.PROMETHEUS_MEMORY_REQUEST || '1Gi' }}
   PROMETHEUS_MEMORY_LIMIT: ${{ vars.PROMETHEUS_MEMORY_LIMIT || '4Gi' }}
   
+  # Resource Limits - Grafana
   GRAFANA_CPU_REQUEST: ${{ vars.GRAFANA_CPU_REQUEST || '100m' }}
   GRAFANA_CPU_LIMIT: ${{ vars.GRAFANA_CPU_LIMIT || '500m' }}
   GRAFANA_MEMORY_REQUEST: ${{ vars.GRAFANA_MEMORY_REQUEST || '256Mi' }}
   GRAFANA_MEMORY_LIMIT: ${{ vars.GRAFANA_MEMORY_LIMIT || '1Gi' }}
   
   # AWS Configuration
-  AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
   EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'devops-cluster' }}
   
   # Git Configuration
   GIT_AUTHOR_NAME: ${{ vars.GIT_AUTHOR_NAME || github.actor }}
   GIT_AUTHOR_EMAIL: ${{ vars.GIT_AUTHOR_EMAIL || format('{0}@users.noreply.github.com', github.actor) }}
+  GITHUB_USERNAME: ${{ github.actor }}
+  GITHUB_EMAIL: ${{ vars.GITHUB_EMAIL || format('{0}@users.noreply.github.com', github.actor) }}
   
   # Deployment Configuration
-  DEPLOY_TARGET: ${{ github.event.inputs.deploy_target || vars.DEPLOY_TARGET || 'local' }}
-  BUILD_PUSH: ${{ github.event.inputs.build_push || vars.BUILD_PUSH || 'false' }}
-  DRY_RUN: ${{ github.event.inputs.dry_run || vars.DRY_RUN || 'false' }}
-  CI: true
+  DEPLOY_TARGET: ${{ github.event.inputs.deploy_target || vars.DEPLOY_TARGET || 'prod' }}
+  BUILD_PUSH: ${{ vars.BUILD_PUSH || 'true' }}
+  CI: 'true'
+  DRY_RUN: ${{ vars.DRY_RUN || 'false' }}
   
   # Minikube Configuration
   MINIKUBE_INGRESS: ${{ vars.MINIKUBE_INGRESS || 'true' }}
   MINIKUBE_MEMORY: ${{ vars.MINIKUBE_MEMORY || '4096' }}
   MINIKUBE_CPUS: ${{ vars.MINIKUBE_CPUS || '2' }}
-  
-  # Alerting Configuration
-  ALERT_EMAIL_ENABLED: ${{ vars.ALERT_EMAIL_ENABLED || 'false' }}
-  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL || vars.SLACK_WEBHOOK_URL }}
 
 jobs:
-  validate-config:
-    name: 🔍 Validate Configuration
+  deploy:
     runs-on: ubuntu-latest
-    outputs:
-      deploy_target: ${{ steps.set-target.outputs.deploy_target }}
-      build_push: ${{ steps.set-build.outputs.build_push }}
     
     steps:
-      - name: Checkout code
+      - name: 🎯 Deployment Banner
+        run: |
+          echo "============================================================================"
+          echo "DevOps Project Deployment Runner (GitHub Actions)"
+          echo "============================================================================"
+          echo "Deployment Target: ${{ env.DEPLOY_TARGET }}"
+          echo "Triggered by: ${{ github.event_name }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "============================================================================"
+          echo ""
+
+      - name: 📥 Checkout Repository
         uses: actions/checkout@v4
-      
-      - name: Set deployment target
-        id: set-target
+
+      - name: 🔍 Validate Configuration
         run: |
-          TARGET="${{ env.DEPLOY_TARGET }}"
-          echo "deploy_target=${TARGET}" >> $GITHUB_OUTPUT
-          echo "🎯 Deployment Target: ${TARGET}"
-      
-      - name: Set build/push flag
-        id: set-build
-        run: |
-          BUILD="${{ env.BUILD_PUSH }}"
-          echo "build_push=${BUILD}" >> $GITHUB_OUTPUT
-          echo "🔨 Build & Push: ${BUILD}"
-      
-      - name: Validate required secrets (prod only)
-        if: env.DEPLOY_TARGET == 'prod'
-        run: |
-          echo "🔐 Validating required secrets for production deployment..."
+          echo "🔍 Validating configuration..."
+          echo ""
           
-          missing_secrets=()
+          # Check required secrets
+          REQUIRED_SECRETS=(
+            "DOCKERHUB_USERNAME"
+            "DOCKERHUB_PASSWORD"
+          )
           
-          # Check Docker credentials
+          MISSING_SECRETS=()
+          
           if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
-            missing_secrets+=("DOCKERHUB_USERNAME")
+            MISSING_SECRETS+=("DOCKERHUB_USERNAME")
           fi
+          
           if [ -z "${{ secrets.DOCKERHUB_PASSWORD }}" ]; then
-            missing_secrets+=("DOCKERHUB_PASSWORD")
+            MISSING_SECRETS+=("DOCKERHUB_PASSWORD")
           fi
           
-          # Check AWS credentials
-          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
-            missing_secrets+=("AWS_ACCESS_KEY_ID")
-          fi
-          if [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
-            missing_secrets+=("AWS_SECRET_ACCESS_KEY")
+          if [ "${{ env.DEPLOY_TARGET }}" == "prod" ]; then
+            if [ -z "${{ secrets.AWS_ACCOUNT_ID }}" ]; then
+              MISSING_SECRETS+=("AWS_ACCOUNT_ID")
+            fi
           fi
           
-          # Check database credentials
-          if [ -z "${{ secrets.DB_PASSWORD }}" ]; then
-            missing_secrets+=("DB_PASSWORD")
-          fi
-          
-          if [ ${#missing_secrets[@]} -gt 0 ]; then
+          if [ ${#MISSING_SECRETS[@]} -gt 0 ]; then
             echo "❌ Missing required secrets:"
-            printf '   - %s\n' "${missing_secrets[@]}"
+            for secret in "${MISSING_SECRETS[@]}"; do
+              echo "   - $secret"
+            done
             echo ""
-            echo "Please add these secrets in:"
-            echo "Repository → Settings → Secrets and variables → Actions"
+            echo "Please add these secrets in GitHub Settings → Secrets and variables → Actions"
             exit 1
           else
-            echo "✅ All required secrets are present"
+            echo "✅ All required secrets are configured"
           fi
-      
-      - name: Validate configuration values
-        run: |
-          echo "🔍 Validating configuration values..."
           
           # Validate deployment target
           if [[ "${{ env.DEPLOY_TARGET }}" != "local" && "${{ env.DEPLOY_TARGET }}" != "prod" ]]; then
@@ -188,219 +186,153 @@ jobs:
             exit 1
           fi
           
-          # Validate numeric values
-          if ! [[ "${{ env.REPLICAS }}" =~ ^[0-9]+$ ]]; then
-            echo "❌ REPLICAS must be numeric"
-            exit 1
-          fi
-          
-          if ! [[ "${{ env.APP_PORT }}" =~ ^[0-9]+$ ]]; then
-            echo "❌ APP_PORT must be numeric"
-            exit 1
-          fi
-          
-          echo "✅ Configuration validation passed"
+          echo "✅ Deployment target validated: ${{ env.DEPLOY_TARGET }}"
+          echo ""
 
-  build-and-push:
-    name: 🔨 Build & Push Docker Image
-    needs: validate-config
-    runs-on: ubuntu-latest
-    if: needs.validate-config.outputs.build_push == 'true'
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Log in to Docker Hub
+      - name: 🔧 Setup Prerequisites
+        run: |
+          echo "🔧 Setting up prerequisites..."
+          echo ""
+          
+          # Update package lists
+          sudo apt-get update -qq
+          
+          # Install kubectl
+          echo "📦 Installing kubectl..."
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+          
+          # Install kustomize
+          echo "📦 Installing kustomize..."
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+          
+          echo ""
+          echo "Tool versions:"
+          docker --version
+          kubectl version --client
+          kustomize version
+          echo ""
+
+      - name: 🐳 Docker Login
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME || vars.DOCKERHUB_USERNAME }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
-      
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ env.DOCKER_IMAGE_TAG }}
-      
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./app
-          file: ./app/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            APP_PORT=${{ env.APP_PORT }}
-            NODE_ENV=production
-      
-      - name: Image digest
-        run: |
-          echo "✅ Docker image built and pushed successfully"
-          echo "📦 Image: ${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ env.DOCKER_IMAGE_TAG }}"
 
-  deploy-local:
-    name: 🚀 Deploy to Minikube (Local)
-    needs: [validate-config, build-and-push]
-    runs-on: ubuntu-latest
-    if: |
-      always() && 
-      needs.validate-config.result == 'success' && 
-      needs.validate-config.outputs.deploy_target == 'local' &&
-      (needs.build-and-push.result == 'success' || needs.build-and-push.result == 'skipped')
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Start Minikube
-        uses: medyagh/setup-minikube@latest
-        with:
-          memory: ${{ env.MINIKUBE_MEMORY }}
-          cpus: ${{ env.MINIKUBE_CPUS }}
-          driver: docker
-          kubernetes-version: stable
-      
-      - name: Verify Minikube status
+      - name: 🔨 Build Docker Image
         run: |
-          echo "🔍 Checking Minikube status..."
-          minikube status
-          kubectl cluster-info
-          kubectl get nodes
-      
-      - name: Enable Minikube addons
-        if: env.MINIKUBE_INGRESS == 'true'
-        run: |
-          echo "🌐 Enabling Ingress addon..."
-          minikube addons enable ingress
-          minikube addons enable metrics-server
-      
-      - name: Configure Docker environment for Minikube
-        run: |
-          echo "🐳 Configuring Docker environment..."
-          eval $(minikube docker-env)
-          docker ps
-      
-      - name: Build Docker image in Minikube (if not pushing)
-        if: needs.validate-config.outputs.build_push != 'true'
-        run: |
-          echo "🔨 Building Docker image locally in Minikube..."
-          eval $(minikube docker-env)
-          docker build -t ${{ env.APP_NAME }}:latest ./app
-          docker images | grep ${{ env.APP_NAME }}
-      
-      - name: Pull Docker image (if pushed to registry)
-        if: needs.validate-config.outputs.build_push == 'true'
-        run: |
-          echo "📥 Pulling Docker image from registry..."
-          eval $(minikube docker-env)
-          docker pull ${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
-          docker tag ${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ env.DOCKER_IMAGE_TAG }} ${{ env.APP_NAME }}:latest
-      
-      - name: Create namespace
-        run: |
-          echo "📦 Creating namespace..."
-          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
-      
-      - name: Create Kubernetes secrets
-        run: |
-          echo "🔐 Creating Kubernetes secrets..."
-          kubectl create secret generic app-secrets \
-            --from-literal=db-password='${{ secrets.DB_PASSWORD || 'SecurePassword123!' }}' \
-            --from-literal=jwt-secret='${{ secrets.JWT_SECRET || 'your-super-secret-jwt-key' }}' \
-            --from-literal=api-key='${{ secrets.API_KEY || 'your-api-key-here' }}' \
-            --from-literal=session-secret='${{ secrets.SESSION_SECRET || 'your-session-secret-here' }}' \
-            --namespace=${{ env.NAMESPACE }} \
-            --dry-run=client -o yaml | kubectl apply -f -
-      
-      - name: Create ConfigMap
-        run: |
-          echo "⚙️  Creating ConfigMap..."
-          kubectl create configmap app-config \
-            --from-literal=app-name='${{ env.APP_NAME }}' \
-            --from-literal=app-port='${{ env.APP_PORT }}' \
-            --from-literal=db-host='${{ env.DB_HOST }}' \
-            --from-literal=db-port='${{ env.DB_PORT }}' \
-            --from-literal=db-name='${{ env.DB_NAME }}' \
-            --from-literal=db-username='${{ env.DB_USERNAME }}' \
-            --namespace=${{ env.NAMESPACE }} \
-            --dry-run=client -o yaml | kubectl apply -f -
-      - name: Install kustomize
-        run: |
-          echo "📦 Installing kustomize..."
-          curl -s https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh | bash
-          sudo mv kustomize /usr/local/bin/
-          kustomize version
+          echo "🔨 Building Docker image..."
+          echo ""
+          
+          IMAGE_NAME="${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ env.DOCKER_IMAGE_TAG }}"
+          
+          docker build \
+            -t "$IMAGE_NAME" \
+            -t "${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ github.sha }}" \
+            ./app
+          
+          echo "✅ Docker image built successfully"
+          echo "   Image: $IMAGE_NAME"
+          echo ""
 
-      - name: Deploy application with Kustomize
+      - name: 🚀 Push Docker Image
+        if: env.BUILD_PUSH == 'true'
         run: |
-          echo "📦 Deploying application with Kustomize..."
+          echo "🚀 Pushing Docker image to DockerHub..."
+          echo ""
           
-          # Set image in kustomization
-          cd kubernetes/overlays/local
-          kustomize edit set image ${{ env.APP_NAME }}=${{ env.APP_NAME }}:latest
-          kustomize edit set namespace ${{ env.NAMESPACE }}
+          IMAGE_NAME="${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ env.DOCKER_IMAGE_TAG }}"
           
-          # Apply with kustomize
-          kubectl apply -k .
+          docker push "$IMAGE_NAME"
+          docker push "${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ github.sha }}"
           
-          echo "✅ Application deployed"
-      
-      - name: Wait for deployment rollout
+          echo "✅ Docker image pushed successfully"
+          echo "   Repository: ${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}"
+          echo "   Tags: ${{ env.DOCKER_IMAGE_TAG }}, ${{ github.sha }}"
+          echo ""
+
+      # ========== LOCAL DEPLOYMENT (MINIKUBE) ==========
+      - name: 🚀 Deploy to Minikube (Local)
+        if: env.DEPLOY_TARGET == 'local'
         run: |
-          echo "⏳ Waiting for deployment to be ready..."
-          kubectl rollout status deployment/${{ env.APP_NAME }} \
-            -n ${{ env.NAMESPACE }} \
-            --timeout=5m
-      
-      - name: Deploy monitoring stack
-        if: env.PROMETHEUS_ENABLED == 'true' || env.GRAFANA_ENABLED == 'true'
-        run: |
-          echo "📊 Deploying monitoring stack..."
+          echo "🚀 Deploying to Minikube (Local Environment)"
+          echo ""
           
-          # Create monitoring namespace
-          kubectl create namespace ${{ env.PROMETHEUS_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+          # Install Minikube
+          echo "📦 Installing Minikube..."
+          curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+          sudo install minikube-linux-amd64 /usr/local/bin/minikube
           
-          # Deploy Prometheus
-          if [ "${{ env.PROMETHEUS_ENABLED }}" == "true" ]; then
-            echo "📈 Deploying Prometheus..."
-            kubectl apply -f monitoring/prometheus_grafana/prometheus.yaml -n ${{ env.PROMETHEUS_NAMESPACE }}
-            kubectl apply -f monitoring/kube-state-metrics/ -n ${{ env.PROMETHEUS_NAMESPACE }}
-            kubectl apply -f monitoring/node-exporter/daemonset.yaml -n ${{ env.PROMETHEUS_NAMESPACE }}
+          # Start Minikube
+          echo "▶️  Starting Minikube..."
+          minikube start \
+            --driver=docker \
+            --memory=${{ env.MINIKUBE_MEMORY }} \
+            --cpus=${{ env.MINIKUBE_CPUS }}
+          
+          # Enable ingress if configured
+          if [[ "${{ env.MINIKUBE_INGRESS }}" == "true" ]]; then
+            echo "🌐 Enabling Ingress addon..."
+            minikube addons enable ingress
           fi
           
-          # Deploy Grafana
-          if [ "${{ env.GRAFANA_ENABLED }}" == "true" ]; then
-            echo "📊 Deploying Grafana..."
-            
-            # Create Grafana admin secret
-            kubectl create secret generic grafana-admin \
-              --from-literal=admin-user='${{ env.GRAFANA_ADMIN_USER }}' \
-              --from-literal=admin-password='${{ secrets.GRAFANA_ADMIN_PASSWORD || 'admin123' }}' \
-              --namespace=${{ env.PROMETHEUS_NAMESPACE }} \
-              --dry-run=client -o yaml | kubectl apply -f -
-            
-            kubectl apply -f monitoring/prometheus_grafana/dashboard-configmap.yaml -n ${{ env.PROMETHEUS_NAMESPACE }}
-            kubectl apply -f monitoring/prometheus_grafana/grafana.yaml -n ${{ env.PROMETHEUS_NAMESPACE }}
-          fi
+          # Use Minikube's Docker daemon
+          eval $(minikube docker-env)
           
-          echo "✅ Monitoring stack deployed"
-      
-      - name: Get service information
+          # Rebuild image in Minikube's Docker
+          echo "🔨 Building image in Minikube Docker..."
+          docker build -t "${{ env.APP_NAME }}:latest" ./app
+          
+          echo "✅ Minikube setup complete"
+          echo ""
+
+      - name: 📦 Deploy Kubernetes Resources (Local)
+        if: env.DEPLOY_TARGET == 'local'
+        run: |
+          echo "============================================================================"
+          echo "📦 Deploying Kubernetes Resources (Local Environment)"
+          echo "============================================================================"
+          echo ""
+          
+          # Make deployment script executable
+          chmod +x ./kubernetes/deploy_kubernetes.sh
+          
+          # Source and execute the deployment script
+          export PROJECT_ROOT="${GITHUB_WORKSPACE}"
+          
+          # Run the deployment
+          echo "🚀 Executing deployment script..."
+          ./kubernetes/deploy_kubernetes.sh local
+          
+          echo ""
+          echo "✅ Kubernetes deployment completed"
+          echo ""
+
+      - name: 📊 Deploy Monitoring Stack (Local)
+        if: env.DEPLOY_TARGET == 'local' && env.PROMETHEUS_ENABLED == 'true'
+        run: |
+          echo "============================================================================"
+          echo "📊 Deploying Monitoring Stack (Local Environment)"
+          echo "============================================================================"
+          echo ""
+          
+          # Make monitoring script executable
+          chmod +x ./monitoring/deploy_monitoring.sh
+          
+          # Source and execute the monitoring script
+          export PROJECT_ROOT="${GITHUB_WORKSPACE}"
+          
+          # Run the monitoring deployment
+          echo "🚀 Executing monitoring deployment..."
+          ./monitoring/deploy_monitoring.sh
+          
+          echo ""
+          echo "✅ Monitoring stack deployment completed"
+          echo ""
+
+      - name: ✅ Local Deployment Summary
+        if: env.DEPLOY_TARGET == 'local'
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
@@ -408,320 +340,169 @@ jobs:
           echo ""
           
           MINIKUBE_IP=$(minikube ip)
-          NODE_PORT=$(kubectl get svc ${{ env.APP_NAME }}-service -n ${{ env.NAMESPACE }} -o jsonpath='{.spec.ports[0].nodePort}')
+          NODE_PORT=$(kubectl get svc "${{ env.APP_NAME }}-service" -n "${{ env.NAMESPACE }}" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "N/A")
           
-          echo "  🌐 App URL:       http://${MINIKUBE_IP}:${NODE_PORT}"
-          echo "  📦 Namespace:     ${{ env.NAMESPACE }}"
-          echo "  🔄 Replicas:      ${{ env.REPLICAS }}"
+          echo "  🌐 Minikube IP:   $MINIKUBE_IP"
+          echo "  🔌 Service Port:  $NODE_PORT"
+          echo "  📱 App URL:       http://$MINIKUBE_IP:$NODE_PORT"
           echo ""
-          echo "  📊 Monitoring:"
-          if [ "${{ env.PROMETHEUS_ENABLED }}" == "true" ]; then
-            PROM_PORT=$(kubectl get svc prometheus -n ${{ env.PROMETHEUS_NAMESPACE }} -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "N/A")
-            echo "     Prometheus:    http://${MINIKUBE_IP}:${PROM_PORT}"
-          fi
-          if [ "${{ env.GRAFANA_ENABLED }}" == "true" ]; then
-            GRAFANA_PORT=$(kubectl get svc grafana -n ${{ env.PROMETHEUS_NAMESPACE }} -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "N/A")
-            echo "     Grafana:       http://${MINIKUBE_IP}:${GRAFANA_PORT}"
-          fi
+          echo "  📊 Resources:"
+          kubectl get all -n "${{ env.NAMESPACE }}"
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      
-      - name: Display pods status
-        if: always()
-        run: |
-          echo ""
-          echo "📋 Pods in ${{ env.NAMESPACE }} namespace:"
-          kubectl get pods -n ${{ env.NAMESPACE }}
-          echo ""
-          echo "📋 Pods in ${{ env.PROMETHEUS_NAMESPACE }} namespace:"
-          kubectl get pods -n ${{ env.PROMETHEUS_NAMESPACE }} || true
-      
-      - name: Show recent logs
-        if: always()
-        run: |
-          echo ""
-          echo "📜 Recent application logs:"
-          kubectl logs -n ${{ env.NAMESPACE }} -l app=${{ env.APP_NAME }} --tail=50 || true
 
-  deploy-prod:
-    name: ☁️ Deploy to AWS EKS (Production)
-    needs: [validate-config, build-and-push]
-    runs-on: ubuntu-latest
-    if: |
-      always() && 
-      needs.validate-config.result == 'success' && 
-      needs.validate-config.outputs.deploy_target == 'prod' &&
-      needs.build-and-push.result == 'success'
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Configure AWS credentials
+      # ========== PRODUCTION DEPLOYMENT (AWS EKS) ==========
+      - name: ⚙️ Configure AWS Credentials
+        if: env.DEPLOY_TARGET == 'prod'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-      
-      - name: Setup Terraform
+
+      - name: 🔧 Setup Terraform
+        if: env.DEPLOY_TARGET == 'prod'
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: latest
-      
-      - name: Terraform Init
+          terraform_version: 1.6.0
+
+      - name: 🏗️ Deploy Infrastructure with Terraform
+        if: env.DEPLOY_TARGET == 'prod'
+        working-directory: ./infra/terraform
         run: |
-          echo "🏗️  Initializing Terraform..."
-          cd infra/terraform
-          terraform init -upgrade
-      
-      - name: Terraform Plan
-        run: |
-          echo "📋 Planning Terraform changes..."
-          cd infra/terraform
-          terraform plan -out=tfplan
-      
-      - name: Terraform Apply
-        if: env.DRY_RUN != 'true'
-        run: |
-          echo "🚀 Applying Terraform changes..."
-          cd infra/terraform
-          terraform apply -auto-approve tfplan
-      
-      - name: Get EKS cluster info
-        run: |
-          echo "⚙️  Getting EKS cluster information..."
-          cd infra/terraform
-          echo "CLUSTER_NAME=$(terraform output -raw cluster_name)" >> $GITHUB_ENV
-          echo "CLUSTER_REGION=$(terraform output -raw region)" >> $GITHUB_ENV
-      
-      - name: Update kubeconfig
-        run: |
-          echo "⚙️  Configuring kubectl for EKS..."
-          aws eks update-kubeconfig \
-            --region ${{ env.CLUSTER_REGION }} \
-            --name ${{ env.CLUSTER_NAME }}
+          echo "☁️  Deploying to AWS EKS (Production Environment)"
+          echo ""
+          echo "🏗️  Deploying infrastructure with Terraform..."
+          echo ""
           
+          terraform init -upgrade
+          
+          echo ""
+          echo "📋 Terraform Plan:"
+          terraform plan
+          
+          echo ""
+          echo "🚀 Applying Terraform configuration..."
+          terraform apply -auto-approve
+          
+          echo ""
+          echo "✅ Infrastructure deployment completed"
+          echo ""
+
+      - name: ⚙️ Configure kubectl for EKS
+        if: env.DEPLOY_TARGET == 'prod'
+        working-directory: ./infra/terraform
+        run: |
+          echo "⚙️  Configuring kubectl context for EKS..."
+          echo ""
+          
+          REGION=$(terraform output -raw region)
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
+          
+          aws eks update-kubeconfig \
+            --region "$REGION" \
+            --name "$CLUSTER_NAME"
+          
+          echo "✅ kubectl configured for EKS cluster: $CLUSTER_NAME"
+          echo ""
+          
+          # Verify connection
+          echo "🔍 Verifying cluster connection..."
           kubectl cluster-info
           kubectl get nodes
-      
-      - name: Create namespace
+          echo ""
+
+      - name: 📦 Deploy Kubernetes Resources (Production)
+        if: env.DEPLOY_TARGET == 'prod'
         run: |
-          echo "📦 Creating namespace..."
-          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
-      
-      - name: Create Kubernetes secrets
+          echo "============================================================================"
+          echo "📦 Deploying Kubernetes Resources (Production Environment)"
+          echo "============================================================================"
+          echo ""
+          
+          # Make deployment script executable
+          chmod +x ./kubernetes/deploy_kubernetes.sh
+          
+          # Source and execute the deployment script
+          export PROJECT_ROOT="${GITHUB_WORKSPACE}"
+          
+          # Run the deployment
+          echo "🚀 Executing deployment script..."
+          ./kubernetes/deploy_kubernetes.sh prod
+          
+          echo ""
+          echo "✅ Kubernetes deployment completed"
+          echo ""
+
+      - name: 📊 Deploy Monitoring Stack (Production)
+        if: env.DEPLOY_TARGET == 'prod' && env.PROMETHEUS_ENABLED == 'true'
         run: |
-          echo "🔐 Creating Kubernetes secrets..."
-          kubectl create secret generic app-secrets \
-            --from-literal=db-password='${{ secrets.DB_PASSWORD }}' \
-            --from-literal=jwt-secret='${{ secrets.JWT_SECRET }}' \
-            --from-literal=api-key='${{ secrets.API_KEY }}' \
-            --from-literal=session-secret='${{ secrets.SESSION_SECRET }}' \
-            --namespace=${{ env.NAMESPACE }} \
-            --dry-run=client -o yaml | kubectl apply -f -
+          echo "============================================================================"
+          echo "📊 Deploying Monitoring Stack (Production Environment)"
+          echo "============================================================================"
+          echo ""
           
-          # Docker registry secret for pulling images
-          kubectl create secret docker-registry dockerhub-secret \
-            --docker-server=https://index.docker.io/v1/ \
-            --docker-username=${{ secrets.DOCKERHUB_USERNAME }} \
-            --docker-password=${{ secrets.DOCKERHUB_PASSWORD }} \
-            --namespace=${{ env.NAMESPACE }} \
-            --dry-run=client -o yaml | kubectl apply -f -
-      
-      - name: Create ConfigMap
-        run: |
-          echo "⚙️  Creating ConfigMap..."
-          kubectl create configmap app-config \
-            --from-literal=app-name='${{ env.APP_NAME }}' \
-            --from-literal=app-port='${{ env.APP_PORT }}' \
-            --from-literal=db-host='${{ env.DB_HOST }}' \
-            --from-literal=db-port='${{ env.DB_PORT }}' \
-            --from-literal=db-name='${{ env.DB_NAME }}' \
-            --from-literal=db-username='${{ env.DB_USERNAME }}' \
-            --namespace=${{ env.NAMESPACE }} \
-            --dry-run=client -o yaml | kubectl apply -f -
-      
-      - name: Deploy application with Kustomize
-        run: |
-          echo "📦 Deploying application to production..."
+          # Make monitoring script executable
+          chmod +x ./monitoring/deploy_monitoring.sh
           
-          cd kubernetes/overlays/prod
-          kustomize edit set image ${{ env.APP_NAME }}=${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
-          kustomize edit set namespace ${{ env.NAMESPACE }}
+          # Source and execute the monitoring script
+          export PROJECT_ROOT="${GITHUB_WORKSPACE}"
           
-          kubectl apply -k .
+          # Run the monitoring deployment
+          echo "🚀 Executing monitoring deployment..."
+          ./monitoring/deploy_monitoring.sh
           
-          echo "✅ Application deployed to production"
-      
-      - name: Wait for deployment rollout
-        run: |
-          echo "⏳ Waiting for deployment to be ready..."
-          kubectl rollout status deployment/${{ env.APP_NAME }} \
-            -n ${{ env.NAMESPACE }} \
-            --timeout=10m
-      
-      - name: Deploy monitoring stack
-        if: env.PROMETHEUS_ENABLED == 'true' || env.GRAFANA_ENABLED == 'true'
-        run: |
-          echo "📊 Deploying monitoring stack..."
-          
-          kubectl create namespace ${{ env.PROMETHEUS_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
-          
-          if [ "${{ env.PROMETHEUS_ENABLED }}" == "true" ]; then
-            echo "📈 Deploying Prometheus..."
-            kubectl apply -f monitoring/prometheus_grafana/prometheus.yaml -n ${{ env.PROMETHEUS_NAMESPACE }}
-            kubectl apply -f monitoring/kube-state-metrics/ -n ${{ env.PROMETHEUS_NAMESPACE }}
-            kubectl apply -f monitoring/node-exporter/daemonset.yaml -n ${{ env.PROMETHEUS_NAMESPACE }}
-          fi
-          
-          if [ "${{ env.GRAFANA_ENABLED }}" == "true" ]; then
-            echo "📊 Deploying Grafana..."
-            
-            kubectl create secret generic grafana-admin \
-              --from-literal=admin-user='${{ env.GRAFANA_ADMIN_USER }}' \
-              --from-literal=admin-password='${{ secrets.GRAFANA_ADMIN_PASSWORD }}' \
-              --namespace=${{ env.PROMETHEUS_NAMESPACE }} \
-              --dry-run=client -o yaml | kubectl apply -f -
-            
-            kubectl apply -f monitoring/prometheus_grafana/dashboard-configmap.yaml -n ${{ env.PROMETHEUS_NAMESPACE }}
-            kubectl apply -f monitoring/prometheus_grafana/grafana.yaml -n ${{ env.PROMETHEUS_NAMESPACE }}
-          fi
-      
-      - name: Deploy ArgoCD (if configured)
-        if: vars.ARGOCD_ENABLED == 'true'
-        run: |
-          echo "🔄 Deploying ArgoCD..."
-          
-          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-          kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-          
-          # Wait for ArgoCD to be ready
-          kubectl wait --for=condition=available --timeout=300s \
-            deployment/argocd-server -n argocd
-          
-          # Apply ArgoCD application
-          if [ -f cicd/argocd/application.yaml ]; then
-            kubectl apply -f cicd/argocd/application.yaml -n argocd
-          fi
-          
-          echo "✅ ArgoCD deployed"
-      
-      - name: Get service endpoints
+          echo ""
+          echo "✅ Monitoring stack deployment completed"
+          echo ""
+
+      - name: ✅ Production Deployment Summary
+        if: env.DEPLOY_TARGET == 'prod'
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
           echo "  ✅ Application deployed to AWS EKS"
           echo ""
-          echo "  ☁️  Cluster:      ${{ env.CLUSTER_NAME }}"
-          echo "  🌍 Region:       ${{ env.CLUSTER_REGION }}"
-          echo "  📦 Namespace:    ${{ env.NAMESPACE }}"
+          echo "  📊 Deployment Resources:"
+          kubectl get all -n "${{ env.NAMESPACE }}"
           echo ""
           
-          # Get LoadBalancer endpoint if exists
-          LB_ENDPOINT=$(kubectl get svc ${{ env.APP_NAME }}-service -n ${{ env.NAMESPACE }} \
-            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "Pending...")
-          
-          if [ "$LB_ENDPOINT" != "Pending..." ]; then
-            echo "  🌐 LoadBalancer: http://${LB_ENDPOINT}"
-          else
-            echo "  ⏳ LoadBalancer endpoint is being provisioned..."
-            echo "     Run: kubectl get svc -n ${{ env.NAMESPACE }}"
+          if [[ "${{ env.PROMETHEUS_ENABLED }}" == "true" ]]; then
+            echo "  📈 Monitoring Resources:"
+            kubectl get all -n "${{ env.PROMETHEUS_NAMESPACE }}"
+            echo ""
           fi
           
-          # Get Ingress endpoint if exists
-          if [ "${{ env.INGRESS_ENABLED }}" == "true" ]; then
-            INGRESS_ENDPOINT=$(kubectl get ingress ${{ env.APP_NAME }}-ingress -n ${{ env.NAMESPACE }} \
-              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "Pending...")
-            
-            if [ "$INGRESS_ENDPOINT" != "Pending..." ]; then
-              echo "  🚪 Ingress:      http://${INGRESS_ENDPOINT}"
-            fi
-          fi
+          echo "  🌐 Services:"
+          kubectl get svc -n "${{ env.NAMESPACE }}"
+          echo ""
           
+          echo "  🔗 Ingress:"
+          kubectl get ingress -n "${{ env.NAMESPACE }}"
+          echo ""
+          
+          echo "  ℹ️  Note: Use LoadBalancer or Ingress to expose services externally"
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      
-      - name: Display deployment status
+
+      - name: 🔍 Final Health Check
         if: always()
         run: |
+          echo "🔍 Final Health Check"
           echo ""
-          echo "📋 Deployment status:"
-          kubectl get deployments -n ${{ env.NAMESPACE }}
+          
+          echo "📋 Pod Status:"
+          kubectl get pods -n "${{ env.NAMESPACE }}" -o wide || true
           echo ""
-          echo "📋 Pods:"
-          kubectl get pods -n ${{ env.NAMESPACE }}
+          
+          echo "📋 Service Status:"
+          kubectl get svc -n "${{ env.NAMESPACE }}" || true
           echo ""
-          echo "📋 Services:"
-          kubectl get svc -n ${{ env.NAMESPACE }}
-      
-      - name: Send Slack notification
-        if: always() && env.SLACK_WEBHOOK_URL != ''
-        run: |
-          STATUS="${{ job.status }}"
-          COLOR="good"
-          if [ "$STATUS" != "success" ]; then
-            COLOR="danger"
+          
+          if [[ "${{ env.PROMETHEUS_ENABLED }}" == "true" ]]; then
+            echo "📋 Monitoring Pod Status:"
+            kubectl get pods -n "${{ env.PROMETHEUS_NAMESPACE }}" || true
+            echo ""
           fi
           
-          curl -X POST ${{ env.SLACK_WEBHOOK_URL }} \
-            -H 'Content-Type: application/json' \
-            -d "{
-              \"attachments\": [{
-                \"color\": \"${COLOR}\",
-                \"title\": \"Deployment to Production\",
-                \"text\": \"Status: ${STATUS}\nCluster: ${{ env.CLUSTER_NAME }}\nNamespace: ${{ env.NAMESPACE }}\",
-                \"footer\": \"GitHub Actions\",
-                \"ts\": $(date +%s)
-              }]
-            }"
-
-  post-deployment-tests:
-    name: 🧪 Post-Deployment Tests
-    needs: [deploy-local, deploy-prod]
-    runs-on: ubuntu-latest
-    if: always() && (needs.deploy-local.result == 'success' || needs.deploy-prod.result == 'success')
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup test environment
-        run: |
-          echo "🧪 Setting up test environment..."
-          # Add any test setup here
-      
-      - name: Health check placeholder
-        run: |
-          echo "✅ Health checks would run here"
-          echo "   - API endpoint tests"
-          echo "   - Database connectivity"
-          echo "   - Service mesh verification"
-          echo ""
-          echo "Implement actual health checks based on your application requirements"
-
-  summary:
-    name: 📊 Deployment Summary
-    needs: [validate-config, build-and-push, deploy-local, deploy-prod, post-deployment-tests]
-    runs-on: ubuntu-latest
-    if: always()
-    
-    steps:
-      - name: Generate summary
-        run: |
-          echo "# 🚀 Deployment Pipeline Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Configuration" >> $GITHUB_STEP_SUMMARY
-          echo "- **Target**: ${{ needs.validate-config.outputs.deploy_target }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Build & Push**: ${{ needs.validate-config.outputs.build_push }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Application**: ${{ env.APP_NAME }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Namespace**: ${{ env.NAMESPACE }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Job Status" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Validate Config | ${{ needs.validate-config.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Build & Push | ${{ needs.build-and-push.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Deploy Local | ${{ needs.deploy-local.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Deploy Prod | ${{ needs.deploy-prod.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Post-Deploy Tests | ${{ needs.post-deployment-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "🎉 Deployment workflow completed!"
