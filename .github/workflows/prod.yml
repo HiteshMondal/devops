@@ -1,4 +1,11 @@
-name: DevOps Project Deployment
+name: DevOps Project Deployment (Production)
+
+# ============================================================================
+# IMPORTANT: This workflow is designed for PRODUCTION deployments only!
+# ============================================================================
+# - For LOCAL development with Minikube: Use ./run.sh on your machine
+# - For PRODUCTION deployment to AWS EKS: Use this GitHub Actions workflow
+# ============================================================================
 
 on:
   push:
@@ -11,12 +18,12 @@ on:
   workflow_dispatch:
     inputs:
       deploy_target:
-        description: 'Deployment target (local/prod)'
+        description: 'Deployment target (prod only - use ./run.sh for local)'
         required: true
         default: 'prod'
         type: choice
         options:
-          - local
+          - local(Skip Monitoring and Kubernetes)
           - prod
       build_push:
         description: 'Build and push Docker image'
