@@ -88,8 +88,8 @@ env:
   GRAFANA_MEMORY_LIMIT: ${{ vars.GRAFANA_MEMORY_LIMIT || '1Gi' }}
   
   # Git Configuration
-  GITHUB_USERNAME: ${{ vars.GITHUB_USERNAME || github.actor }}
-  GITHUB_EMAIL: ${{ vars.GITHUB_EMAIL || format('{0}@users.noreply.github.com', github.actor) }}
+  GIT_USER_NAME: ${{ vars.GIT_USER_NAME || github.actor }}
+  GIT_USER_EMAIL: ${{ vars.GIT_USER_EMAIL || format('{0}@users.noreply.github.com', github.actor) }}
   
   # Minikube Configuration (for local deployments)
   MINIKUBE_INGRESS: ${{ vars.MINIKUBE_INGRESS || 'true' }}
@@ -138,7 +138,7 @@ jobs:
           
           MISSING_SECRETS=()
           
-          [[ -z "${{ secrets.DOCKERHUB_PASSWORD }}" ]] && MISSING_SECRETS+=("DOCKERHUB_PASSWORD")
+          [[ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]] && MISSING_SECRETS+=("DOCKERHUB_TOKEN")
           
           if [ "${{ env.DEPLOY_TARGET }}" == "prod" ]; then
             [[ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]] && MISSING_SECRETS+=("AWS_ACCESS_KEY_ID")
@@ -168,6 +168,19 @@ jobs:
           echo "🌐 Namespace: ${{ env.NAMESPACE }}"
           echo "🔨 Build & Push: ${{ env.BUILD_PUSH }}"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          if [[ "${{ env.DEPLOY_TARGET }}" == "local" ]]; then
+            echo ""
+            echo "⚠️  WARNING: DEPLOY_TARGET is set to 'local'"
+            echo ""
+            echo "GitHub Actions cannot deploy to local Minikube clusters."
+            echo "The workflow will only build and push the Docker image."
+            echo ""
+            echo "To deploy the full stack, either:"
+            echo "  1. Change DEPLOY_TARGET to 'prod' for AWS EKS deployment"
+            echo "  2. Run './run.sh' locally on your development machine"
+            echo ""
+          fi
 
   build-and-push-image:
     name: Build and Push Docker Image
@@ -186,7 +199,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -258,14 +271,30 @@ jobs:
       always() &&
       needs.validate-configuration.result == 'success' &&
       (needs.build-and-push-image.result == 'success' || needs.build-and-push-image.result == 'skipped') &&
-      (needs.deploy-infrastructure-prod.result == 'success' || needs.deploy-infrastructure-prod.result == 'skipped')
+      (needs.deploy-infrastructure-prod.result == 'success' || needs.deploy-infrastructure-prod.result == 'skipped') &&
+      (github.event.inputs.deploy_target == 'prod' || vars.DEPLOY_TARGET == 'prod')
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Configure AWS credentials (for EKS)
-        if: ${{ env.DEPLOY_TARGET == 'prod' }}
+      - name: Verify deployment target
+        run: |
+          if [[ "${{ env.DEPLOY_TARGET }}" == "local" ]]; then
+            echo "❌ ERROR: Local deployments (Minikube) are not supported in GitHub Actions"
+            echo ""
+            echo "GitHub Actions runners don't have Minikube installed."
+            echo "For local development, please run the deployment on your local machine using:"
+            echo "  ./run.sh"
+            echo ""
+            echo "For CI/CD deployments, set DEPLOY_TARGET to 'prod' in:"
+            echo "  Settings → Secrets and variables → Actions → Variables"
+            exit 1
+          fi
+          
+          echo "✅ Deployment target verified: ${{ env.DEPLOY_TARGET }}"
+      
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -275,12 +304,34 @@ jobs:
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
       
-      - name: Configure kubectl for EKS
-        if: ${{ env.DEPLOY_TARGET == 'prod' }}
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: latest
+          terraform_wrapper: false
+      
+      - name: Get EKS cluster name from Terraform
+        id: get_cluster
+        working-directory: ./infra/terraform
         run: |
+          terraform init -upgrade
+          CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "devops-eks-cluster")
+          echo "cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+          echo "📦 EKS Cluster Name: $CLUSTER_NAME"
+      
+      - name: Configure kubectl for EKS
+        run: |
+          echo "⚙️  Configuring kubectl for EKS..."
           aws eks update-kubeconfig \
             --region ${{ env.AWS_REGION }} \
-            --name $(cd infra/terraform && terraform output -raw cluster_name 2>/dev/null || echo "devops-eks-cluster")
+            --name ${{ steps.get_cluster.outputs.cluster_name }}
+      
+      - name: Verify cluster connectivity
+        run: |
+          echo "🔍 Verifying cluster connectivity..."
+          kubectl cluster-info
+          kubectl get nodes
+          echo "✅ Successfully connected to Kubernetes cluster"
       
       - name: Install envsubst
         run: |
@@ -377,25 +428,28 @@ jobs:
           echo "📦 Pods:"
           kubectl get pods -n ${{ env.NAMESPACE }}
           echo ""
-          
-          if [[ "${{ env.DEPLOY_TARGET }}" == "prod" ]]; then
-            echo "🌐 LoadBalancer IP:"
-            kubectl get svc ${{ env.APP_NAME }}-service -n ${{ env.NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-            echo ""
-          fi
+          echo "🌐 LoadBalancer Information:"
+          echo "   Waiting for external IP to be assigned..."
+          kubectl get svc ${{ env.APP_NAME }}-service -n ${{ env.NAMESPACE }}
+          echo ""
+          echo "💡 To get the LoadBalancer URL, run:"
+          echo "   kubectl get svc ${{ env.APP_NAME }}-service -n ${{ env.NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'"
 
   deploy-monitoring:
     name: Deploy Monitoring Stack
     runs-on: ubuntu-latest
     needs: deploy-kubernetes
-    if: ${{ always() && needs.deploy-kubernetes.result == 'success' && (vars.PROMETHEUS_ENABLED == 'true' || vars.PROMETHEUS_ENABLED == '') }}
+    if: |
+      always() && 
+      needs.deploy-kubernetes.result == 'success' && 
+      (vars.PROMETHEUS_ENABLED == 'true' || vars.PROMETHEUS_ENABLED == '') &&
+      (github.event.inputs.deploy_target == 'prod' || vars.DEPLOY_TARGET == 'prod')
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
       
       - name: Configure AWS credentials (for EKS)
-        if: ${{ env.DEPLOY_TARGET == 'prod' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -405,12 +459,25 @@ jobs:
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
       
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: latest
+          terraform_wrapper: false
+      
+      - name: Get EKS cluster name from Terraform
+        id: get_cluster
+        working-directory: ./infra/terraform
+        run: |
+          terraform init -upgrade
+          CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "devops-eks-cluster")
+          echo "cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+      
       - name: Configure kubectl for EKS
-        if: ${{ env.DEPLOY_TARGET == 'prod' }}
         run: |
           aws eks update-kubeconfig \
             --region ${{ env.AWS_REGION }} \
-            --name $(cd infra/terraform && terraform output -raw cluster_name 2>/dev/null || echo "devops-eks-cluster")
+            --name ${{ steps.get_cluster.outputs.cluster_name }}
       
       - name: Install envsubst
         run: |
