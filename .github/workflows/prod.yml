@@ -1,10 +1,11 @@
-name: DevOps Project Deployment (Production)
+name: DevOps Project Deployment (Production & Local)
 
 # ============================================================================
-# IMPORTANT: This workflow is designed for PRODUCTION deployments only!
+# UPDATED: This workflow now supports both LOCAL (Minikube) and PROD (EKS) deployments!
 # ============================================================================
-# - For LOCAL development with Minikube: Use ./run.sh on your machine
-# - For PRODUCTION deployment to AWS EKS: Use this GitHub Actions workflow
+# - /.github/workflows/prod.yml
+# - For LOCAL development: Choose 'local' target - runs Minikube in GitHub Actions
+# - For PRODUCTION deployment to AWS EKS: Choose 'prod' target
 # ============================================================================
 
 on:
@@ -18,12 +19,12 @@ on:
   workflow_dispatch:
     inputs:
       deploy_target:
-        description: 'Deployment target (prod only - use ./run.sh for local)'
+        description: 'Deployment target'
         required: true
-        default: 'prod'
+        default: 'local'
         type: choice
         options:
-          - local(Skip Monitoring and Kubernetes)
+          - local
           - prod
       build_push:
         description: 'Build and push Docker image'
@@ -102,7 +103,7 @@ env:
   MINIKUBE_INGRESS: ${{ vars.MINIKUBE_INGRESS || 'true' }}
   
   # Deployment Target
-  DEPLOY_TARGET: ${{ github.event.inputs.deploy_target || vars.DEPLOY_TARGET || 'prod' }}
+  DEPLOY_TARGET: ${{ github.event.inputs.deploy_target || vars.DEPLOY_TARGET || 'local' }}
   BUILD_PUSH: ${{ github.event.inputs.build_push || vars.BUILD_PUSH || 'true' }}
   
   # AWS Configuration (for prod deployments)
@@ -178,14 +179,23 @@ jobs:
           
           if [[ "${{ env.DEPLOY_TARGET }}" == "local" ]]; then
             echo ""
-            echo "⚠️  WARNING: DEPLOY_TARGET is set to 'local'"
+            echo "📍 LOCAL DEPLOYMENT MODE"
             echo ""
-            echo "GitHub Actions cannot deploy to local Minikube clusters."
-            echo "The workflow will only build and push the Docker image."
+            echo "This workflow will:"
+            echo "  ✅ Set up Minikube in GitHub Actions runner"
+            echo "  ✅ Build and push Docker image (if enabled)"
+            echo "  ✅ Deploy Kubernetes resources to Minikube"
+            echo "  ✅ Deploy monitoring stack (Prometheus & Grafana)"
             echo ""
-            echo "To deploy the full stack, either:"
-            echo "  1. Change DEPLOY_TARGET to 'prod' for AWS EKS deployment"
-            echo "  2. Run './run.sh' locally on your development machine"
+          else
+            echo ""
+            echo "☁️  PRODUCTION DEPLOYMENT MODE"
+            echo ""
+            echo "This workflow will:"
+            echo "  ✅ Provision AWS infrastructure with Terraform"
+            echo "  ✅ Build and push Docker image"
+            echo "  ✅ Deploy to AWS EKS cluster"
+            echo "  ✅ Deploy monitoring stack"
             echo ""
           fi
 
@@ -224,6 +234,44 @@ jobs:
         run: |
           echo "✅ Docker image built and pushed successfully!"
           echo "📦 Image: ${{ vars.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ env.DOCKER_IMAGE_TAG }}"
+
+  setup-minikube:
+    name: Setup Minikube (Local)
+    runs-on: ubuntu-latest
+    needs: validate-configuration
+    if: ${{ github.event.inputs.deploy_target == 'local' || vars.DEPLOY_TARGET == 'local' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Start Minikube
+        uses: medyagh/setup-minikube@latest
+        with:
+          cpus: 2
+          memory: 4096
+          kubernetes-version: v1.28.0
+          driver: docker
+      
+      - name: Enable Minikube addons
+        run: |
+          echo "🔧 Enabling Minikube addons..."
+          minikube addons enable ingress
+          minikube addons enable metrics-server
+          echo "✅ Addons enabled successfully"
+      
+      - name: Verify Minikube setup
+        run: |
+          echo "🔍 Verifying Minikube setup..."
+          kubectl cluster-info
+          kubectl get nodes
+          echo "✅ Minikube is ready!"
+      
+      - name: Save kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          kubectl config view --raw > $HOME/.kube/config
+          echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
 
   deploy-infrastructure-prod:
     name: Deploy AWS Infrastructure (Terraform)
@@ -270,8 +318,141 @@ jobs:
           kubectl cluster-info
           kubectl get nodes
 
-  deploy-kubernetes:
-    name: Deploy Kubernetes Resources
+  deploy-kubernetes-local:
+    name: Deploy Kubernetes Resources (Minikube)
+    runs-on: ubuntu-latest
+    needs: [build-and-push-image, setup-minikube]
+    if: |
+      always() &&
+      needs.validate-configuration.result == 'success' &&
+      (needs.build-and-push-image.result == 'success' || needs.build-and-push-image.result == 'skipped') &&
+      needs.setup-minikube.result == 'success' &&
+      (github.event.inputs.deploy_target == 'local' || vars.DEPLOY_TARGET == 'local')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Start Minikube
+        uses: medyagh/setup-minikube@latest
+        with:
+          cpus: 2
+          memory: 4096
+          kubernetes-version: v1.28.0
+          driver: docker
+      
+      - name: Enable Minikube addons
+        run: |
+          minikube addons enable ingress
+          minikube addons enable metrics-server
+      
+      - name: Verify Minikube is running
+        run: |
+          echo "🔍 Verifying Minikube connectivity..."
+          kubectl cluster-info
+          kubectl get nodes
+          echo "✅ Connected to Minikube cluster"
+      
+      - name: Install envsubst
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gettext-base
+      
+      - name: Substitute environment variables in manifests
+        run: |
+          echo "📝 Processing Kubernetes manifests..."
+          
+          # Create temporary working directory
+          WORK_DIR="/tmp/k8s-deployment-$$"
+          mkdir -p "$WORK_DIR"
+          
+          # Copy manifests
+          cp -r kubernetes/base "$WORK_DIR/"
+          cp -r kubernetes/overlays "$WORK_DIR/"
+          
+          # Export all environment variables for envsubst
+          export APP_NAME="${{ env.APP_NAME }}"
+          export NAMESPACE="${{ env.NAMESPACE }}"
+          export DOCKERHUB_USERNAME="${{ vars.DOCKERHUB_USERNAME }}"
+          export DOCKER_IMAGE_TAG="${{ env.DOCKER_IMAGE_TAG }}"
+          export APP_PORT="${{ env.APP_PORT }}"
+          export REPLICAS="${{ env.REPLICAS }}"
+          export MIN_REPLICAS="${{ env.MIN_REPLICAS }}"
+          export MAX_REPLICAS="${{ env.MAX_REPLICAS }}"
+          export CPU_TARGET_UTILIZATION="${{ env.CPU_TARGET_UTILIZATION }}"
+          export MEMORY_TARGET_UTILIZATION="${{ env.MEMORY_TARGET_UTILIZATION }}"
+          export APP_CPU_REQUEST="${{ env.APP_CPU_REQUEST }}"
+          export APP_CPU_LIMIT="${{ env.APP_CPU_LIMIT }}"
+          export APP_MEMORY_REQUEST="${{ env.APP_MEMORY_REQUEST }}"
+          export APP_MEMORY_LIMIT="${{ env.APP_MEMORY_LIMIT }}"
+          export DB_HOST="${{ secrets.DB_HOST }}"
+          export DB_PORT="${{ secrets.DB_PORT }}"
+          export DB_NAME="${{ secrets.DB_NAME }}"
+          export DB_USERNAME="${{ secrets.DB_USERNAME }}"
+          export DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
+          export JWT_SECRET="${{ secrets.JWT_SECRET }}"
+          export API_KEY="${{ secrets.API_KEY }}"
+          export SESSION_SECRET="${{ secrets.SESSION_SECRET }}"
+          export INGRESS_HOST="${{ env.INGRESS_HOST }}"
+          export INGRESS_CLASS="${{ env.INGRESS_CLASS }}"
+          export TLS_SECRET_NAME="${{ env.TLS_SECRET_NAME }}"
+          export PROMETHEUS_NAMESPACE="${{ env.PROMETHEUS_NAMESPACE }}"
+          
+          # Process all YAML files
+          find "$WORK_DIR" -type f \( -name "*.yaml" -o -name "*.yml" \) | while read -r file; do
+            echo "  Processing: $file"
+            envsubst < "$file" > "${file}.tmp"
+            mv "${file}.tmp" "$file"
+          done
+          
+          # Save processed manifests for deployment
+          echo "WORK_DIR=$WORK_DIR" >> $GITHUB_ENV
+      
+      - name: Create namespace
+        run: |
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+      
+      - name: Deploy base Kubernetes resources
+        run: |
+          echo "🔧 Deploying base Kubernetes resources to Minikube..."
+          
+          kubectl apply -f "$WORK_DIR/base/namespace.yaml" || true
+          kubectl apply -f "$WORK_DIR/base/configmap.yaml"
+          kubectl apply -f "$WORK_DIR/base/secrets.yaml"
+          kubectl apply -f "$WORK_DIR/base/deployment.yaml"
+          kubectl apply -f "$WORK_DIR/base/service.yaml"
+          kubectl apply -f "$WORK_DIR/base/hpa.yaml"
+          
+          if [[ "${{ env.INGRESS_ENABLED }}" == "true" ]]; then
+            kubectl apply -f "$WORK_DIR/base/ingress.yaml"
+          fi
+      
+      - name: Wait for deployment
+        run: |
+          echo "⏳ Waiting for deployment to be ready..."
+          kubectl rollout status deployment/${{ env.APP_NAME }} -n ${{ env.NAMESPACE }} --timeout=300s
+      
+      - name: Display deployment status
+        run: |
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Kubernetes deployment completed successfully!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "📊 Deployment Status:"
+          kubectl get deployments -n ${{ env.NAMESPACE }}
+          echo ""
+          echo "🔌 Services:"
+          kubectl get services -n ${{ env.NAMESPACE }}
+          echo ""
+          echo "📦 Pods:"
+          kubectl get pods -n ${{ env.NAMESPACE }}
+          echo ""
+          echo "🌐 Minikube Service URL:"
+          minikube service ${{ env.APP_NAME }}-service -n ${{ env.NAMESPACE }} --url || true
+
+  deploy-kubernetes-prod:
+    name: Deploy Kubernetes Resources (EKS)
     runs-on: ubuntu-latest
     needs: [build-and-push-image, deploy-infrastructure-prod]
     if: |
@@ -284,22 +465,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
-      - name: Verify deployment target
-        run: |
-          if [[ "${{ env.DEPLOY_TARGET }}" == "local" ]]; then
-            echo "❌ ERROR: Local deployments (Minikube) are not supported in GitHub Actions"
-            echo ""
-            echo "GitHub Actions runners don't have Minikube installed."
-            echo "For local development, please run the deployment on your local machine using:"
-            echo "  ./run.sh"
-            echo ""
-            echo "For CI/CD deployments, set DEPLOY_TARGET to 'prod' in:"
-            echo "  Settings → Secrets and variables → Actions → Variables"
-            exit 1
-          fi
-          
-          echo "✅ Deployment target verified: ${{ env.DEPLOY_TARGET }}"
       
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -442,13 +607,158 @@ jobs:
           echo "💡 To get the LoadBalancer URL, run:"
           echo "   kubectl get svc ${{ env.APP_NAME }}-service -n ${{ env.NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'"
 
-  deploy-monitoring:
-    name: Deploy Monitoring Stack
+  deploy-monitoring-local:
+    name: Deploy Monitoring Stack (Minikube)
     runs-on: ubuntu-latest
-    needs: deploy-kubernetes
+    needs: deploy-kubernetes-local
     if: |
       always() && 
-      needs.deploy-kubernetes.result == 'success' && 
+      needs.deploy-kubernetes-local.result == 'success' && 
+      (vars.PROMETHEUS_ENABLED == 'true' || vars.PROMETHEUS_ENABLED == '') &&
+      (github.event.inputs.deploy_target == 'local' || vars.DEPLOY_TARGET == 'local')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Start Minikube
+        uses: medyagh/setup-minikube@latest
+        with:
+          cpus: 2
+          memory: 4096
+          kubernetes-version: v1.28.0
+          driver: docker
+      
+      - name: Enable Minikube addons
+        run: |
+          minikube addons enable ingress
+          minikube addons enable metrics-server
+      
+      - name: Verify Minikube connection
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+      
+      - name: Install envsubst
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gettext-base
+      
+      - name: Process monitoring manifests
+        run: |
+          echo "📝 Processing monitoring manifests..."
+          
+          WORK_DIR="/tmp/monitoring-deployment-$$"
+          mkdir -p "$WORK_DIR/monitoring" "$WORK_DIR/prometheus"
+          
+          cp -r monitoring/prometheus_grafana/* "$WORK_DIR/monitoring/"
+          cp -r monitoring/prometheus/* "$WORK_DIR/prometheus/" 2>/dev/null || true
+          cp -r monitoring/kube-state-metrics "$WORK_DIR/monitoring/" 2>/dev/null || true
+          
+          # Export monitoring variables
+          export APP_NAME="${{ env.APP_NAME }}"
+          export NAMESPACE="${{ env.NAMESPACE }}"
+          export PROMETHEUS_NAMESPACE="${{ env.PROMETHEUS_NAMESPACE }}"
+          export PROMETHEUS_SCRAPE_INTERVAL="${{ env.PROMETHEUS_SCRAPE_INTERVAL }}"
+          export PROMETHEUS_SCRAPE_TIMEOUT="${{ env.PROMETHEUS_SCRAPE_TIMEOUT }}"
+          export PROMETHEUS_CPU_REQUEST="${{ env.PROMETHEUS_CPU_REQUEST }}"
+          export PROMETHEUS_CPU_LIMIT="${{ env.PROMETHEUS_CPU_LIMIT }}"
+          export PROMETHEUS_MEMORY_REQUEST="${{ env.PROMETHEUS_MEMORY_REQUEST }}"
+          export PROMETHEUS_MEMORY_LIMIT="${{ env.PROMETHEUS_MEMORY_LIMIT }}"
+          export PROMETHEUS_RETENTION="${{ env.PROMETHEUS_RETENTION }}"
+          export PROMETHEUS_STORAGE_SIZE="${{ env.PROMETHEUS_STORAGE_SIZE }}"
+          export GRAFANA_CPU_REQUEST="${{ env.GRAFANA_CPU_REQUEST }}"
+          export GRAFANA_CPU_LIMIT="${{ env.GRAFANA_CPU_LIMIT }}"
+          export GRAFANA_MEMORY_REQUEST="${{ env.GRAFANA_MEMORY_REQUEST }}"
+          export GRAFANA_MEMORY_LIMIT="${{ env.GRAFANA_MEMORY_LIMIT }}"
+          export GRAFANA_STORAGE_SIZE="${{ env.GRAFANA_STORAGE_SIZE }}"
+          export GRAFANA_ADMIN_USER="${{ env.GRAFANA_ADMIN_USER }}"
+          export GRAFANA_ADMIN_PASSWORD="${{ secrets.GRAFANA_ADMIN_PASSWORD }}"
+          export DEPLOY_TARGET="${{ env.DEPLOY_TARGET }}"
+          
+          # Process YAML files
+          find "$WORK_DIR" -type f \( -name "*.yaml" -o -name "*.yml" \) | while read -r file; do
+            echo "  Processing: $file"
+            envsubst < "$file" > "${file}.tmp"
+            mv "${file}.tmp" "$file"
+          done
+          
+          echo "MONITORING_WORK_DIR=$WORK_DIR" >> $GITHUB_ENV
+      
+      - name: Create monitoring namespace
+        run: |
+          kubectl create namespace ${{ env.PROMETHEUS_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+      
+      - name: Create Prometheus ConfigMap
+        run: |
+          if [[ -f "$MONITORING_WORK_DIR/prometheus/prometheus.yml" ]]; then
+            kubectl create configmap prometheus-config \
+              --from-file=prometheus.yml="$MONITORING_WORK_DIR/prometheus/prometheus.yml" \
+              -n ${{ env.PROMETHEUS_NAMESPACE }} \
+              --dry-run=client -o yaml | kubectl apply -f -
+          fi
+          
+          if [[ -f "$MONITORING_WORK_DIR/prometheus/alerts.yml" ]]; then
+            kubectl create configmap prometheus-alerts \
+              --from-file=alerts.yml="$MONITORING_WORK_DIR/prometheus/alerts.yml" \
+              -n ${{ env.PROMETHEUS_NAMESPACE }} \
+              --dry-run=client -o yaml | kubectl apply -f -
+          fi
+      
+      - name: Deploy Prometheus
+        run: |
+          echo "🔍 Deploying Prometheus..."
+          kubectl apply -f "$MONITORING_WORK_DIR/monitoring/prometheus.yaml"
+          
+          if [[ -d "$MONITORING_WORK_DIR/monitoring/kube-state-metrics" ]]; then
+            kubectl apply -f "$MONITORING_WORK_DIR/monitoring/kube-state-metrics/"
+          fi
+      
+      - name: Wait for Prometheus
+        run: |
+          kubectl rollout status deployment/prometheus -n ${{ env.PROMETHEUS_NAMESPACE }} --timeout=300s
+      
+      - name: Deploy Grafana
+        if: ${{ env.GRAFANA_ENABLED == 'true' }}
+        run: |
+          echo "📈 Deploying Grafana..."
+          
+          if [[ -f "$MONITORING_WORK_DIR/monitoring/grafana.yaml" ]]; then
+            kubectl apply -f "$MONITORING_WORK_DIR/monitoring/grafana.yaml"
+          fi
+          
+          if [[ -f "$MONITORING_WORK_DIR/monitoring/dashboard-configmap.yaml" ]]; then
+            kubectl apply -f "$MONITORING_WORK_DIR/monitoring/dashboard-configmap.yaml"
+          fi
+      
+      - name: Wait for Grafana
+        if: ${{ env.GRAFANA_ENABLED == 'true' }}
+        run: |
+          kubectl rollout status deployment/grafana -n ${{ env.PROMETHEUS_NAMESPACE }} --timeout=300s
+      
+      - name: Display monitoring status
+        run: |
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Monitoring stack deployed successfully on Minikube!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "📊 Monitoring Components:"
+          kubectl get all -n ${{ env.PROMETHEUS_NAMESPACE }}
+          echo ""
+          echo "🌐 Prometheus URL:"
+          minikube service prometheus -n ${{ env.PROMETHEUS_NAMESPACE }} --url || true
+          echo ""
+          echo "📈 Grafana URL:"
+          minikube service grafana -n ${{ env.PROMETHEUS_NAMESPACE }} --url || true
+
+  deploy-monitoring-prod:
+    name: Deploy Monitoring Stack (EKS)
+    runs-on: ubuntu-latest
+    needs: deploy-kubernetes-prod
+    if: |
+      always() && 
+      needs.deploy-kubernetes-prod.result == 'success' && 
       (vars.PROMETHEUS_ENABLED == 'true' || vars.PROMETHEUS_ENABLED == '') &&
       (github.event.inputs.deploy_target == 'prod' || vars.DEPLOY_TARGET == 'prod')
     
@@ -456,7 +766,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Configure AWS credentials (for EKS)
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -597,7 +907,7 @@ jobs:
   deployment-summary:
     name: Deployment Summary
     runs-on: ubuntu-latest
-    needs: [deploy-kubernetes, deploy-monitoring]
+    needs: [deploy-kubernetes-local, deploy-kubernetes-prod, deploy-monitoring-local, deploy-monitoring-prod]
     if: always()
     
     steps:
@@ -613,12 +923,20 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Job Status" >> $GITHUB_STEP_SUMMARY
           echo "- Build & Push: ${{ needs.build-and-push-image.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Infrastructure: ${{ needs.deploy-infrastructure-prod.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Kubernetes: ${{ needs.deploy-kubernetes.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Monitoring: ${{ needs.deploy-monitoring.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ env.DEPLOY_TARGET }}" == "local" ]]; then
+            echo "- Minikube Setup: ${{ needs.setup-minikube.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+            echo "- Kubernetes (Minikube): ${{ needs.deploy-kubernetes-local.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+            echo "- Monitoring (Minikube): ${{ needs.deploy-monitoring-local.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- Infrastructure (AWS): ${{ needs.deploy-infrastructure-prod.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+            echo "- Kubernetes (EKS): ${{ needs.deploy-kubernetes-prod.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+            echo "- Monitoring (EKS): ${{ needs.deploy-monitoring-prod.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [[ "${{ needs.deploy-kubernetes.result }}" == "success" ]]; then
+          if [[ "${{ needs.deploy-kubernetes-local.result }}" == "success" ]] || [[ "${{ needs.deploy-kubernetes-prod.result }}" == "success" ]]; then
             echo "✅ Deployment completed successfully!" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ Deployment encountered issues. Check job logs for details." >> $GITHUB_STEP_SUMMARY
