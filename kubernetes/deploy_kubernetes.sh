@@ -12,6 +12,7 @@ if grep -E '^(REPLICAS|APP_PORT)=["'\'']' .env; then
   exit 1
 fi
 
+# /kubernetes/deploy_kubernetes.sh
 # Function to substitute environment variables in YAML files
 substitute_env_vars() {
     local file=$1

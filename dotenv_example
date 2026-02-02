@@ -2,12 +2,12 @@
 # DevOps Project Environment Configuration
 # ========================================
 # Update the values according to your setup
+# For Github Action: Navigate to your repository → Settings → Secrets and variables → Actions 
 
 # Project Configuration
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME=devops-app
 NAMESPACE=devops-app
-ARGO_APP=devops-app
 APP_PORT=3000
 REPLICAS=2
 MIN_REPLICAS=2
@@ -20,6 +20,7 @@ MEMORY_TARGET_UTILIZATION=80
 DOCKERHUB_USERNAME=yourdockerhubusername
 DOCKERHUB_PASSWORD=your-dockerhub-password-or-token
 DOCKER_IMAGE_TAG=latest
+DOCKERHUB_TOKEN=dckr_pat_xxxx
 
 # Kubernetes Configuration
 KUBECONFIG_PROD=$HOME/.kube/config
@@ -100,12 +101,8 @@ GIT_AUTHOR_EMAIL=you@example.com
 
 # GitHub configuration
 GITHUB_USERNAME=yourgithubusername
+GITHUB_EMAIL=yourmail@example.com
 GITHUB_TOKEN=your-github-personal-access-token
-
-# GitLab Configuration
-GITLAB_NAMESPACE=yourusername
-GITLAB_PROJECT_NAME=your-project-name
-GITLAB_TOKEN=your-gitlab-token
 
 # Deployment Configuration
 # Deployment target: 'local' for Minikube, 'prod' for AWS EKS
@@ -128,20 +125,9 @@ MINIKUBE_INGRESS=true
 MINIKUBE_MEMORY=4096
 MINIKUBE_CPUS=2
 
-
-# ArgoCD Configuration
-ARGO_CD_VERSION=v2.9.3
-ARGO_CD_ADMIN_PASSWORD=
-
 # AWS Configuration (for prod deployment)
 AWS_REGION=us-east-1
 AWS_ACCOUNT_ID=123456789012
 EKS_CLUSTER_NAME=devops-cluster
-
-# Feature Flags
-# Enable/disable specific components
-DEPLOY_JENKINS=true
-DEPLOY_ARGOCD=true
-DEPLOY_MONITORING=true
-DEPLOY_GITLAB=false
-
+AWS_ACCESS_KEY_ID=ACCESSKEYEXAMPLE
+AWS_SECRET_ACCESS_KEY=avErySampLEEXAMPLEKEY
