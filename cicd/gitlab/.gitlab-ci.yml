@@ -122,7 +122,9 @@ variables:
 # STAGE: VALIDATE
 validate:prerequisites:
   stage: validate
-  image: alpine:latest
+  image: ubuntu:latest
+  before_script:
+  - apt-get update && apt-get install -y bash curl git
   script:
     - |
       echo "============================================================================"
