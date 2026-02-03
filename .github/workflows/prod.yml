@@ -34,7 +34,7 @@ env:
   # Project Configuration
   APP_NAME: ${{ vars.APP_NAME || 'devops-app' }}
   NAMESPACE: ${{ vars.NAMESPACE || 'devops-app' }}
-  APP_PORT: ${{ vars.APP_PORT || '3000' }}
+  APP_PORT: ${{ vars.APP_PORT != '' && vars.APP_PORT || '3000' }}
   REPLICAS: ${{ vars.REPLICAS || '2' }}
   MIN_REPLICAS: ${{ vars.MIN_REPLICAS || '2' }}
   MAX_REPLICAS: ${{ vars.MAX_REPLICAS || '10' }}
@@ -236,9 +236,7 @@ jobs:
       - name: Configure Docker environment
         run: |
           echo "🐳 Configuring Docker environment..."
-          eval $(minikube docker-env)
-          # Export for subsequent steps
-          minikube docker-env >> $GITHUB_ENV
+          eval "$(minikube docker-env)"
       
       - name: Enable Minikube Ingress
         if: env.MINIKUBE_INGRESS == 'true'
@@ -302,7 +300,7 @@ jobs:
         if: env.BUILD_PUSH != 'true'
         run: |
           echo "🔨 Building Docker image locally..."
-          eval $(minikube docker-env)
+          eval "$(minikube docker-env)"
           docker build -t ${{ env.APP_NAME }}:latest ./app
       
       - name: Deploy Kubernetes Resources
