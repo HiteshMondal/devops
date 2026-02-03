@@ -119,14 +119,6 @@ variables:
 # BUILD_PUSH                 - Set to "true" or "false"
 # ============================================================================
 
-stages:
-  - validate
-  - build
-  - deploy-infra
-  - deploy-app
-  - deploy-services
-  - verify
-
 # STAGE 1: VALIDATE
 validate:prerequisites:
   stage: validate
