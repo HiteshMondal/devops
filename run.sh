@@ -161,10 +161,10 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     echo "📦 Deploying Kubernetes resources..."
     deploy_kubernetes local
     deploy_monitoring
+    configure_gitlab
     #deploy_jenkins
     echo "🔄 Deploying ArgoCD..."
     #deploy_argocd
-    configure_gitlab
     self_heal_app
     
     MINIKUBE_IP=$(minikube ip)
@@ -219,9 +219,9 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
     echo "📦 Deploying Kubernetes resources..."
     deploy_kubernetes prod
     deploy_monitoring
+    configure_gitlab
     deploy_jenkins
     deploy_argocd
-    configure_gitlab
     self_heal_app
     echo ""
     echo "  ✅ Application deployed to AWS EKS"

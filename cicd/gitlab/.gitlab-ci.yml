@@ -2,6 +2,7 @@
 # ============================================================================
 # GitLab CI/CD Pipeline for DevOps Project
 # ============================================================================
+# /cicd/gitlab/.gitlab-ci.yml
 # Description: Orchestrates deployment to Minikube (local) or AWS EKS (prod)
 # Requirements: Configure CI/CD variables in GitLab Settings > CI/CD > Variables
 # ============================================================================
@@ -84,40 +85,6 @@ variables:
   # CI Configuration
   CI: "true"
   DRY_RUN: "false"
-
-# ============================================================================
-# REQUIRED SECRETS - Configure in GitLab Settings > CI/CD > Variables
-# ============================================================================
-# Mark these as "Protected" and "Masked" in GitLab:
-#
-# DOCKERHUB_USERNAME         - Your DockerHub username
-# DOCKERHUB_PASSWORD         - Your DockerHub password or token
-# DB_PASSWORD                - Database password
-# JWT_SECRET                 - JWT secret key
-# API_KEY                    - API key
-# SESSION_SECRET             - Session secret
-# GRAFANA_ADMIN_PASSWORD     - Grafana admin password
-# SMTP_USERNAME              - SMTP username (if email alerts enabled)
-# SMTP_PASSWORD              - SMTP password (if email alerts enabled)
-# SLACK_WEBHOOK_URL          - Slack webhook URL (if Slack alerts enabled)
-# GIT_AUTHOR_NAME            - Git author name
-# GIT_AUTHOR_EMAIL           - Git author email
-# GITHUB_USERNAME            - GitHub username (if using GitHub)
-# GITHUB_EMAIL               - GitHub email (if using GitHub)
-# GITHUB_TOKEN               - GitHub personal access token (if using GitHub)
-#
-# For Production (AWS EKS) deployments, also configure:
-# AWS_REGION                 - AWS region (e.g., us-east-1)
-# AWS_ACCOUNT_ID             - AWS account ID
-# EKS_CLUSTER_NAME           - EKS cluster name
-# AWS_ACCESS_KEY_ID          - AWS access key
-# AWS_SECRET_ACCESS_KEY      - AWS secret access key
-# KUBECONFIG_PROD            - Production kubeconfig (as file variable)
-#
-# For Local deployments, configure:
-# DEPLOY_TARGET              - Set to "local" or "prod"
-# BUILD_PUSH                 - Set to "true" or "false"
-# ============================================================================
 
 # STAGE: VALIDATE
 validate:prerequisites:
@@ -332,24 +299,6 @@ deploy:argocd:
         deploy_argocd
         echo "🔄 Configuring ArgoCD self-healing..."
         self_heal_app
-  dependencies:
-    - deploy:kubernetes-app
-  only:
-    variables:
-      - $DEPLOY_TARGET
-
-deploy:configure-gitlab:
-  stage: deploy-services
-  image: alpine:latest
-  before_script:
-    - apk add --no-cache bash
-  script:
-    - |
-        export PROJECT_ROOT=$CI_PROJECT_DIR
-        chmod +x $CI_PROJECT_DIR/cicd/gitlab/configure_gitlab.sh
-        source $CI_PROJECT_DIR/cicd/gitlab/configure_gitlab.sh
-        echo "⚙️  Configuring GitLab integration..."
-        configure_gitlab
   dependencies:
     - deploy:kubernetes-app
   only:
