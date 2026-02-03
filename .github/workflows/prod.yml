@@ -482,11 +482,14 @@ jobs:
           configure_dockerhub_username
       
       - name: Build and Push Docker Image
-        if: env.BUILD_PUSH == 'true' && env.DRY_RUN != 'true'
-        run: |
-          echo "🔨 Building and pushing Docker image..."
-          source ./app/build_and_push_image.sh
-          build_and_push_image
+      if: env.BUILD_PUSH == 'true'
+      env:
+        DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+      run: |
+        eval "$(minikube docker-env)"
+        source ./app/build_and_push_image.sh
+        build_and_push_image
       
       - name: Deploy Kubernetes Resources
         if: env.DRY_RUN != 'true'
