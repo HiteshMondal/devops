@@ -1,5 +1,10 @@
 stages:
-  - bootstrap
+  - validate
+  - build
+  - deploy-infra
+  - deploy-app
+  - deploy-services
+  - verify
 
 include:
   - local: cicd/gitlab/.gitlab-ci.yml
