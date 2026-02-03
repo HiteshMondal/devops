@@ -3,11 +3,12 @@ set -euo pipefail
 
 deploy_jenkins() {
   # Validate required environment variables
-  : "${DOCKERHUB_USERNAME:?Missing DOCKERHUB_USERNAME in .env}"
-  : "${NAMESPACE:?Missing NAMESPACE in .env}"
-  : "${DEPLOY_TARGET:?Missing DEPLOY_TARGET in .env}"
+  # These work whether from .env (run.sh) or CI/CD variables (GitLab)
+  : "${DOCKERHUB_USERNAME:?Missing DOCKERHUB_USERNAME - set in .env or GitLab variables}"
+  : "${NAMESPACE:?Missing NAMESPACE - set in .env or GitLab variables}"
+  : "${DEPLOY_TARGET:?Missing DEPLOY_TARGET - set in .env or GitLab variables}"
   
-  # Use IMAGE_TAG from .env or fallback to git commit hash
+  # Use IMAGE_TAG from environment or fallback to git commit hash
   if [[ -z "${IMAGE_TAG:-}" ]]; then
     if git rev-parse --git-dir > /dev/null 2>&1; then
       IMAGE_TAG="$(git rev-parse --short HEAD 2>/dev/null || echo 'latest')"
@@ -19,17 +20,27 @@ deploy_jenkins() {
   # Construct Jenkins image name
   JENKINS_IMAGE="${DOCKERHUB_USERNAME}/jenkins:${IMAGE_TAG}"
   
-  # Get the script directory to locate Dockerfile and yaml
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  JENKINS_DIR="${SCRIPT_DIR}"
+  # Determine project root - works in both local and CI environments
+  if [[ -n "${PROJECT_ROOT:-}" ]]; then
+    # PROJECT_ROOT is set (run.sh or GitLab CI)
+    JENKINS_DIR="${PROJECT_ROOT}/cicd/jenkins"
+  elif [[ -n "${CI_PROJECT_DIR:-}" ]]; then
+    # GitLab CI environment
+    JENKINS_DIR="${CI_PROJECT_DIR}/cicd/jenkins"
+  else
+    # Fallback: relative to script location
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    JENKINS_DIR="${SCRIPT_DIR}"
+  fi
   
   echo ""
-  echo "═══════════════════════════════════════════"
+  echo ""
   echo "🔨 Jenkins Deployment Started"
-  echo "═══════════════════════════════════════════"
+  echo ""
   echo "📦 Image: $JENKINS_IMAGE"
   echo "🎯 Namespace: $NAMESPACE"
   echo "🌍 Target: $DEPLOY_TARGET"
+  echo "📁 Jenkins Dir: $JENKINS_DIR"
   echo ""
   
   # Build Jenkins Docker image
@@ -94,10 +105,9 @@ deploy_jenkins() {
   
   # Determine Jenkins URL based on deployment target
   echo ""
-  echo "═══════════════════════════════════════════"
   echo "✅ Jenkins Deployment Complete"
+  echo ""
   echo "═══════════════════════════════════════════"
-  
   if [[ "$DEPLOY_TARGET" == "local" ]]; then
     # For Minikube
     if command -v minikube >/dev/null 2>&1; then
@@ -115,7 +125,7 @@ deploy_jenkins() {
     echo "ℹ️  For EKS, get the external URL with:"
     echo "   kubectl get svc jenkins -n $NAMESPACE"
   fi
-  
+  echo "═══════════════════════════════════════════"
   # Wait for Jenkins to initialize and get admin password
   echo ""
   echo "⏳ Waiting for Jenkins to initialize (this may take 1-2 minutes)..."
@@ -144,9 +154,10 @@ deploy_jenkins() {
   # Retrieve and display admin password
   if [[ -n "$JENKINS_POD" ]]; then
     echo ""
+    echo ""
     echo "═══════════════════════════════════════════"
     echo "🔑 Jenkins Admin Credentials"
-    echo "═══════════════════════════════════════════"
+    echo ""
     
     ADMIN_PASSWORD=$(kubectl exec -n "$NAMESPACE" "$JENKINS_POD" -- \
       sh -c 'test -f /var/jenkins_home/secrets/initialAdminPassword && \
@@ -172,7 +183,7 @@ deploy_jenkins() {
   echo ""
   echo "═══════════════════════════════════════════"
   echo "📚 Next Steps:"
-  echo "═══════════════════════════════════════════"
+  echo ""
   echo "1. Open Jenkins URL in your browser"
   echo "2. Use the admin password shown above"
   echo "3. Complete the setup wizard"

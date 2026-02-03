@@ -322,7 +322,6 @@ deploy_monitoring() {
     fi
     
     echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     
     # Wait for Prometheus to be ready
@@ -331,7 +330,6 @@ deploy_monitoring() {
         echo "✅ Prometheus is ready"
     else
         echo ""
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
         echo "❌ Prometheus deployment failed"
         echo ""

@@ -1,171 +1,467 @@
-stages:
-  - deploy
+---
+# ============================================================================
+# GitLab CI/CD Pipeline for DevOps Project
+# ============================================================================
+# Description: Orchestrates deployment to Minikube (local) or AWS EKS (prod)
+# Requirements: Configure CI/CD variables in GitLab Settings > CI/CD > Variables
+# ============================================================================
 
 variables:
-  PROJECT_ROOT: "$CI_PROJECT_DIR"
-  APP_NAME: devops-app
-  NAMESPACE: devops-app
-  IMAGE_NAME: devops-app
-  IMAGE_TAG: latest
+  # Project Configuration
+  APP_NAME: "devops-app"
+  NAMESPACE: "devops-app"
+  APP_PORT: "3000"
+  REPLICAS: "2"
+  MIN_REPLICAS: "2"
+  MAX_REPLICAS: "10"
+  CPU_TARGET_UTILIZATION: "70"
+  MEMORY_TARGET_UTILIZATION: "80"
+  
+  # Image Configuration
+  DOCKER_IMAGE_TAG: "latest"
+  IMAGE_TAG: "latest"
+  
+  # Kubernetes Configuration
+  KUBE_CONTEXT: "minikube"
+  
+  # Ingress Configuration
+  INGRESS_ENABLED: "true"
+  INGRESS_HOST: "devops-app.local"
+  INGRESS_CLASS: "nginx"
+  TLS_ENABLED: "false"
+  TLS_SECRET_NAME: "devops-app-tls"
+  
+  # Database Configuration
+  DB_HOST: "localhost"
+  DB_PORT: "5432"
+  DB_NAME: "devopsdb"
+  DB_USERNAME: "dbuser"
+  
+  # Monitoring - Prometheus
+  PROMETHEUS_ENABLED: "true"
+  PROMETHEUS_NAMESPACE: "monitoring"
+  PROMETHEUS_RETENTION: "15d"
+  PROMETHEUS_STORAGE_SIZE: "10Gi"
+  PROMETHEUS_SCRAPE_INTERVAL: "15s"
+  PROMETHEUS_SCRAPE_TIMEOUT: "10s"
+  
+  # Monitoring - Grafana
+  GRAFANA_ENABLED: "true"
+  GRAFANA_ADMIN_USER: "admin"
+  GRAFANA_PORT: "3000"
+  GRAFANA_STORAGE_SIZE: "5Gi"
+  
+  # Alerting Configuration
+  ALERT_EMAIL_ENABLED: "false"
+  ALERT_EMAIL_TO: "alerts@example.com"
+  ALERT_EMAIL_FROM: "monitoring@example.com"
+  SMTP_HOST: "smtp.gmail.com"
+  SMTP_PORT: "587"
+  
+  # Resource Limits & Requests - Application
+  APP_CPU_REQUEST: "100m"
+  APP_CPU_LIMIT: "500m"
+  APP_MEMORY_REQUEST: "128Mi"
+  APP_MEMORY_LIMIT: "512Mi"
+  
+  # Resource Limits & Requests - Prometheus
+  PROMETHEUS_CPU_REQUEST: "500m"
+  PROMETHEUS_CPU_LIMIT: "2000m"
+  PROMETHEUS_MEMORY_REQUEST: "1Gi"
+  PROMETHEUS_MEMORY_LIMIT: "4Gi"
+  
+  # Resource Limits & Requests - Grafana
+  GRAFANA_CPU_REQUEST: "100m"
+  GRAFANA_CPU_LIMIT: "500m"
+  GRAFANA_MEMORY_REQUEST: "256Mi"
+  GRAFANA_MEMORY_LIMIT: "1Gi"
+  
+  # Minikube Configuration
+  MINIKUBE_INGRESS: "true"
+  MINIKUBE_MEMORY: "4096"
+  MINIKUBE_CPUS: "2"
+  
+  # CI Configuration
+  CI: "true"
+  DRY_RUN: "false"
 
-deploy_minikube:
-  stage: deploy
-  tags:
-    - self-hosted
-    - minikube
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+# ============================================================================
+# REQUIRED SECRETS - Configure in GitLab Settings > CI/CD > Variables
+# ============================================================================
+# Mark these as "Protected" and "Masked" in GitLab:
+#
+# DOCKERHUB_USERNAME         - Your DockerHub username
+# DOCKERHUB_PASSWORD         - Your DockerHub password or token
+# DB_PASSWORD                - Database password
+# JWT_SECRET                 - JWT secret key
+# API_KEY                    - API key
+# SESSION_SECRET             - Session secret
+# GRAFANA_ADMIN_PASSWORD     - Grafana admin password
+# SMTP_USERNAME              - SMTP username (if email alerts enabled)
+# SMTP_PASSWORD              - SMTP password (if email alerts enabled)
+# SLACK_WEBHOOK_URL          - Slack webhook URL (if Slack alerts enabled)
+# GIT_AUTHOR_NAME            - Git author name
+# GIT_AUTHOR_EMAIL           - Git author email
+# GITHUB_USERNAME            - GitHub username (if using GitHub)
+# GITHUB_EMAIL               - GitHub email (if using GitHub)
+# GITHUB_TOKEN               - GitHub personal access token (if using GitHub)
+#
+# For Production (AWS EKS) deployments, also configure:
+# AWS_REGION                 - AWS region (e.g., us-east-1)
+# AWS_ACCOUNT_ID             - AWS account ID
+# EKS_CLUSTER_NAME           - EKS cluster name
+# AWS_ACCESS_KEY_ID          - AWS access key
+# AWS_SECRET_ACCESS_KEY      - AWS secret access key
+# KUBECONFIG_PROD            - Production kubeconfig (as file variable)
+#
+# For Local deployments, configure:
+# DEPLOY_TARGET              - Set to "local" or "prod"
+# BUILD_PUSH                 - Set to "true" or "false"
+# ============================================================================
 
+stages:
+  - validate
+  - build
+  - deploy-infra
+  - deploy-app
+  - deploy-services
+  - verify
+
+# STAGE 1: VALIDATE
+validate:prerequisites:
+  stage: validate
+  image: alpine:latest
   script:
-    - echo "🚀 Production CI/CD (Minikube) – GitLab"
-
-    # Tool versions (same as GHA)
-    - docker --version
-    - kubectl version --client
-    - minikube version
-    - node --version || true
-
-    # Ensure Minikube is running
+    - echo "============================================================================"
+    - echo "DevOps Project Deployment - GitLab CI/CD Pipeline"
+    - echo "============================================================================"
+    - echo "🔍 Validating configuration..."
+    - echo ""
+    - echo "🎯 Deployment Target: ${DEPLOY_TARGET}"
+    - echo "📦 Application Name: ${APP_NAME}"
+    - echo "🏷️  Image Tag: ${DOCKER_IMAGE_TAG}"
+    - echo ""
     - |
-      if [[ "$(minikube status --format='{{.Host}}')" != "Running" ]]; then
-        echo "🔧 Starting Minikube..."
-        minikube start --driver=docker
-        minikube addons enable ingress
-      fi
-
-    # Build Docker image INSIDE Minikube
-    - echo "🐳 Building Docker image inside Minikube"
-    - eval "$(minikube docker-env)"
-    - docker build -t "$IMAGE_NAME:$IMAGE_TAG" ./app
-
-    # Deploy application (Kustomize)
-    - echo "📦 Deploying application via Kustomize"
-    - kubectl kustomize kubernetes/overlays/local | kubectl apply -f -
-
-    # Deploy Monitoring Stack
-    - echo "📊 Deploying Monitoring Stack"
-
-    - export BASE_MONITORING_PATH="$PROJECT_ROOT/kubernetes/base/monitoring"
-    - export PROM_CONFIG="$PROJECT_ROOT/monitoring/prometheus/prometheus.yml"
-    - export PROM_ALERTS="$PROJECT_ROOT/monitoring/prometheus/alerts.yml"
-
-    # Namespace
-    - |
-      kubectl apply -f - <<EOF
-      apiVersion: v1
-      kind: Namespace
-      metadata:
-        name: monitoring
-      EOF
-
-    # Grafana secret (same logic as GHA)
-    - |
-      : "${GRAFANA_ADMIN_PASSWORD:=admin123}"
-      kubectl create secret generic grafana-secrets \
-        --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
-        -n monitoring \
-        --dry-run=client -o yaml | kubectl apply -f -
-
-    # Dashboards
-    - kubectl apply -f "$BASE_MONITORING_PATH/dashboard-configmap.yaml"
-
-    # Prometheus config
-    - |
-      kubectl create configmap prometheus-config \
-        --from-file=prometheus.yml="$PROM_CONFIG" \
-        --from-file=alerts.yml="$PROM_ALERTS" \
-        -n monitoring \
-        --dry-run=client -o yaml | kubectl apply -f -
-
-    # Grafana datasource
-    - |
-      kubectl create configmap grafana-datasource \
-        --from-literal=datasource.yaml="apiVersion: 1
-      datasources:
-        - name: Prometheus
-          type: prometheus
-          access: proxy
-          url: http://prometheus.monitoring.svc.cluster.local:9090
-          isDefault: true" \
-        -n monitoring \
-        --dry-run=client -o yaml | kubectl apply -f -
-
-    # Dummy dashboards (avoid crashloops)
-    - |
-      kubectl create configmap grafana-dashboard \
-        --from-literal=dummy=empty \
-        -n monitoring \
-        --dry-run=client -o yaml | kubectl apply -f -
-
-    - |
-      kubectl create configmap grafana-dashboard-config \
-        --from-literal=dummy=empty \
-        -n monitoring \
-        --dry-run=client -o yaml | kubectl apply -f -
-
-    # Deploy workloads
-    - kubectl apply -f "$BASE_MONITORING_PATH/prometheus.yaml"
-    - kubectl apply -f "$BASE_MONITORING_PATH/grafana.yaml"
-
-    # Restart to pick up configs
-    - kubectl rollout restart deployment/prometheus -n monitoring
-    - kubectl rollout restart deployment/grafana -n monitoring
-
-    # Expose Monitoring (NodePort)
-    - |
-      kubectl apply -f - <<EOF
-      apiVersion: v1
-      kind: Service
-      metadata:
-        name: prometheus
-        namespace: monitoring
-      spec:
-        selector:
-          app: prometheus
-        ports:
-          - port: 9090
-            targetPort: 9090
-        type: NodePort
-      ---
-      apiVersion: v1
-      kind: Service
-      metadata:
-        name: grafana
-        namespace: monitoring
-      spec:
-        selector:
-          app: grafana
-        ports:
-          - port: 3000
-            targetPort: 3000
-        type: NodePort
-      EOF
-
-    # Wait for rollouts
-    - kubectl rollout status deployment/prometheus -n monitoring --timeout=300s
-    - |
-      until kubectl get pods -n monitoring -l app=grafana --no-headers | grep Running; do
-        echo "⏳ Waiting for Grafana pod..."
-        sleep 5
+      # Check required variables
+      MISSING_VARS=()
+      
+      # Core variables
+      for var in APP_NAME NAMESPACE DOCKERHUB_USERNAME DOCKER_IMAGE_TAG APP_PORT REPLICAS DEPLOY_TARGET; do
+        if [ -z "$(eval echo \$$var)" ]; then
+          MISSING_VARS+=("$var")
+        fi
       done
-    - kubectl rollout status deployment/grafana -n monitoring --timeout=300s
-
-    # Output URLs (CI-safe)
+      
+      # Secrets
+      for var in DOCKERHUB_PASSWORD DB_PASSWORD JWT_SECRET API_KEY SESSION_SECRET GRAFANA_ADMIN_PASSWORD; do
+        if [ -z "$(eval echo \$$var)" ]; then
+          MISSING_VARS+=("$var")
+        fi
+      done
+      
+      if [ ${#MISSING_VARS[@]} -gt 0 ]; then
+        echo "❌ Missing required variables:"
+        for var in "${MISSING_VARS[@]}"; do
+          echo "   - $var"
+        done
+        echo ""
+        echo "Configure these in GitLab: Settings > CI/CD > Variables"
+        exit 1
+      else
+        echo "✅ All required variables are present"
+      fi
     - |
-      echo "📊 Resolving service URLs..."
-      MINIKUBE_IP=$(minikube ip)
+      # Validate DEPLOY_TARGET
+      if [ "$DEPLOY_TARGET" != "local" ] && [ "$DEPLOY_TARGET" != "prod" ]; then
+        echo "❌ Invalid DEPLOY_TARGET: $DEPLOY_TARGET"
+        echo "   Valid options: 'local' or 'prod'"
+        exit 1
+      fi
+    - |
+      # For production, check AWS variables
+      if [ "$DEPLOY_TARGET" = "prod" ]; then
+        echo ""
+        echo "🔍 Validating AWS/Production variables..."
+        MISSING_AWS_VARS=()
+        
+        for var in AWS_REGION AWS_ACCOUNT_ID EKS_CLUSTER_NAME AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+          if [ -z "$(eval echo \$$var)" ]; then
+            MISSING_AWS_VARS+=("$var")
+          fi
+        done
+        
+        if [ ${#MISSING_AWS_VARS[@]} -gt 0 ]; then
+          echo "❌ Missing AWS/Production variables:"
+          for var in "${MISSING_AWS_VARS[@]}"; do
+            echo "   - $var"
+          done
+          exit 1
+        else
+          echo "✅ All AWS variables are present"
+        fi
+      fi
+    - echo ""
+    - echo "✅ Validation complete"
+  only:
+    variables:
+      - $DEPLOY_TARGET
 
-      APP_PORT=$(kubectl get svc devops-app-service -n devops-app \
-        -o jsonpath='{.spec.ports[0].nodePort}')
+# STAGE 2: BUILD
+build:configure-git-dockerhub:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - apk add --no-cache bash git
+  script:
+    - echo "⚙️  Configuring Git and DockerHub..."
+    - export PROJECT_ROOT=$CI_PROJECT_DIR
+    - chmod +x $CI_PROJECT_DIR/app/configure_dockerhub_username.sh
+    - chmod +x $CI_PROJECT_DIR/cicd/github/configure_git_github.sh
+    - source $CI_PROJECT_DIR/app/configure_dockerhub_username.sh
+    - source $CI_PROJECT_DIR/cicd/github/configure_git_github.sh
+    - configure_git_github
+    - configure_dockerhub_username
+  artifacts:
+    paths:
+      - app/
+    expire_in: 1 hour
+  only:
+    variables:
+      - $DEPLOY_TARGET
 
-      PROM_PORT=$(kubectl get svc prometheus -n monitoring \
-        -o jsonpath='{.spec.ports[0].nodePort}')
+build:docker-image:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - apk add --no-cache bash
+  script:
+    - export PROJECT_ROOT=$CI_PROJECT_DIR
+    - chmod +x $CI_PROJECT_DIR/app/build_and_push_image.sh
+    - source $CI_PROJECT_DIR/app/build_and_push_image.sh
+    - |
+      if [ "$BUILD_PUSH" = "true" ]; then
+        echo "🔨 Building and pushing Docker image..."
+        build_and_push_image
+      else
+        echo "🔨 Building Docker image locally..."
+        cd $CI_PROJECT_DIR/app
+        docker build -t "$APP_NAME:latest" .
+      fi
+  dependencies:
+    - build:configure-git-dockerhub
+  only:
+    variables:
+      - $DEPLOY_TARGET
 
-      GRAF_PORT=$(kubectl get svc grafana -n monitoring \
-        -o jsonpath='{.spec.ports[0].nodePort}')
+# STAGE 3: DEPLOY INFRASTRUCTURE (Production only)
+deploy:terraform-infra:
+  stage: deploy-infra
+  image: hashicorp/terraform:latest
+  before_script:
+    - apk add --no-cache bash aws-cli
+  script:
+    - echo "🏗️  Deploying infrastructure with Terraform..."
+    - cd $CI_PROJECT_DIR/infra/terraform
+    - terraform init -upgrade
+    - terraform apply -auto-approve
+    - echo "⚙️  Configuring kubectl context..."
+    - |
+      REGION=$(terraform output -raw region)
+      CLUSTER_NAME=$(terraform output -raw cluster_name)
+      aws eks update-kubeconfig --region "$REGION" --name "$CLUSTER_NAME"
+  artifacts:
+    paths:
+      - infra/terraform/.terraform/
+      - infra/terraform/terraform.tfstate
+    expire_in: 1 day
+  only:
+    variables:
+      - $DEPLOY_TARGET == "prod"
 
+# STAGE 4: DEPLOY APPLICATION
+deploy:kubernetes-app:
+  stage: deploy-app
+  image: alpine/k8s:1.28.3
+  before_script:
+    - apk add --no-cache bash
+  script:
+    - export PROJECT_ROOT=$CI_PROJECT_DIR
+    - chmod +x $CI_PROJECT_DIR/kubernetes/deploy_kubernetes.sh
+    - source $CI_PROJECT_DIR/kubernetes/deploy_kubernetes.sh
+    - |
+      echo "📦 Deploying Kubernetes resources..."
+      if [ "$DEPLOY_TARGET" = "local" ]; then
+        # For local/minikube deployments
+        # Note: In GitLab CI, you'll need a runner with minikube or use a remote cluster
+        deploy_kubernetes local
+      else
+        # For production EKS deployments
+        deploy_kubernetes prod
+      fi
+  dependencies:
+    - build:docker-image
+  only:
+    variables:
+      - $DEPLOY_TARGET
+
+# STAGE 5: DEPLOY SERVICES
+deploy:monitoring:
+  stage: deploy-services
+  image: alpine/k8s:1.28.3
+  before_script:
+    - apk add --no-cache bash
+  script:
+    - export PROJECT_ROOT=$CI_PROJECT_DIR
+    - chmod +x $CI_PROJECT_DIR/monitoring/deploy_monitoring.sh
+    - source $CI_PROJECT_DIR/monitoring/deploy_monitoring.sh
+    - echo "📊 Deploying Monitoring stack..."
+    - deploy_monitoring
+  dependencies:
+    - deploy:kubernetes-app
+  only:
+    variables:
+      - $DEPLOY_TARGET
+
+deploy:jenkins:
+  stage: deploy-services
+  image: alpine/k8s:1.28.3
+  before_script:
+    - apk add --no-cache bash
+  script:
+    - export PROJECT_ROOT=$CI_PROJECT_DIR
+    - chmod +x $CI_PROJECT_DIR/cicd/jenkins/deploy_jenkins.sh
+    - source $CI_PROJECT_DIR/cicd/jenkins/deploy_jenkins.sh
+    - echo "🔧 Deploying Jenkins..."
+    - deploy_jenkins
+  dependencies:
+    - deploy:kubernetes-app
+  only:
+    variables:
+      - $DEPLOY_TARGET
+
+deploy:argocd:
+  stage: deploy-services
+  image: alpine/k8s:1.28.3
+  before_script:
+    - apk add --no-cache bash
+  script:
+    - export PROJECT_ROOT=$CI_PROJECT_DIR
+    - chmod +x $CI_PROJECT_DIR/cicd/argocd/deploy_argocd.sh
+    - chmod +x $CI_PROJECT_DIR/cicd/argocd/self_heal_app.sh
+    - source $CI_PROJECT_DIR/cicd/argocd/deploy_argocd.sh
+    - source $CI_PROJECT_DIR/cicd/argocd/self_heal_app.sh
+    - echo "🔄 Deploying ArgoCD..."
+    - deploy_argocd
+    - echo "🔄 Configuring ArgoCD self-healing..."
+    - self_heal_app
+  dependencies:
+    - deploy:kubernetes-app
+  only:
+    variables:
+      - $DEPLOY_TARGET
+
+deploy:configure-gitlab:
+  stage: deploy-services
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache bash
+  script:
+    - export PROJECT_ROOT=$CI_PROJECT_DIR
+    - chmod +x $CI_PROJECT_DIR/cicd/gitlab/configure_gitlab.sh
+    - source $CI_PROJECT_DIR/cicd/gitlab/configure_gitlab.sh
+    - echo "⚙️  Configuring GitLab integration..."
+    - configure_gitlab
+  dependencies:
+    - deploy:kubernetes-app
+  only:
+    variables:
+      - $DEPLOY_TARGET
+
+# STAGE 6: VERIFY DEPLOYMENT
+verify:deployment:
+  stage: verify
+  image: alpine/k8s:1.28.3
+  before_script:
+    - apk add --no-cache bash curl
+  script:
+    - echo "🔍 Verifying deployment..."
+    - echo ""
+    - echo "Checking namespace: $NAMESPACE"
+    - kubectl get namespace $NAMESPACE || echo "⚠️  Namespace not found"
+    - echo ""
+    - echo "Checking deployments:"
+    - kubectl get deployments -n $NAMESPACE || echo "⚠️  No deployments found"
+    - echo ""
+    - echo "Checking pods:"
+    - kubectl get pods -n $NAMESPACE || echo "⚠️  No pods found"
+    - echo ""
+    - echo "Checking services:"
+    - kubectl get services -n $NAMESPACE || echo "⚠️  No services found"
+    - echo ""
+    - |
+      # Wait for deployment to be ready
+      echo "⏳ Waiting for deployment to be ready..."
+      kubectl wait --for=condition=available --timeout=300s \
+        deployment/${APP_NAME} -n ${NAMESPACE} || echo "⚠️  Deployment not ready"
+    - |
+      # Display deployment summary
       echo ""
-      echo "## 🚀 Deployment URLs"
-      echo "- App: http://$MINIKUBE_IP:$APP_PORT"
-      echo "- Prometheus: http://$MINIKUBE_IP:$PROM_PORT"
-      echo "- Grafana: http://$MINIKUBE_IP:$GRAF_PORT"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      if [ "$DEPLOY_TARGET" = "local" ]; then
+        echo "  ✅ Application deployed to Minikube (Local)"
+        echo ""
+        echo "  📊 View resources:"
+        echo "     kubectl get all -n $NAMESPACE"
+      else
+        echo "  ✅ Application deployed to AWS EKS (Production)"
+        echo ""
+        echo "  🌐 Get LoadBalancer URL:"
+        echo "     kubectl get svc ${APP_NAME}-service -n $NAMESPACE"
+      fi
+      echo ""
+      echo "  📊 Monitoring:"
+      echo "     Prometheus: kubectl get svc -n monitoring"
+      echo "     Grafana:    kubectl get svc -n monitoring"
+      echo ""
+      echo "  🔄 CI/CD Tools:"
+      echo "     Jenkins:    kubectl get svc -n jenkins"
+      echo "     ArgoCD:     kubectl get svc -n argocd"
+      echo ""
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  dependencies:
+    - deploy:kubernetes-app
+    - deploy:monitoring
+    - deploy:jenkins
+    - deploy:argocd
+  only:
+    variables:
+      - $DEPLOY_TARGET
+
+# CLEANUP JOB (Manual trigger only)
+cleanup:all:
+  stage: deploy-services
+  image: alpine/k8s:1.28.3
+  before_script:
+    - apk add --no-cache bash
+  script:
+    - echo "🧹 Cleaning up resources..."
+    - kubectl delete namespace $NAMESPACE --ignore-not-found=true
+    - kubectl delete namespace monitoring --ignore-not-found=true
+    - kubectl delete namespace jenkins --ignore-not-found=true
+    - kubectl delete namespace argocd --ignore-not-found=true
+    - |
+      if [ "$DEPLOY_TARGET" = "prod" ]; then
+        echo "🏗️  Destroying Terraform infrastructure..."
+        cd $CI_PROJECT_DIR/infra/terraform
+        terraform destroy -auto-approve
+      fi
+    - echo "✅ Cleanup complete"
+  when: manual
+  only:
+    variables:
+      - $DEPLOY_TARGET
