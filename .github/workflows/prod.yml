@@ -1,20 +1,34 @@
 name: DevOps Project Deployment
 
 on:
-  push:
-    branches:
-      - main
-      - prod
   workflow_dispatch:
     inputs:
       deploy_target:
-        description: 'Deployment Target'
+        description: 'Deployment target'
         required: true
-        default: 'prod'
         type: choice
         options:
           - local
           - prod
+        default: 'local'
+      build_push:
+        description: 'Build and push Docker image'
+        required: false
+        type: boolean
+        default: true
+      dry_run:
+        description: 'Dry run mode (test without actual deployment)'
+        required: false
+        type: boolean
+        default: false
+  
+  push:
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
 
 env:
   # Project Configuration
@@ -29,12 +43,8 @@ env:
   
   # Docker Configuration
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-  DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
   DOCKER_IMAGE_TAG: ${{ vars.DOCKER_IMAGE_TAG || 'latest' }}
   IMAGE_TAG: ${{ vars.IMAGE_TAG || 'latest' }}
-  
-  # Kubernetes Configuration
-  KUBE_CONTEXT: ${{ vars.KUBE_CONTEXT || 'minikube' }}
   
   # Ingress Configuration
   INGRESS_ENABLED: ${{ vars.INGRESS_ENABLED || 'true' }}
@@ -44,9 +54,9 @@ env:
   TLS_SECRET_NAME: ${{ vars.TLS_SECRET_NAME || 'devops-app-tls' }}
   
   # Database Configuration
-  DB_HOST: ${{ secrets.DB_HOST || 'localhost' }}
-  DB_PORT: ${{ secrets.DB_PORT || '5432' }}
-  DB_NAME: ${{ secrets.DB_NAME || 'devopsdb' }}
+  DB_HOST: ${{ vars.DB_HOST || 'localhost' }}
+  DB_PORT: ${{ vars.DB_PORT || '5432' }}
+  DB_NAME: ${{ vars.DB_NAME || 'devopsdb' }}
   DB_USERNAME: ${{ secrets.DB_USERNAME }}
   DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
   
@@ -65,7 +75,7 @@ env:
   
   # Monitoring - Grafana
   GRAFANA_ENABLED: ${{ vars.GRAFANA_ENABLED || 'true' }}
-  GRAFANA_ADMIN_USER: ${{ secrets.GRAFANA_ADMIN_USER || 'admin' }}
+  GRAFANA_ADMIN_USER: ${{ vars.GRAFANA_ADMIN_USER || 'admin' }}
   GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
   GRAFANA_PORT: ${{ vars.GRAFANA_PORT || '3000' }}
   GRAFANA_STORAGE_SIZE: ${{ vars.GRAFANA_STORAGE_SIZE || '5Gi' }}
@@ -74,25 +84,25 @@ env:
   ALERT_EMAIL_ENABLED: ${{ vars.ALERT_EMAIL_ENABLED || 'false' }}
   ALERT_EMAIL_TO: ${{ vars.ALERT_EMAIL_TO }}
   ALERT_EMAIL_FROM: ${{ vars.ALERT_EMAIL_FROM }}
-  SMTP_HOST: ${{ secrets.SMTP_HOST }}
-  SMTP_PORT: ${{ secrets.SMTP_PORT || '587' }}
+  SMTP_HOST: ${{ vars.SMTP_HOST || 'smtp.gmail.com' }}
+  SMTP_PORT: ${{ vars.SMTP_PORT || '587' }}
   SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
   SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
   
-  # Resource Limits - Application
+  # Resource Limits & Requests - Application
   APP_CPU_REQUEST: ${{ vars.APP_CPU_REQUEST || '100m' }}
   APP_CPU_LIMIT: ${{ vars.APP_CPU_LIMIT || '500m' }}
   APP_MEMORY_REQUEST: ${{ vars.APP_MEMORY_REQUEST || '128Mi' }}
   APP_MEMORY_LIMIT: ${{ vars.APP_MEMORY_LIMIT || '512Mi' }}
   
-  # Resource Limits - Prometheus
+  # Resource Limits & Requests - Prometheus
   PROMETHEUS_CPU_REQUEST: ${{ vars.PROMETHEUS_CPU_REQUEST || '500m' }}
   PROMETHEUS_CPU_LIMIT: ${{ vars.PROMETHEUS_CPU_LIMIT || '2000m' }}
   PROMETHEUS_MEMORY_REQUEST: ${{ vars.PROMETHEUS_MEMORY_REQUEST || '1Gi' }}
   PROMETHEUS_MEMORY_LIMIT: ${{ vars.PROMETHEUS_MEMORY_LIMIT || '4Gi' }}
   
-  # Resource Limits - Grafana
+  # Resource Limits & Requests - Grafana
   GRAFANA_CPU_REQUEST: ${{ vars.GRAFANA_CPU_REQUEST || '100m' }}
   GRAFANA_CPU_LIMIT: ${{ vars.GRAFANA_CPU_LIMIT || '500m' }}
   GRAFANA_MEMORY_REQUEST: ${{ vars.GRAFANA_MEMORY_REQUEST || '256Mi' }}
@@ -106,447 +116,466 @@ env:
   # Git Configuration
   GIT_AUTHOR_NAME: ${{ vars.GIT_AUTHOR_NAME || github.actor }}
   GIT_AUTHOR_EMAIL: ${{ vars.GIT_AUTHOR_EMAIL || format('{0}@users.noreply.github.com', github.actor) }}
+  
+  # GitHub Configuration
   GITHUB_USERNAME: ${{ github.actor }}
   GITHUB_EMAIL: ${{ vars.GITHUB_EMAIL || format('{0}@users.noreply.github.com', github.actor) }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   
   # Deployment Configuration
-  DEPLOY_TARGET: ${{ inputs.deploy_target || vars.DEPLOY_TARGET || 'prod' }}
-  BUILD_PUSH: ${{ vars.BUILD_PUSH || 'true' }}
-  CI: true
-  DRY_RUN: ${{ vars.DRY_RUN || 'false' }}
+  DEPLOY_TARGET: ${{ inputs.deploy_target || vars.DEPLOY_TARGET || 'local' }}
+  BUILD_PUSH: ${{ inputs.build_push || vars.BUILD_PUSH || 'true' }}
+  CI: 'true'
+  DRY_RUN: ${{ inputs.dry_run || 'false' }}
   
-  # Minikube Configuration (for local deployments)
+  # Minikube Configuration
   MINIKUBE_INGRESS: ${{ vars.MINIKUBE_INGRESS || 'true' }}
   MINIKUBE_MEMORY: ${{ vars.MINIKUBE_MEMORY || '4096' }}
   MINIKUBE_CPUS: ${{ vars.MINIKUBE_CPUS || '2' }}
+  
+  # Project Root
+  PROJECT_ROOT: ${{ github.workspace }}
 
 jobs:
-  deploy:
-    name: Deploy Application
+  validate:
+    name: Validate Configuration
     runs-on: ubuntu-latest
-    
-    steps:
-      - name: "============================================================================"
-        run: |
-          echo "============================================================================"
-          echo "DevOps Project Deployment Runner - GitHub Actions"
-          echo "============================================================================"
-          echo "Description: Orchestrates deployment to Minikube (local) or AWS EKS (prod)"
-          echo "Deployment Target: ${{ env.DEPLOY_TARGET }}"
-          echo "============================================================================"
+    outputs:
+      deploy_target: ${{ steps.validate.outputs.deploy_target }}
       
-      - name: Checkout Code
+    steps:
+      - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: "🔍 Checking Prerequisites"
+      - name: Validate configuration
+        id: validate
         run: |
-          echo ""
-          echo "🔍 Checking prerequisites..."
-          echo "Tool versions:"
-          docker --version || true
-          kubectl version --client || true
-          terraform --version | head -n 1 || true
-          aws --version || true
-          echo ""
-      
-      - name: "✅ Validate Configuration"
-        run: |
-          echo "🔍 Validating configuration..."
+          echo "============================================================================"
+          echo "DevOps Project Deployment - GitHub Actions"
+          echo "============================================================================"
+          echo "Repository: ${{ github.repository }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "============================================================================"
           echo ""
           
-          # Check for required variables
-          required_vars=(
-            "APP_NAME"
-            "NAMESPACE"
-            "DOCKERHUB_USERNAME"
-            "DOCKER_IMAGE_TAG"
-            "APP_PORT"
-            "REPLICAS"
-          )
-          
-          missing_vars=()
-          
-          for var in "${required_vars[@]}"; do
-            var_value="${!var:-}"
-            if [[ -z "$var_value" ]]; then
-              missing_vars+=("$var")
-            fi
-          done
-          
-          if [[ ${#missing_vars[@]} -gt 0 ]]; then
-            echo "⚠️  WARNING: Missing required variables:"
-            for var in "${missing_vars[@]}"; do
-              echo "   - $var"
-            done
-            echo ""
-            echo "Please configure these in GitHub Settings → Secrets and Variables → Actions"
+          # Validate deployment target
+          DEPLOY_TARGET="${{ env.DEPLOY_TARGET }}"
+          if [[ "$DEPLOY_TARGET" != "local" && "$DEPLOY_TARGET" != "prod" ]]; then
+            echo "❌ Invalid DEPLOY_TARGET: $DEPLOY_TARGET"
+            echo "Valid options: 'local' or 'prod'"
             exit 1
-          else
-            echo "✅ All required variables are present"
           fi
           
-          # Validate numeric values (GitHub Actions variables are strings)
-          echo "✅ Numeric values validation passed"
-          echo ""
-          echo "🎯 Deployment Target: ${{ env.DEPLOY_TARGET }}"
-          echo ""
+          echo "🎯 Deployment Target: $DEPLOY_TARGET"
+          echo "deploy_target=$DEPLOY_TARGET" >> $GITHUB_OUTPUT
+          
+          # Check required secrets for DockerHub
+          if [[ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]]; then
+            echo "⚠️  WARNING: DOCKERHUB_USERNAME secret not set"
+          fi
+          
+          if [[ -z "${{ secrets.DOCKERHUB_PASSWORD }}" ]]; then
+            echo "⚠️  WARNING: DOCKERHUB_PASSWORD secret not set"
+          fi
+          
+          # Check required secrets for prod deployment
+          if [[ "$DEPLOY_TARGET" == "prod" ]]; then
+            if [[ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]]; then
+              echo "❌ AWS_ACCESS_KEY_ID secret required for prod deployment"
+              exit 1
+            fi
+            
+            if [[ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]]; then
+              echo "❌ AWS_SECRET_ACCESS_KEY secret required for prod deployment"
+              exit 1
+            fi
+          fi
+          
+          echo "✅ Configuration validated"
+
+  deploy-local:
+    name: Deploy to Minikube (Local)
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.deploy_target == 'local'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
       
-      - name: Configure AWS Credentials
-        if: env.DEPLOY_TARGET == 'prod'
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to DockerHub
+        if: env.BUILD_PUSH == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      
+      - name: Install Minikube
+        run: |
+          echo "📥 Installing Minikube..."
+          curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+          sudo install minikube-linux-amd64 /usr/local/bin/minikube
+          rm minikube-linux-amd64
+      
+      - name: Start Minikube
+        run: |
+          echo "🚀 Starting Minikube..."
+          minikube start \
+            --memory=${{ env.MINIKUBE_MEMORY }} \
+            --cpus=${{ env.MINIKUBE_CPUS }} \
+            --driver=docker
+          
+          echo "✅ Minikube started"
+          minikube status
+      
+      - name: Configure Docker environment
+        run: |
+          echo "🐳 Configuring Docker environment..."
+          eval $(minikube docker-env)
+          # Export for subsequent steps
+          minikube docker-env >> $GITHUB_ENV
+      
+      - name: Enable Minikube Ingress
+        if: env.MINIKUBE_INGRESS == 'true'
+        run: |
+          echo "🌐 Enabling Ingress addon..."
+          minikube addons enable ingress
+          echo "✅ Ingress enabled"
+      
+      - name: Install kubectl
+        run: |
+          echo "📥 Installing kubectl..."
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          sudo install kubectl /usr/local/bin/kubectl
+          rm kubectl
+          kubectl version --client
+      
+      - name: Check prerequisites
+        run: |
+          echo "🔍 Checking prerequisites..."
+          echo "Tool versions:"
+          docker --version
+          kubectl version --client
+          minikube version
+          echo "✅ All prerequisites met"
+      
+      - name: Load deployment scripts
+        run: |
+          echo "📂 Loading deployment scripts..."
+          # Make all scripts executable
+          chmod +x app/build_and_push_image.sh
+          chmod +x app/configure_dockerhub_username.sh
+          chmod +x kubernetes/deploy_kubernetes.sh
+          chmod +x monitoring/deploy_monitoring.sh
+          chmod +x cicd/jenkins/deploy_jenkins.sh
+          chmod +x cicd/github/configure_git_github.sh
+          chmod +x cicd/gitlab/configure_gitlab.sh
+          chmod +x cicd/argocd/deploy_argocd.sh
+          chmod +x cicd/argocd/self_heal_app.sh
+          echo "✅ Scripts loaded and made executable"
+      
+      - name: Configure Git and GitHub
+        run: |
+          echo "⚙️  Configuring Git and GitHub..."
+          source ./cicd/github/configure_git_github.sh
+          configure_git_github
+      
+      - name: Configure DockerHub
+        run: |
+          echo "⚙️  Configuring DockerHub..."
+          source ./app/configure_dockerhub_username.sh
+          configure_dockerhub_username
+      
+      - name: Build and Push Docker Image
+        if: env.BUILD_PUSH == 'true'
+        run: |
+          echo "🔨 Building and pushing Docker image..."
+          source ./app/build_and_push_image.sh
+          build_and_push_image
+      
+      - name: Build Docker Image Locally
+        if: env.BUILD_PUSH != 'true'
+        run: |
+          echo "🔨 Building Docker image locally..."
+          eval $(minikube docker-env)
+          docker build -t ${{ env.APP_NAME }}:latest ./app
+      
+      - name: Deploy Kubernetes Resources
+        run: |
+          echo "📦 Deploying Kubernetes resources..."
+          source ./kubernetes/deploy_kubernetes.sh
+          deploy_kubernetes local
+      
+      - name: Deploy Monitoring Stack
+        run: |
+          echo "📊 Deploying monitoring stack..."
+          source ./monitoring/deploy_monitoring.sh
+          deploy_monitoring
+      
+      - name: Deploy Jenkins
+        run: |
+          echo "🔧 Deploying Jenkins..."
+          source ./cicd/jenkins/deploy_jenkins.sh
+          deploy_jenkins
+      
+      - name: Deploy ArgoCD
+        run: |
+          echo "🔄 Deploying ArgoCD..."
+          source ./cicd/argocd/deploy_argocd.sh
+          deploy_argocd
+      
+      - name: Configure GitLab
+        run: |
+          echo "⚙️  Configuring GitLab..."
+          source ./cicd/gitlab/configure_gitlab.sh
+          configure_gitlab
+      
+      - name: Enable ArgoCD Self-Healing
+        run: |
+          echo "🔧 Enabling ArgoCD self-healing..."
+          source ./cicd/argocd/self_heal_app.sh
+          self_heal_app
+      
+      - name: Get Deployment Info
+        id: deployment_info
+        run: |
+          MINIKUBE_IP=$(minikube ip)
+          NODE_PORT=$(kubectl get svc "${{ env.APP_NAME }}-service" -n "${{ env.NAMESPACE }}" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "N/A")
+          
+          echo "minikube_ip=$MINIKUBE_IP" >> $GITHUB_OUTPUT
+          echo "node_port=$NODE_PORT" >> $GITHUB_OUTPUT
+      
+      - name: Deployment Summary
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "  ✅ Application deployed to Minikube"
+          echo ""
+          echo "  🌐 Minikube IP:   ${{ steps.deployment_info.outputs.minikube_ip }}"
+          echo "  🔌 Node Port:     ${{ steps.deployment_info.outputs.node_port }}"
+          echo "  📱 App URL:       http://${{ steps.deployment_info.outputs.minikube_ip }}:${{ steps.deployment_info.outputs.node_port }}"
+          echo ""
+          echo "  📊 View logs:     kubectl logs -f deployment/${{ env.APP_NAME }} -n ${{ env.NAMESPACE }}"
+          echo "  🔍 Check pods:    kubectl get pods -n ${{ env.NAMESPACE }}"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      
+      - name: Upload Minikube Logs
+        if: always()
+        run: |
+          mkdir -p logs
+          minikube logs > logs/minikube.log 2>&1 || true
+          kubectl get all -A > logs/kubectl-all.log 2>&1 || true
+      
+      - name: Upload logs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: minikube-logs
+          path: logs/
+          retention-days: 7
+
+  deploy-prod:
+    name: Deploy to AWS EKS (Production)
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.deploy_target == 'prod'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
       
-      - name: Setup Terraform
-        if: env.DEPLOY_TARGET == 'prod'
+      - name: Install Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: latest
       
-      - name: Setup Minikube
-        if: env.DEPLOY_TARGET == 'local'
-        uses: medyagh/setup-minikube@latest
-        with:
-          memory: ${{ env.MINIKUBE_MEMORY }}
-          cpus: ${{ env.MINIKUBE_CPUS }}
-      
-      - name: "⚙️ Configure Git and DockerHub (from configure_git_github.sh)"
+      - name: Install kubectl
         run: |
-          echo "⚙️  Configuring Git and GitHub..."
-          
-          # Set Git configuration
-          git config --global user.name "${{ env.GIT_AUTHOR_NAME }}"
-          git config --global user.email "${{ env.GIT_AUTHOR_EMAIL }}"
-          
-          echo "✅ Git configured:"
-          echo "   Name: ${{ env.GIT_AUTHOR_NAME }}"
-          echo "   Email: ${{ env.GIT_AUTHOR_EMAIL }}"
+          echo "📥 Installing kubectl..."
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          sudo install kubectl /usr/local/bin/kubectl
+          rm kubectl
+          kubectl version --client
       
-      - name: "⚙️ Configure DockerHub (from configure_dockerhub_username.sh)"
+      - name: Check prerequisites
         run: |
-          echo "⚙️  Configuring DockerHub credentials..."
-          
-          if [[ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]] || [[ -z "${{ secrets.DOCKERHUB_PASSWORD }}" ]]; then
-            echo "❌ DockerHub credentials not configured"
-            echo "   Please set DOCKERHUB_USERNAME and DOCKERHUB_PASSWORD in GitHub Secrets"
-            exit 1
-          fi
-          
-          echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-          
-          echo "✅ DockerHub login successful"
-          echo "   Username: ${{ secrets.DOCKERHUB_USERNAME }}"
+          echo "🔍 Checking prerequisites..."
+          echo "Tool versions:"
+          docker --version
+          kubectl version --client
+          terraform --version
+          aws --version
+          echo "✅ All prerequisites met"
       
-      # ==================== MINIKUBE (LOCAL) DEPLOYMENT ====================
-      
-      - name: "🐳 Configure Docker Environment (Minikube)"
-        if: env.DEPLOY_TARGET == 'local'
+      - name: Deploy infrastructure with Terraform
+        working-directory: infra/terraform
         run: |
-          echo "🐳 Configuring Docker environment for Minikube..."
-          eval $(minikube docker-env)
-          
-          # Export for subsequent steps
-          minikube docker-env >> $GITHUB_ENV
-      
-      - name: "🌐 Enable Ingress Addon (Minikube)"
-        if: env.DEPLOY_TARGET == 'local' && env.MINIKUBE_INGRESS == 'true'
-        run: |
-          echo "🌐 Enabling Ingress addon..."
-          minikube addons enable ingress
-          echo "✅ Ingress addon enabled"
-      
-      - name: "🔨 Build Docker Image (from build_and_push_image.sh - Minikube)"
-        if: env.DEPLOY_TARGET == 'local'
-        run: |
-          echo "🔨 Building Docker image locally for Minikube..."
-          
-          cd app
-          
-          if [[ "${{ env.BUILD_PUSH }}" == "true" ]]; then
-            echo "🔨 Building and pushing Docker image..."
-            
-            IMAGE_NAME="${{ secrets.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ env.DOCKER_IMAGE_TAG }}"
-            
-            echo "Building image: $IMAGE_NAME"
-            docker build -t "$IMAGE_NAME" .
-            
-            echo "Pushing image to DockerHub..."
-            docker push "$IMAGE_NAME"
-            
-            echo "✅ Image built and pushed: $IMAGE_NAME"
-          else
-            echo "🔨 Building Docker image locally (not pushing)..."
-            docker build -t "${{ env.APP_NAME }}:latest" .
-            echo "✅ Image built locally"
-          fi
-      
-      - name: "📦 Deploy Kubernetes Resources (Minikube)"
-        if: env.DEPLOY_TARGET == 'local'
-        run: |
-          echo ""
-          echo "📦 Deploying Kubernetes resources..."
-          
-          # Execute deploy_kubernetes.sh for local environment
-          chmod +x kubernetes/deploy_kubernetes.sh
-          cd kubernetes
-          ./deploy_kubernetes.sh local
-          cd ..
-      
-      - name: "📊 Deploy Monitoring Stack (Minikube)"
-        if: env.DEPLOY_TARGET == 'local'
-        run: |
-          echo "📊 Deploying monitoring stack..."
-          
-          # Execute deploy_monitoring.sh
-          chmod +x monitoring/deploy_monitoring.sh
-          cd monitoring
-          ./deploy_monitoring.sh
-          cd ..
-      
-      - name: "🔧 Deploy Jenkins (Minikube)"
-        if: env.DEPLOY_TARGET == 'local'
-        run: |
-          echo "🔧 Deploying Jenkins..."
-          
-          # Execute deploy_jenkins.sh
-          if [[ -f "cicd/jenkins/deploy_jenkins.sh" ]]; then
-            chmod +x cicd/jenkins/deploy_jenkins.sh
-            cd cicd/jenkins
-            ./deploy_jenkins.sh
-            cd ../..
-          else
-            echo "⚠️  Jenkins deployment script not found, skipping..."
-          fi
-      
-      - name: "🔄 Deploy ArgoCD (Minikube)"
-        if: env.DEPLOY_TARGET == 'local'
-        run: |
-          echo "🔄 Deploying ArgoCD..."
-          
-          # Execute deploy_argocd.sh
-          if [[ -f "cicd/argocd/deploy_argocd.sh" ]]; then
-            chmod +x cicd/argocd/deploy_argocd.sh
-            cd cicd/argocd
-            ./deploy_argocd.sh
-            cd ../..
-          else
-            echo "⚠️  ArgoCD deployment script not found, skipping..."
-          fi
-      
-      - name: "🔄 Configure GitLab CI (Minikube)"
-        if: env.DEPLOY_TARGET == 'local'
-        run: |
-          echo "🔄 Configuring GitLab CI..."
-          
-          # Execute configure_gitlab.sh
-          if [[ -f "cicd/gitlab/configure_gitlab.sh" ]]; then
-            chmod +x cicd/gitlab/configure_gitlab.sh
-            cd cicd/gitlab
-            ./configure_gitlab.sh
-            cd ../..
-          else
-            echo "⚠️  GitLab configuration script not found, skipping..."
-          fi
-      
-      - name: "🔄 Configure ArgoCD Self-Healing (Minikube)"
-        if: env.DEPLOY_TARGET == 'local'
-        run: |
-          echo "🔄 Configuring ArgoCD self-healing..."
-          
-          # Execute self_heal_app.sh
-          if [[ -f "cicd/argocd/self_heal_app.sh" ]]; then
-            chmod +x cicd/argocd/self_heal_app.sh
-            cd cicd/argocd
-            ./self_heal_app.sh
-            cd ../..
-          else
-            echo "⚠️  ArgoCD self-heal script not found, skipping..."
-          fi
-      
-      - name: "✅ Deployment Summary (Minikube)"
-        if: env.DEPLOY_TARGET == 'local'
-        run: |
-          MINIKUBE_IP=$(minikube ip)
-          NODE_PORT=$(kubectl get svc "${{ env.APP_NAME }}-service" -n "${{ env.NAMESPACE }}" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "N/A")
-          
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
-          echo "  ✅ Application deployed to Minikube"
-          echo ""
-          echo "  🌐 App URL:       http://$MINIKUBE_IP:$NODE_PORT"
-          echo "  📊 Dashboard:     minikube dashboard"
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      
-      # ==================== AWS EKS (PRODUCTION) DEPLOYMENT ====================
-      
-      - name: "🏗️ Deploy Infrastructure with Terraform"
-        if: env.DEPLOY_TARGET == 'prod'
-        run: |
-          echo "☁️  Deploying to AWS EKS (Production Environment)"
-          echo ""
           echo "🏗️  Deploying infrastructure with Terraform..."
-          
-          cd infra/terraform
-          
           terraform init -upgrade
           
-          echo ""
-          echo "Running terraform apply..."
-          terraform apply -auto-approve
-          
-          echo "✅ Terraform deployment completed"
-          cd ../..
+          if [[ "${{ env.DRY_RUN }}" == "true" ]]; then
+            echo "🔍 Dry run mode - planning only..."
+            terraform plan
+          else
+            terraform apply -auto-approve
+          fi
       
-      - name: "⚙️ Configure kubectl Context (EKS)"
-        if: env.DEPLOY_TARGET == 'prod'
+      - name: Configure kubectl context
+        if: env.DRY_RUN != 'true'
+        working-directory: infra/terraform
         run: |
-          echo "⚙️  Configuring kubectl context for EKS..."
-          
-          cd infra/terraform
-          
+          echo "⚙️  Configuring kubectl context..."
           REGION=$(terraform output -raw region)
           CLUSTER_NAME=$(terraform output -raw cluster_name)
-          
-          echo "Region: $REGION"
-          echo "Cluster: $CLUSTER_NAME"
           
           aws eks update-kubeconfig \
             --region "$REGION" \
             --name "$CLUSTER_NAME"
           
-          cd ../..
-          
-          echo "✅ kubectl configured for EKS cluster"
-          kubectl cluster-info
+          echo "✅ kubectl configured for EKS cluster: $CLUSTER_NAME"
       
-      - name: "🔨 Build and Push Docker Image (from build_and_push_image.sh - EKS)"
-        if: env.DEPLOY_TARGET == 'prod' && env.BUILD_PUSH == 'true'
+      - name: Load deployment scripts
+        run: |
+          echo "📂 Loading deployment scripts..."
+          # Make all scripts executable
+          chmod +x app/build_and_push_image.sh
+          chmod +x app/configure_dockerhub_username.sh
+          chmod +x kubernetes/deploy_kubernetes.sh
+          chmod +x monitoring/deploy_monitoring.sh
+          chmod +x cicd/jenkins/deploy_jenkins.sh
+          chmod +x cicd/github/configure_git_github.sh
+          chmod +x cicd/gitlab/configure_gitlab.sh
+          chmod +x cicd/argocd/deploy_argocd.sh
+          chmod +x cicd/argocd/self_heal_app.sh
+          echo "✅ Scripts loaded and made executable"
+      
+      - name: Configure Git and GitHub
+        run: |
+          echo "⚙️  Configuring Git and GitHub..."
+          source ./cicd/github/configure_git_github.sh
+          configure_git_github
+      
+      - name: Configure DockerHub
+        run: |
+          echo "⚙️  Configuring DockerHub..."
+          source ./app/configure_dockerhub_username.sh
+          configure_dockerhub_username
+      
+      - name: Build and Push Docker Image
+        if: env.BUILD_PUSH == 'true' && env.DRY_RUN != 'true'
         run: |
           echo "🔨 Building and pushing Docker image..."
-          
-          cd app
-          
-          IMAGE_NAME="${{ secrets.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ env.DOCKER_IMAGE_TAG }}"
-          
-          echo "Building image: $IMAGE_NAME"
-          docker build -t "$IMAGE_NAME" .
-          
-          echo "Pushing image to DockerHub..."
-          docker push "$IMAGE_NAME"
-          
-          echo "✅ Image built and pushed: $IMAGE_NAME"
-          cd ..
+          source ./app/build_and_push_image.sh
+          build_and_push_image
       
-      - name: "📦 Deploy Kubernetes Resources (EKS)"
-        if: env.DEPLOY_TARGET == 'prod'
+      - name: Deploy Kubernetes Resources
+        if: env.DRY_RUN != 'true'
         run: |
-          echo ""
-          echo "📦 Deploying Kubernetes resources to EKS..."
-          
-          # Execute deploy_kubernetes.sh for prod environment
-          chmod +x kubernetes/deploy_kubernetes.sh
-          cd kubernetes
-          ./deploy_kubernetes.sh prod
-          cd ..
+          echo "📦 Deploying Kubernetes resources..."
+          source ./kubernetes/deploy_kubernetes.sh
+          deploy_kubernetes prod
       
-      - name: "📊 Deploy Monitoring Stack (EKS)"
-        if: env.DEPLOY_TARGET == 'prod'
+      - name: Deploy Monitoring Stack
+        if: env.DRY_RUN != 'true'
         run: |
           echo "📊 Deploying monitoring stack..."
-          
-          # Execute deploy_monitoring.sh
-          chmod +x monitoring/deploy_monitoring.sh
-          cd monitoring
-          ./deploy_monitoring.sh
-          cd ..
+          source ./monitoring/deploy_monitoring.sh
+          deploy_monitoring
       
-      - name: "🔧 Deploy Jenkins (EKS)"
-        if: env.DEPLOY_TARGET == 'prod'
+      - name: Deploy Jenkins
+        if: env.DRY_RUN != 'true'
         run: |
           echo "🔧 Deploying Jenkins..."
-          
-          if [[ -f "cicd/jenkins/deploy_jenkins.sh" ]]; then
-            chmod +x cicd/jenkins/deploy_jenkins.sh
-            cd cicd/jenkins
-            ./deploy_jenkins.sh
-            cd ../..
-          else
-            echo "⚠️  Jenkins deployment script not found, skipping..."
-          fi
+          source ./cicd/jenkins/deploy_jenkins.sh
+          deploy_jenkins
       
-      - name: "🔄 Deploy ArgoCD (EKS)"
-        if: env.DEPLOY_TARGET == 'prod'
+      - name: Deploy ArgoCD
+        if: env.DRY_RUN != 'true'
         run: |
           echo "🔄 Deploying ArgoCD..."
-          
-          if [[ -f "cicd/argocd/deploy_argocd.sh" ]]; then
-            chmod +x cicd/argocd/deploy_argocd.sh
-            cd cicd/argocd
-            ./deploy_argocd.sh
-            cd ../..
-          else
-            echo "⚠️  ArgoCD deployment script not found, skipping..."
-          fi
+          source ./cicd/argocd/deploy_argocd.sh
+          deploy_argocd
       
-      - name: "🔄 Configure GitLab CI (EKS)"
-        if: env.DEPLOY_TARGET == 'prod'
+      - name: Configure GitLab
+        if: env.DRY_RUN != 'true'
         run: |
-          echo "🔄 Configuring GitLab CI..."
-          
-          if [[ -f "cicd/gitlab/configure_gitlab.sh" ]]; then
-            chmod +x cicd/gitlab/configure_gitlab.sh
-            cd cicd/gitlab
-            ./configure_gitlab.sh
-            cd ../..
-          else
-            echo "⚠️  GitLab configuration script not found, skipping..."
-          fi
+          echo "⚙️  Configuring GitLab..."
+          source ./cicd/gitlab/configure_gitlab.sh
+          configure_gitlab
       
-      - name: "🔄 Configure ArgoCD Self-Healing (EKS)"
-        if: env.DEPLOY_TARGET == 'prod'
+      - name: Enable ArgoCD Self-Healing
+        if: env.DRY_RUN != 'true'
         run: |
-          echo "🔄 Configuring ArgoCD self-healing..."
-          
-          if [[ -f "cicd/argocd/self_heal_app.sh" ]]; then
-            chmod +x cicd/argocd/self_heal_app.sh
-            cd cicd/argocd
-            ./self_heal_app.sh
-            cd ../..
-          else
-            echo "⚠️  ArgoCD self-heal script not found, skipping..."
-          fi
+          echo "🔧 Enabling ArgoCD self-healing..."
+          source ./cicd/argocd/self_heal_app.sh
+          self_heal_app
       
-      - name: "✅ Deployment Summary (EKS)"
-        if: env.DEPLOY_TARGET == 'prod'
+      - name: Get Deployment Info
+        if: env.DRY_RUN != 'true'
+        id: deployment_info
         run: |
-          echo ""
+          LOAD_BALANCER=$(kubectl get svc "${{ env.APP_NAME }}-service" -n "${{ env.NAMESPACE }}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "Pending")
+          INGRESS_HOST=$(kubectl get ingress -n "${{ env.NAMESPACE }}" -o jsonpath='{.items[0].spec.rules[0].host}' 2>/dev/null || echo "N/A")
+          
+          echo "load_balancer=$LOAD_BALANCER" >> $GITHUB_OUTPUT
+          echo "ingress_host=$INGRESS_HOST" >> $GITHUB_OUTPUT
+      
+      - name: Deployment Summary
+        if: env.DRY_RUN != 'true'
+        run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
           echo "  ✅ Application deployed to AWS EKS"
           echo ""
-          echo "  ℹ️  Use LoadBalancer or Ingress to expose services"
-          echo "  📊 Check service status: kubectl get svc -n ${{ env.NAMESPACE }}"
-          echo "  🔍 Check pods: kubectl get pods -n ${{ env.NAMESPACE }}"
+          echo "  ☁️  Cluster:      ${{ env.EKS_CLUSTER_NAME }}"
+          echo "  🌍 Region:       ${{ env.AWS_REGION }}"
+          echo "  📦 Namespace:    ${{ env.NAMESPACE }}"
+          echo ""
+          if [[ "${{ steps.deployment_info.outputs.load_balancer }}" != "Pending" ]]; then
+            echo "  🌐 LoadBalancer: http://${{ steps.deployment_info.outputs.load_balancer }}"
+          else
+            echo "  🌐 LoadBalancer: ⏳ Pending..."
+          fi
+          echo "  🔗 Ingress Host: ${{ steps.deployment_info.outputs.ingress_host }}"
+          echo ""
+          echo "  📊 View logs:    kubectl logs -f deployment/${{ env.APP_NAME }} -n ${{ env.NAMESPACE }}"
+          echo "  🔍 Check pods:   kubectl get pods -n ${{ env.NAMESPACE }}"
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       
-      - name: "📋 Display Deployment Resources"
+      - name: Upload Deployment Logs
+        if: always() && env.DRY_RUN != 'true'
         run: |
-          echo ""
-          echo "📋 Deployed Resources:"
-          echo ""
-          echo "Namespaces:"
-          kubectl get namespaces
-          echo ""
-          echo "Pods in ${{ env.NAMESPACE }}:"
-          kubectl get pods -n ${{ env.NAMESPACE }} || true
-          echo ""
-          echo "Services in ${{ env.NAMESPACE }}:"
-          kubectl get svc -n ${{ env.NAMESPACE }} || true
-          echo ""
-          echo "Ingress in ${{ env.NAMESPACE }}:"
-          kubectl get ingress -n ${{ env.NAMESPACE }} || true
-          echo ""
+          mkdir -p logs
+          kubectl get all -A > logs/kubectl-all.log 2>&1 || true
+          kubectl describe pods -n ${{ env.NAMESPACE }} > logs/pods-describe.log 2>&1 || true
+      
+      - name: Upload logs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eks-deployment-logs
+          path: logs/
+          retention-days: 7
