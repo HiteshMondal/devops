@@ -1,2 +1,5 @@
+stages:
+  - bootstrap
+
 include:
   - local: cicd/gitlab/.gitlab-ci.yml
