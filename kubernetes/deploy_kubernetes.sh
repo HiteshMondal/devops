@@ -1,44 +1,127 @@
 #!/bin/bash
 
-# deploy_kubernetes.sh - Works with both .env (run.sh) and CI/CD environments
+# /kubernetes/deploy_kubernetes.sh- Works with both .env (run.sh) and CI/CD environments
 # Usage: ./deploy_kubernetes.sh [local|prod]
 
 set -euo pipefail
+
+# COLOR DEFINITIONS - Optimized for both light and dark terminals
+if [[ -t 1 ]]; then
+    BOLD='\033[1m'
+    DIM='\033[2m'
+    RESET='\033[0m'
+
+    BLUE='\033[38;5;33m'      
+    GREEN='\033[38;5;34m'     
+    YELLOW='\033[38;5;214m'   
+    RED='\033[38;5;196m'     
+    CYAN='\033[38;5;51m'      
+    MAGENTA='\033[38;5;201m'  
+    
+    # Background colors (subtle)
+    BG_BLUE='\033[48;5;17m'
+    BG_GREEN='\033[48;5;22m'
+    BG_YELLOW='\033[48;5;58m'
+    BG_RED='\033[48;5;52m'
+    
+    # Special formatting
+    LINK='\033[4;38;5;75m'    # Underlined bright blue for URLs
+else
+    BOLD=''; DIM=''; RESET=''
+    BLUE=''; GREEN=''; YELLOW=''; RED=''; CYAN=''; MAGENTA=''
+    BG_BLUE=''; BG_GREEN=''; BG_YELLOW=''; BG_RED=''
+    LINK=''
+fi
+
+# VISUAL HELPER FUNCTIONS
+print_header() {
+    local text="$1"
+    echo -e ""
+    echo -e "${BOLD}${CYAN}╔════════════════════════════════════════════════════════════════════════════╗${RESET}"
+    echo -e "${BOLD}${CYAN}║${RESET}  ${BOLD}${text}${RESET}"
+    echo -e "${BOLD}${CYAN}╚════════════════════════════════════════════════════════════════════════════╝${RESET}"
+    echo -e ""
+}
+
+print_section() {
+    local text="$1"
+    echo -e ""
+    echo -e "${BOLD}${BLUE}┌────────────────────────────────────────────────────────────────────────────┐${RESET}"
+    echo -e "${BOLD}${BLUE}│${RESET}  ${BOLD}${text}${RESET}"
+    echo -e "${BOLD}${BLUE}└────────────────────────────────────────────────────────────────────────────┘${RESET}"
+}
+
+print_subsection() {
+    local text="$1"
+    echo -e ""
+    echo -e "${BOLD}${MAGENTA}▸ ${text}${RESET}"
+    echo -e "${DIM}${MAGENTA}─────────────────────────────────────────────────────────────────────────────${RESET}"
+}
+
+print_success() {
+    echo -e "${BOLD}${GREEN}✓${RESET} ${GREEN}$1${RESET}"
+}
+
+print_info() {
+    echo -e "${BOLD}${CYAN}ℹ${RESET} ${CYAN}$1${RESET}"
+}
+
+print_warning() {
+    echo -e "${BOLD}${YELLOW}⚠${RESET} ${YELLOW}$1${RESET}"
+}
+
+print_error() {
+    echo -e "${BOLD}${RED}✗${RESET} ${RED}$1${RESET}"
+}
+
+print_step() {
+    echo -e "  ${BOLD}${BLUE}▸${RESET} $1"
+}
+
+print_url() {
+    local label="$1"
+    local url="$2"
+    echo -e "  ${BOLD}${label}${RESET} ${LINK}${url}${RESET}"
+}
+
+print_divider() {
+    echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+}
 
 # ENVIRONMENT DETECTION & CONFIGURATION
 
 # Detect if running in CI/CD environment
 if [[ "${CI:-false}" == "true" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ -n "${GITLAB_CI:-}" ]]; then
-    echo "🤖 Detected CI/CD environment"
+    print_info "Detected CI/CD environment"
     CI_MODE=true
 else
-    echo "💻 Detected local environment"
+    print_info "Detected local environment"
     CI_MODE=false
 fi
 
 # Determine PROJECT_ROOT
 if [[ -n "${PROJECT_ROOT:-}" ]]; then
     # PROJECT_ROOT already set (from run.sh or CI/CD)
-    echo "📁 Using PROJECT_ROOT: $PROJECT_ROOT"
+    print_info "Using PROJECT_ROOT: ${BOLD}$PROJECT_ROOT${RESET}"
 elif [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
     # Running in GitHub Actions
     PROJECT_ROOT="${GITHUB_WORKSPACE}"
-    echo "📁 Using GITHUB_WORKSPACE: $PROJECT_ROOT"
+    print_info "Using GITHUB_WORKSPACE: ${BOLD}$PROJECT_ROOT${RESET}"
 elif [[ -n "${CI_PROJECT_DIR:-}" ]]; then
     # Running in GitLab CI
     PROJECT_ROOT="${CI_PROJECT_DIR}"
-    echo "📁 Using CI_PROJECT_DIR: $PROJECT_ROOT"
+    print_info "Using CI_PROJECT_DIR: ${BOLD}$PROJECT_ROOT${RESET}"
 else
     # Default to script's parent directory
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    echo "📁 Using script parent directory: $PROJECT_ROOT"
+    print_info "Using script parent directory: ${BOLD}$PROJECT_ROOT${RESET}"
 fi
 
 export PROJECT_ROOT
 
 # ENVIRONMENT VARIABLE VALIDATION
 validate_required_vars() {
-    echo "🔍 Validating required environment variables..."
+    print_subsection "Validating Required Environment Variables"
     
     local required_vars=(
         "APP_NAME"
@@ -57,19 +140,19 @@ validate_required_vars() {
     done
     
     if [[ ${#missing_vars[@]} -gt 0 ]]; then
-        echo "❌ Missing required environment variables:"
+        print_error "Missing required environment variables:"
         for var in "${missing_vars[@]}"; do
-            echo "   - $var"
+            echo -e "     ${RED}●${RESET} $var"
         done
         echo ""
-        echo "💡 These variables should be:"
-        echo "   - Set in .env file (for local run.sh)"
-        echo "   - Set as GitHub Secrets/Variables (for GitHub Actions)"
-        echo "   - Set as GitLab CI/CD Variables (for GitLab CI)"
+        print_info "These variables should be:"
+        echo -e "     ${CYAN}●${RESET} Set in .env file (for local run.sh)"
+        echo -e "     ${CYAN}●${RESET} Set as GitHub Secrets/Variables (for GitHub Actions)"
+        echo -e "     ${CYAN}●${RESET} Set as GitLab CI/CD Variables (for GitLab CI)"
         exit 1
     fi
     
-    echo "✅ All required variables are present"
+    print_success "All required variables are present"
 }
 
 # YAML PROCESSING FUNCTIONS
@@ -92,8 +175,10 @@ substitute_env_vars() {
     
     # Verify substitution worked (check for remaining ${VAR} patterns)
     if grep -qE '\$\{[A-Z_]+\}' "$temp_file"; then
-        echo "⚠️  Warning: Unsubstituted variables found in $(basename "$file"):"
-        grep -oE '\$\{[A-Z_]+\}' "$temp_file" | sort -u | head -5
+        print_warning "Unsubstituted variables found in $(basename "$file"):"
+        grep -oE '\$\{[A-Z_]+\}' "$temp_file" | sort -u | head -5 | while read -r var; do
+            echo -e "     ${YELLOW}●${RESET} $var"
+        done
     fi
     
     mv "$temp_file" "$file"
@@ -102,14 +187,14 @@ substitute_env_vars() {
 process_yaml_files() {
     local dir=$1
     
-    echo "📝 Processing YAML files in $(basename "$dir")"
+    print_subsection "Processing YAML Files in $(basename "$dir")"
     
     # Find all YAML files and substitute environment variables
     find "$dir" -type f \( -name "*.yaml" -o -name "*.yml" \) 2>/dev/null | while read -r file; do
         if [[ "$CI_MODE" == "true" ]]; then
-            echo "  ✓ $(basename "$file")"
+            echo -e "  ${GREEN}✓${RESET} $(basename "$file")"
         else
-            echo "  Processing: $(basename "$file")"
+            echo -e "  ${BLUE}▸${RESET} Processing: ${BOLD}$(basename "$file")${RESET}"
         fi
         substitute_env_vars "$file"
     done
@@ -119,12 +204,9 @@ process_yaml_files() {
 deploy_kubernetes() {
     local environment=${1:-local}
     
-    echo ""
-    echo "🚀 Kubernetes Deployment"
-    echo "============================================================================"
-    echo "Environment: $environment"
-    echo "Mode: $([ "$CI_MODE" == "true" ] && echo "CI/CD" || echo "Local")"
-    echo "============================================================================"
+    print_header "🚀 KUBERNETES DEPLOYMENT"
+    echo -e "${BOLD}Environment:${RESET} ${CYAN}$environment${RESET}"
+    echo -e "${BOLD}Mode:${RESET}        ${CYAN}$([ "$CI_MODE" == "true" ] && echo "CI/CD" || echo "Local")${RESET}"
     echo ""
     
     # Validate environment variables
@@ -163,122 +245,130 @@ deploy_kubernetes() {
     trap "rm -rf $WORK_DIR" EXIT
     
     # Copy Kubernetes manifests to working directory
-    echo "📋 Copying Kubernetes manifests..."
+    print_section "📋 Preparing Kubernetes Manifests"
     if [[ -d "$PROJECT_ROOT/kubernetes/base" ]]; then
         cp -r "$PROJECT_ROOT/kubernetes/base" "$WORK_DIR/"
+        print_success "Copied base manifests"
     else
-        echo "❌ Error: kubernetes/base directory not found at $PROJECT_ROOT/kubernetes/base"
+        print_error "kubernetes/base directory not found at $PROJECT_ROOT/kubernetes/base"
         exit 1
     fi
     
     if [[ -d "$PROJECT_ROOT/kubernetes/overlays" ]]; then
         cp -r "$PROJECT_ROOT/kubernetes/overlays" "$WORK_DIR/"
+        print_success "Copied overlay manifests"
     fi
     
     # Process base manifests
-    echo ""
     process_yaml_files "$WORK_DIR/base"
     
     # Process overlay manifests if they exist
     if [[ -d "$WORK_DIR/overlays/$environment" ]]; then
-        echo ""
         process_yaml_files "$WORK_DIR/overlays/$environment"
     fi
     
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
+    print_divider
     
     # Create namespace if it doesn't exist
-    echo "📦 Creating namespace: $NAMESPACE"
+    print_section "📦 Setting Up Namespace"
     kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-    echo ""
+    print_success "Namespace ready: ${BOLD}$NAMESPACE${RESET}"
+    
+    print_divider
     
     # Apply Kubernetes resources in order
-    echo "🔧 Applying Kubernetes resources..."
+    print_section "🔧 Deploying Kubernetes Resources"
     echo ""
     
     # Namespace (already created above, but apply for consistency)
     if [[ -f "$WORK_DIR/base/namespace.yaml" ]]; then
-        echo "  ✓ Namespace"
+        print_step "Namespace configuration"
         kubectl apply -f "$WORK_DIR/base/namespace.yaml"
     fi
     
     # Secrets
     if [[ -f "$WORK_DIR/base/secrets.yaml" ]]; then
-        echo "  ✓ Secrets"
+        print_step "Secrets"
         kubectl apply -f "$WORK_DIR/base/secrets.yaml"
     fi
     
     # ConfigMaps
     if [[ -f "$WORK_DIR/base/configmap.yaml" ]]; then
-        echo "  ✓ ConfigMap"
+        print_step "ConfigMap"
         kubectl apply -f "$WORK_DIR/base/configmap.yaml"
     fi
     
     # Deployment
     if [[ -f "$WORK_DIR/base/deployment.yaml" ]]; then
-        echo "  ✓ Deployment"
+        print_step "Deployment"
         kubectl apply -f "$WORK_DIR/base/deployment.yaml"
     fi
     
     # Service
     if [[ -f "$WORK_DIR/base/service.yaml" ]]; then
-        echo "  ✓ Service"
+        print_step "Service"
         kubectl apply -f "$WORK_DIR/base/service.yaml"
     fi
     
     # HPA
     if [[ -f "$WORK_DIR/base/hpa.yaml" ]]; then
-        echo "  ✓ HorizontalPodAutoscaler"
+        print_step "HorizontalPodAutoscaler"
         kubectl apply -f "$WORK_DIR/base/hpa.yaml"
     fi
     
     # Ingress (if enabled)
     if [[ "${INGRESS_ENABLED}" == "true" ]] && [[ -f "$WORK_DIR/base/ingress.yaml" ]]; then
-        echo "  ✓ Ingress"
+        print_step "Ingress"
         kubectl apply -f "$WORK_DIR/base/ingress.yaml"
     else
-        echo "  ⏭️  Ingress (disabled or not found)"
+        echo -e "  ${DIM}${BLUE}▸${RESET} ${DIM}Ingress (disabled or not found)${RESET}"
     fi
     
     echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
+    print_divider
     
     # Wait for deployment to be ready
-    echo "⏳ Waiting for deployment to be ready..."
+    print_section "⏳ Waiting for Deployment to be Ready"
     if kubectl rollout status deployment/"$APP_NAME" -n "$NAMESPACE" --timeout=300s; then
-        echo "✅ Deployment is ready"
+        print_success "Deployment is ready!"
     else
-        echo "❌ Deployment failed to become ready"
+        print_error "Deployment failed to become ready"
         echo ""
-        echo "📋 Deployment status:"
+        print_subsection "Deployment Status"
         kubectl get deployment "$APP_NAME" -n "$NAMESPACE" || true
         echo ""
-        echo "📋 Pod status:"
+        print_subsection "Pod Status"
         kubectl get pods -n "$NAMESPACE" -l app="$APP_NAME" || true
         echo ""
-        echo "📋 Recent events:"
+        print_subsection "Recent Events"
         kubectl get events -n "$NAMESPACE" --sort-by='.lastTimestamp' | tail -20 || true
         exit 1
     fi
     
-    echo "✅ Kubernetes deployment completed successfully!"
-    echo ""
+    print_success "Kubernetes deployment completed successfully!"
+    
+    print_divider
+    
     # Display deployment information
-    echo "📊 Deployment Status:"
+    print_section "📊 Deployment Status"
+    echo ""
+    echo -e "${BOLD}${CYAN}Deployments:${RESET}"
     kubectl get deployments -n "$NAMESPACE" -o wide
     echo ""
-    echo "🔌 Services:"
+    echo -e "${BOLD}${CYAN}Services:${RESET}"
     kubectl get services -n "$NAMESPACE" -o wide
     echo ""
-    echo "📦 Pods:"
+    echo -e "${BOLD}${CYAN}Pods:${RESET}"
     kubectl get pods -n "$NAMESPACE" -o wide
-    echo ""
+    
+    print_divider
+    
     # Show access information based on environment
+    print_section "🌐 Access Information"
+    echo ""
+    
     if [[ "$environment" == "local" ]]; then
-        echo "🌐 Access Information (Local):"
+        echo -e "${BOLD}${GREEN}Local Environment Access:${RESET}"
         echo ""
         
         # Try to get NodePort
@@ -287,52 +377,53 @@ deploy_kubernetes() {
         if [[ -n "$NODE_PORT" ]]; then
             if command -v minikube >/dev/null 2>&1; then
                 MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "localhost")
-                echo "  📱 Application URL: http://$MINIKUBE_IP:$NODE_PORT"
+                print_url "📱 Application URL:" "http://$MINIKUBE_IP:$NODE_PORT"
             else
-                echo "  📱 Application Port: $NODE_PORT (access via cluster IP)"
+                echo -e "  ${BOLD}📱 Application Port:${RESET} ${CYAN}$NODE_PORT${RESET} ${DIM}(access via cluster IP)${RESET}"
             fi
         fi
         
         if [[ "${INGRESS_ENABLED}" == "true" ]]; then
-            echo "  🌐 Ingress URL: http://${INGRESS_HOST}"
+            echo ""
+            print_url "🌐 Ingress URL:" "http://${INGRESS_HOST}"
             if command -v minikube >/dev/null 2>&1; then
                 MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "127.0.0.1")
-                echo "  💡 Add to /etc/hosts: $MINIKUBE_IP ${INGRESS_HOST}"
+                echo ""
+                print_info "Add to /etc/hosts: ${BOLD}$MINIKUBE_IP ${INGRESS_HOST}${RESET}"
             fi
         fi
     else
-        echo "🌐 Access Information (Production):"
+        echo -e "${BOLD}${GREEN}Production Environment Access:${RESET}"
         echo ""
-        echo "  Check LoadBalancer external IP:"
-        echo "  kubectl get svc ${APP_NAME}-service -n $NAMESPACE"
+        print_info "Check LoadBalancer external IP:"
+        echo -e "  ${DIM}\$${RESET} kubectl get svc ${APP_NAME}-service -n $NAMESPACE"
         echo ""
         if [[ "${INGRESS_ENABLED}" == "true" ]]; then
-            echo "  Check Ingress:"
-            echo "  kubectl get ingress -n $NAMESPACE"
+            print_info "Check Ingress:"
+            echo -e "  ${DIM}\$${RESET} kubectl get ingress -n $NAMESPACE"
         fi
     fi
     
+    print_divider
+    
+    print_section "💡 Useful Commands"
     echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${BOLD}View logs:${RESET}"
+    echo -e "  ${DIM}\$${RESET} kubectl logs -f deployment/$APP_NAME -n $NAMESPACE"
     echo ""
-    echo "💡 Useful Commands:"
+    echo -e "${BOLD}Describe pods:${RESET}"
+    echo -e "  ${DIM}\$${RESET} kubectl describe pod -l app=$APP_NAME -n $NAMESPACE"
     echo ""
-    echo "  View logs:"
-    echo "    kubectl logs -f deployment/$APP_NAME -n $NAMESPACE"
+    echo -e "${BOLD}Get events:${RESET}"
+    echo -e "  ${DIM}\$${RESET} kubectl get events -n $NAMESPACE --sort-by='.lastTimestamp'"
     echo ""
-    echo "  Describe pods:"
-    echo "    kubectl describe pod -l app=$APP_NAME -n $NAMESPACE"
+    echo -e "${BOLD}Port forward:${RESET}"
+    echo -e "  ${DIM}\$${RESET} kubectl port-forward svc/${APP_NAME}-service $APP_PORT:80 -n $NAMESPACE"
     echo ""
-    echo "  Get events:"
-    echo "    kubectl get events -n $NAMESPACE --sort-by='.lastTimestamp'"
+    echo -e "${BOLD}Scale deployment:${RESET}"
+    echo -e "  ${DIM}\$${RESET} kubectl scale deployment/$APP_NAME --replicas=3 -n $NAMESPACE"
     echo ""
-    echo "  Port forward:"
-    echo "    kubectl port-forward svc/${APP_NAME}-service $APP_PORT:80 -n $NAMESPACE"
-    echo ""
-    echo "  Scale deployment:"
-    echo "    kubectl scale deployment/$APP_NAME --replicas=3 -n $NAMESPACE"
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    print_divider
 }
 
 # SCRIPT EXECUTION

@@ -1,43 +1,137 @@
 #!/bin/bash
 
-# deploy_monitoring.sh - Works with both .env (run.sh) and CI/CD environments
+# /monitoring/deploy_monitoring.sh - Works with both .env (run.sh) and CI/CD environments
 # Usage: ./deploy_monitoring.sh
 
 set -euo pipefail
 
+# COLOR DEFINITIONS - Optimized for both light and dark terminals
+if [[ -t 1 ]]; then
+    BOLD='\033[1m'
+    DIM='\033[2m'
+    RESET='\033[0m'
+    
+    BLUE='\033[38;5;33m'      
+    GREEN='\033[38;5;34m'     
+    YELLOW='\033[38;5;214m'   
+    RED='\033[38;5;196m'      
+    CYAN='\033[38;5;51m'      
+    MAGENTA='\033[38;5;201m'  
+    ORANGE='\033[38;5;208m'   
+    
+    # Background colors (subtle)
+    BG_BLUE='\033[48;5;17m'
+    BG_GREEN='\033[48;5;22m'
+    BG_YELLOW='\033[48;5;58m'
+    BG_RED='\033[48;5;52m'
+    
+    # Special formatting
+    LINK='\033[4;38;5;75m'    # Underlined bright blue for URLs
+else
+    BOLD=''; DIM=''; RESET=''
+    BLUE=''; GREEN=''; YELLOW=''; RED=''; CYAN=''; MAGENTA=''; ORANGE=''
+    BG_BLUE=''; BG_GREEN=''; BG_YELLOW=''; BG_RED=''
+    LINK=''
+fi
+
+# VISUAL HELPER FUNCTIONS
+print_header() {
+    local text="$1"
+    echo -e ""
+    echo -e "${BOLD}${CYAN}╔════════════════════════════════════════════════════════════════════════════╗${RESET}"
+    echo -e "${BOLD}${CYAN}║${RESET}  ${BOLD}${text}${RESET}"
+    echo -e "${BOLD}${CYAN}╚════════════════════════════════════════════════════════════════════════════╝${RESET}"
+    echo -e ""
+}
+
+print_section() {
+    local text="$1"
+    echo -e ""
+    echo -e "${BOLD}${BLUE}┌────────────────────────────────────────────────────────────────────────────┐${RESET}"
+    echo -e "${BOLD}${BLUE}│${RESET}  ${BOLD}${text}${RESET}"
+    echo -e "${BOLD}${BLUE}└────────────────────────────────────────────────────────────────────────────┘${RESET}"
+}
+
+print_subsection() {
+    local text="$1"
+    echo -e ""
+    echo -e "${BOLD}${MAGENTA}▸ ${text}${RESET}"
+    echo -e "${DIM}${MAGENTA}─────────────────────────────────────────────────────────────────────────────${RESET}"
+}
+
+print_success() {
+    echo -e "${BOLD}${GREEN}✓${RESET} ${GREEN}$1${RESET}"
+}
+
+print_info() {
+    echo -e "${BOLD}${CYAN}ℹ${RESET} ${CYAN}$1${RESET}"
+}
+
+print_warning() {
+    echo -e "${BOLD}${YELLOW}⚠${RESET} ${YELLOW}$1${RESET}"
+}
+
+print_error() {
+    echo -e "${BOLD}${RED}✗${RESET} ${RED}$1${RESET}"
+}
+
+print_step() {
+    echo -e "  ${BOLD}${BLUE}▸${RESET} $1"
+}
+
+print_url() {
+    local label="$1"
+    local url="$2"
+    echo -e "  ${BOLD}${label}${RESET} ${LINK}${url}${RESET}"
+}
+
+print_credential() {
+    local label="$1"
+    local value="$2"
+    echo -e "     ${DIM}${label}${RESET} ${BOLD}${YELLOW}${value}${RESET}"
+}
+
+print_divider() {
+    echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+}
+
+print_target() {
+    echo -e "  ${GREEN}✓${RESET} $1"
+}
+
 # ENVIRONMENT DETECTION & CONFIGURATION
 # Detect if running in CI/CD environment
 if [[ "${CI:-false}" == "true" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ -n "${GITLAB_CI:-}" ]]; then
-    echo "🤖 Detected CI/CD environment"
+    print_info "Detected CI/CD environment"
     CI_MODE=true
 else
-    echo "💻 Detected local environment"
+    print_info "Detected local environment"
     CI_MODE=false
 fi
 
 # Determine PROJECT_ROOT
 if [[ -n "${PROJECT_ROOT:-}" ]]; then
     # PROJECT_ROOT already set (from run.sh or CI/CD)
-    echo "📁 Using PROJECT_ROOT: $PROJECT_ROOT"
+    print_info "Using PROJECT_ROOT: ${BOLD}$PROJECT_ROOT${RESET}"
 elif [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
     # Running in GitHub Actions
     PROJECT_ROOT="${GITHUB_WORKSPACE}"
-    echo "📁 Using GITHUB_WORKSPACE: $PROJECT_ROOT"
+    print_info "Using GITHUB_WORKSPACE: ${BOLD}$PROJECT_ROOT${RESET}"
 elif [[ -n "${CI_PROJECT_DIR:-}" ]]; then
     # Running in GitLab CI
     PROJECT_ROOT="${CI_PROJECT_DIR}"
-    echo "📁 Using CI_PROJECT_DIR: $PROJECT_ROOT"
+    print_info "Using CI_PROJECT_DIR: ${BOLD}$PROJECT_ROOT${RESET}"
 else
     # Default to script's parent directory
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    echo "📁 Using script parent directory: $PROJECT_ROOT"
+    print_info "Using script parent directory: ${BOLD}$PROJECT_ROOT${RESET}"
 fi
 
 export PROJECT_ROOT
 
 # ENVIRONMENT VARIABLE VALIDATION
 validate_required_vars() {
-    echo "🔍 Validating monitoring environment variables..."
+    print_subsection "Validating Monitoring Environment Variables"
     
     local required_vars=(
         "PROMETHEUS_NAMESPACE"
@@ -58,19 +152,19 @@ validate_required_vars() {
     done
     
     if [[ ${#missing_vars[@]} -gt 0 ]]; then
-        echo "❌ Missing required monitoring variables:"
+        print_error "Missing required monitoring variables:"
         for var in "${missing_vars[@]}"; do
-            echo "   - $var"
+            echo -e "     ${RED}●${RESET} $var"
         done
         echo ""
-        echo "💡 These variables should be:"
-        echo "   - Set in .env file (for local run.sh)"
-        echo "   - Set as GitHub Secrets/Variables (for GitHub Actions)"
-        echo "   - Set as GitLab CI/CD Variables (for GitLab CI)"
+        print_info "These variables should be:"
+        echo -e "     ${CYAN}●${RESET} Set in .env file (for local run.sh)"
+        echo -e "     ${CYAN}●${RESET} Set as GitHub Secrets/Variables (for GitHub Actions)"
+        echo -e "     ${CYAN}●${RESET} Set as GitLab CI/CD Variables (for GitLab CI)"
         exit 1
     fi
     
-    echo "✅ All required monitoring variables are present"
+    print_success "All required monitoring variables are present"
 }
 
 # YAML PROCESSING FUNCTIONS
@@ -94,8 +188,10 @@ substitute_env_vars() {
     
     # Verify substitution worked
     if grep -qE '\$\{[A-Z_]+\}' "$temp_file"; then
-        echo "⚠️  Warning: Unsubstituted variables in $(basename "$file"):"
-        grep -oE '\$\{[A-Z_]+\}' "$temp_file" | sort -u | head -5
+        print_warning "Unsubstituted variables in $(basename "$file"):"
+        grep -oE '\$\{[A-Z_]+\}' "$temp_file" | sort -u | head -5 | while read -r var; do
+            echo -e "     ${YELLOW}●${RESET} $var"
+        done
     fi
     
     mv "$temp_file" "$file"
@@ -105,7 +201,7 @@ create_prometheus_configmap() {
     local prometheus_yml="$1"
     local namespace="$2"
     
-    echo "📝 Creating Prometheus ConfigMap from prometheus.yml"
+    print_step "Creating Prometheus ConfigMap from prometheus.yml"
     
     # Export variables for substitution
     export APP_NAME NAMESPACE PROMETHEUS_NAMESPACE
@@ -118,8 +214,10 @@ create_prometheus_configmap() {
     
     # Verify substitution
     if grep -qE '\$\{[A-Z_]+\}' "$temp_config"; then
-        echo "⚠️  Warning: Unsubstituted variables in prometheus.yml:"
-        grep -oE '\$\{[A-Z_]+\}' "$temp_config" | sort -u
+        print_warning "Unsubstituted variables in prometheus.yml:"
+        grep -oE '\$\{[A-Z_]+\}' "$temp_config" | sort -u | while read -r var; do
+            echo -e "     ${YELLOW}●${RESET} $var"
+        done
     fi
     
     # Create ConfigMap
@@ -128,7 +226,7 @@ create_prometheus_configmap() {
         -n "$namespace" \
         --dry-run=client -o yaml | kubectl apply -f -
     
-    echo "✅ Prometheus ConfigMap created"
+    print_success "Prometheus ConfigMap created"
     
     # Cleanup
     rm -f "$temp_config"
@@ -138,7 +236,7 @@ create_alerts_configmap() {
     local alerts_yml="$1"
     local namespace="$2"
     
-    echo "🔔 Creating Prometheus Alerts ConfigMap"
+    print_step "Creating Prometheus Alerts ConfigMap"
     
     # Export variables for substitution
     export APP_NAME NAMESPACE
@@ -153,7 +251,7 @@ create_alerts_configmap() {
         -n "$namespace" \
         --dry-run=client -o yaml | kubectl apply -f -
     
-    echo "✅ Alerts ConfigMap created"
+    print_success "Alerts ConfigMap created"
     
     # Cleanup
     rm -f "$temp_alerts"
@@ -162,23 +260,23 @@ create_alerts_configmap() {
 process_yaml_files() {
     local dir=$1
     
-    echo "📝 Processing YAML files in $(basename "$dir")"
+    print_subsection "Processing YAML Files in $(basename "$dir")"
     
     # Find all YAML files and substitute environment variables
     find "$dir" -type f \( -name "*.yaml" -o -name "*.yml" \) 2>/dev/null | while read -r file; do
         # Skip prometheus.yaml ConfigMap sections (handled separately)
         if [[ "$(basename "$file")" == "prometheus.yaml" ]]; then
             if [[ "$CI_MODE" == "true" ]]; then
-                echo "  ✓ $(basename "$file") (ConfigMap handled separately)"
+                echo -e "  ${GREEN}✓${RESET} $(basename "$file") ${DIM}(ConfigMap handled separately)${RESET}"
             else
-                echo "  Processing: $(basename "$file") (ConfigMap handled separately)"
+                echo -e "  ${BLUE}▸${RESET} Processing: ${BOLD}$(basename "$file")${RESET} ${DIM}(ConfigMap handled separately)${RESET}"
             fi
             substitute_env_vars "$file"
         else
             if [[ "$CI_MODE" == "true" ]]; then
-                echo "  ✓ $(basename "$file")"
+                echo -e "  ${GREEN}✓${RESET} $(basename "$file")"
             else
-                echo "  Processing: $(basename "$file")"
+                echo -e "  ${BLUE}▸${RESET} Processing: ${BOLD}$(basename "$file")${RESET}"
             fi
             substitute_env_vars "$file"
         fi
@@ -190,17 +288,13 @@ deploy_monitoring() {
     # Small delay to ensure previous deployments have settled
     sleep 2
     
-    echo ""
-    echo "============================================================================"
-    echo "📊 Monitoring Stack Deployment"
-    echo "============================================================================"
-    echo "Mode: $([ "$CI_MODE" == "true" ] && echo "CI/CD" || echo "Local")"
-    echo "============================================================================"
+    print_header "📊 MONITORING STACK DEPLOYMENT"
+    echo -e "${BOLD}Mode:${RESET} ${CYAN}$([ "$CI_MODE" == "true" ] && echo "CI/CD" || echo "Local")${RESET}"
     echo ""
     
     # Check if monitoring is enabled
     if [[ "${PROMETHEUS_ENABLED:-true}" != "true" ]]; then
-        echo "⏭️  Prometheus monitoring is disabled (PROMETHEUS_ENABLED=false)"
+        print_warning "Prometheus monitoring is disabled (PROMETHEUS_ENABLED=false)"
         return 0
     fi
     
@@ -249,65 +343,65 @@ deploy_monitoring() {
     trap "rm -rf $WORK_DIR" EXIT
     
     # Copy monitoring manifests to working directory
-    echo "📋 Copying monitoring manifests..."
+    print_section "📋 Preparing Monitoring Manifests"
     
     if [[ -d "$PROJECT_ROOT/monitoring/prometheus_grafana" ]]; then
         cp -r "$PROJECT_ROOT/monitoring/prometheus_grafana/"* "$WORK_DIR/monitoring/" 2>/dev/null || true
+        print_success "Copied prometheus_grafana manifests"
     else
-        echo "⚠️  Warning: prometheus_grafana directory not found"
+        print_warning "prometheus_grafana directory not found"
     fi
     
     # Copy Prometheus config files
     if [[ -d "$PROJECT_ROOT/monitoring/prometheus" ]]; then
         cp -r "$PROJECT_ROOT/monitoring/prometheus/"* "$WORK_DIR/prometheus/" 2>/dev/null || true
+        print_success "Copied Prometheus config files"
     fi
     
     # Copy kube-state-metrics
     if [[ -d "$PROJECT_ROOT/monitoring/kube-state-metrics" ]]; then
         cp -r "$PROJECT_ROOT/monitoring/kube-state-metrics/"* "$WORK_DIR/kube-state-metrics/" 2>/dev/null || true
+        print_success "Copied kube-state-metrics manifests"
     fi
     
     # Process monitoring manifests
-    echo ""
     if [[ -d "$WORK_DIR/monitoring" ]]; then
         process_yaml_files "$WORK_DIR/monitoring"
     fi
     
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
+    print_divider
     
     # Create monitoring namespace
-    echo "📦 Creating monitoring namespace: $PROMETHEUS_NAMESPACE"
+    print_section "📦 Setting Up Monitoring Namespace"
     kubectl create namespace "$PROMETHEUS_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+    print_success "Namespace ready: ${BOLD}$PROMETHEUS_NAMESPACE${RESET}"
     echo ""
     
     # Create Prometheus ConfigMap from external file
     if [[ -f "$WORK_DIR/prometheus/prometheus.yml" ]]; then
         create_prometheus_configmap "$WORK_DIR/prometheus/prometheus.yml" "$PROMETHEUS_NAMESPACE"
     else
-        echo "⚠️  prometheus.yml not found, using embedded ConfigMap"
+        print_warning "prometheus.yml not found, using embedded ConfigMap"
     fi
     
     # Create ConfigMap for Prometheus alerts
     if [[ -f "$WORK_DIR/prometheus/alerts.yml" ]]; then
         create_alerts_configmap "$WORK_DIR/prometheus/alerts.yml" "$PROMETHEUS_NAMESPACE"
     else
-        echo "ℹ️  alerts.yml not found, skipping alerts ConfigMap"
+        print_info "alerts.yml not found, skipping alerts ConfigMap"
     fi
     
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
+    print_divider
     
     # Deploy Prometheus resources
-    echo "🔍 Deploying Prometheus resources..."
+    print_section "🔍 Deploying Prometheus Resources"
+    echo ""
     
     if [[ -f "$WORK_DIR/monitoring/prometheus.yaml" ]]; then
-        echo "  ✓ Prometheus (Deployment, Service, PVC, RBAC)"
+        print_step "Prometheus (Deployment, Service, PVC, RBAC)"
         kubectl apply -f "$WORK_DIR/monitoring/prometheus.yaml"
     else
-        echo "❌ Error: prometheus.yaml not found"
+        print_error "prometheus.yaml not found"
         exit 1
     fi
     
@@ -315,91 +409,92 @@ deploy_monitoring() {
     
     # Deploy kube-state-metrics
     if [[ -d "$WORK_DIR/kube-state-metrics" ]] && [[ -n "$(ls -A "$WORK_DIR/kube-state-metrics" 2>/dev/null)" ]]; then
-        echo "📊 Deploying kube-state-metrics..."
-        kubectl apply -f "$WORK_DIR/kube-state-metrics/" || echo "⚠️  kube-state-metrics deployment had issues"
+        print_step "Deploying kube-state-metrics"
+        kubectl apply -f "$WORK_DIR/kube-state-metrics/" || print_warning "kube-state-metrics deployment had issues"
     else
-        echo "ℹ️  kube-state-metrics manifests not found, skipping"
+        print_info "kube-state-metrics manifests not found, skipping"
     fi
     
     echo ""
-    echo ""
+    print_divider
     
     # Wait for Prometheus to be ready
-    echo "⏳ Waiting for Prometheus to be ready..."
+    print_section "⏳ Waiting for Prometheus to be Ready"
     if kubectl rollout status deployment/prometheus -n "$PROMETHEUS_NAMESPACE" --timeout=300s; then
-        echo "✅ Prometheus is ready"
+        print_success "Prometheus is ready!"
     else
         echo ""
+        print_error "Prometheus deployment failed"
         echo ""
-        echo "❌ Prometheus deployment failed"
-        echo ""
-        echo "📋 Deployment status:"
+        print_subsection "Deployment Status"
         kubectl get deployment prometheus -n "$PROMETHEUS_NAMESPACE" || true
         echo ""
-        echo "📋 Pod status:"
+        print_subsection "Pod Status"
         kubectl describe pod -l app=prometheus -n "$PROMETHEUS_NAMESPACE" || true
         echo ""
-        echo "📋 Recent events:"
+        print_subsection "Recent Events"
         kubectl get events -n "$PROMETHEUS_NAMESPACE" --sort-by='.lastTimestamp' | tail -20 || true
         echo ""
-        echo "📋 Pod logs:"
+        print_subsection "Pod Logs"
         kubectl logs -l app=prometheus -n "$PROMETHEUS_NAMESPACE" --tail=50 || true
         echo ""
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        print_divider
         exit 1
     fi
     
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
+    print_divider
     
     # Deploy Grafana if enabled
     if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
-        echo "📈 Deploying Grafana..."
+        print_section "📈 Deploying Grafana"
         echo ""
         
         if [[ -f "$WORK_DIR/monitoring/grafana.yaml" ]]; then
-            echo "  ✓ Grafana Deployment"
+            print_step "Grafana Deployment"
             kubectl apply -f "$WORK_DIR/monitoring/grafana.yaml"
         else
-            echo "⚠️  grafana.yaml not found"
+            print_warning "grafana.yaml not found"
         fi
         
         if [[ -f "$WORK_DIR/monitoring/dashboard-configmap.yaml" ]]; then
-            echo "  ✓ Grafana Dashboards"
+            print_step "Grafana Dashboards"
             kubectl apply -f "$WORK_DIR/monitoring/dashboard-configmap.yaml"
         else
-            echo "ℹ️  dashboard-configmap.yaml not found"
+            print_info "dashboard-configmap.yaml not found"
         fi
         
         echo ""
         
         # Wait for Grafana to be ready
-        echo "⏳ Waiting for Grafana to be ready..."
+        print_subsection "Waiting for Grafana to be Ready"
         if kubectl rollout status deployment/grafana -n "$PROMETHEUS_NAMESPACE" --timeout=300s; then
-            echo "✅ Grafana is ready"
+            print_success "Grafana is ready!"
         else
-            echo "⚠️  Grafana deployment had issues"
+            print_warning "Grafana deployment had issues"
             kubectl describe pod -l app=grafana -n "$PROMETHEUS_NAMESPACE" || true
         fi
     else
-        echo "⏭️  Skipping Grafana deployment (GRAFANA_ENABLED=false)"
+        print_info "Skipping Grafana deployment (GRAFANA_ENABLED=false)"
     fi
     
-    echo "✅ Monitoring stack deployment completed successfully!"
     echo ""
+    print_success "Monitoring stack deployment completed successfully!"
+    
+    print_divider
     
     # Display monitoring stack information
-    echo "📊 Monitoring Components:"
-    kubectl get all -n "$PROMETHEUS_NAMESPACE" -o wide
+    print_section "📊 Monitoring Components"
     echo ""
+    kubectl get all -n "$PROMETHEUS_NAMESPACE" -o wide
+    
+    print_divider
     
     # Get service URLs based on environment
+    print_section "🌐 Access URLs"
     echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
+    
     if [[ "${DEPLOY_TARGET}" == "local" ]]; then
-        echo "🌐 Access URLs (Local):"
+        echo -e "${BOLD}${GREEN}Local Environment Access:${RESET}"
         echo ""
         
         if command -v minikube >/dev/null 2>&1; then
@@ -411,75 +506,86 @@ deploy_monitoring() {
         # Prometheus URL
         PROMETHEUS_PORT=$(kubectl get svc prometheus -n "$PROMETHEUS_NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
         if [[ -n "$PROMETHEUS_PORT" ]]; then
-            echo "  🔍 Prometheus: http://$MINIKUBE_IP:$PROMETHEUS_PORT"
+            print_url "🔍 Prometheus:" "http://$MINIKUBE_IP:$PROMETHEUS_PORT"
         else
-            echo "  🔍 Prometheus: Use port-forward (kubectl port-forward svc/prometheus 9090:9090 -n $PROMETHEUS_NAMESPACE)"
+            echo -e "  ${BOLD}🔍 Prometheus:${RESET}"
+            echo -e "     ${DIM}Use port-forward:${RESET} kubectl port-forward svc/prometheus 9090:9090 -n $PROMETHEUS_NAMESPACE"
         fi
         
         # Grafana URL
         if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
+            echo ""
             GRAFANA_PORT_NUM=$(kubectl get svc grafana -n "$PROMETHEUS_NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
             if [[ -n "$GRAFANA_PORT_NUM" ]]; then
-                echo "  📈 Grafana: http://$MINIKUBE_IP:$GRAFANA_PORT_NUM"
-                echo "     Username: ${GRAFANA_ADMIN_USER}"
-                echo "     Password: ${GRAFANA_ADMIN_PASSWORD}"
+                print_url "📈 Grafana:" "http://$MINIKUBE_IP:$GRAFANA_PORT_NUM"
+                echo ""
+                print_credential "Username:" "${GRAFANA_ADMIN_USER}"
+                print_credential "Password:" "${GRAFANA_ADMIN_PASSWORD}"
             else
-                echo "  📈 Grafana: Use port-forward (kubectl port-forward svc/grafana 3000:3000 -n $PROMETHEUS_NAMESPACE)"
-                echo "     Username: ${GRAFANA_ADMIN_USER}"
-                echo "     Password: ${GRAFANA_ADMIN_PASSWORD}"
+                echo -e "  ${BOLD}📈 Grafana:${RESET}"
+                echo -e "     ${DIM}Use port-forward:${RESET} kubectl port-forward svc/grafana 3000:3000 -n $PROMETHEUS_NAMESPACE"
+                echo ""
+                print_credential "Username:" "${GRAFANA_ADMIN_USER}"
+                print_credential "Password:" "${GRAFANA_ADMIN_PASSWORD}"
             fi
         fi
     else
-        echo "🌐 Access URLs (Production):"
+        echo -e "${BOLD}${GREEN}Production Environment Access:${RESET}"
         echo ""
-        echo "  Check LoadBalancer external IPs:"
-        echo "  🔍 Prometheus: kubectl get svc prometheus -n $PROMETHEUS_NAMESPACE"
+        print_info "Check LoadBalancer external IPs:"
+        echo ""
+        echo -e "  ${BOLD}🔍 Prometheus:${RESET}"
+        echo -e "     ${DIM}\$${RESET} kubectl get svc prometheus -n $PROMETHEUS_NAMESPACE"
+        
         if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
-            echo "  📈 Grafana: kubectl get svc grafana -n $PROMETHEUS_NAMESPACE"
+            echo ""
+            echo -e "  ${BOLD}📈 Grafana:${RESET}"
+            echo -e "     ${DIM}\$${RESET} kubectl get svc grafana -n $PROMETHEUS_NAMESPACE"
         fi
     fi
+    
+    print_divider
+    
+    print_section "💡 Useful Commands"
     echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${BOLD}View Prometheus logs:${RESET}"
+    echo -e "  ${DIM}\$${RESET} kubectl logs -f deployment/prometheus -n $PROMETHEUS_NAMESPACE"
     echo ""
-    echo "💡 Useful Commands:"
+    echo -e "${BOLD}Port forward Prometheus:${RESET}"
+    echo -e "  ${DIM}\$${RESET} kubectl port-forward svc/prometheus 9090:9090 -n $PROMETHEUS_NAMESPACE"
     echo ""
-    echo "  View Prometheus logs:"
-    echo "    kubectl logs -f deployment/prometheus -n $PROMETHEUS_NAMESPACE"
-    echo ""
-    echo "  Port forward Prometheus:"
-    echo "    kubectl port-forward svc/prometheus 9090:9090 -n $PROMETHEUS_NAMESPACE"
-    echo ""
-    echo "  Check Prometheus config:"
-    echo "    kubectl get configmap prometheus-config -n $PROMETHEUS_NAMESPACE -o yaml"
+    echo -e "${BOLD}Check Prometheus config:${RESET}"
+    echo -e "  ${DIM}\$${RESET} kubectl get configmap prometheus-config -n $PROMETHEUS_NAMESPACE -o yaml"
     echo ""
     
     if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
-        echo "  View Grafana logs:"
-        echo "    kubectl logs -f deployment/grafana -n $PROMETHEUS_NAMESPACE"
+        echo -e "${BOLD}View Grafana logs:${RESET}"
+        echo -e "  ${DIM}\$${RESET} kubectl logs -f deployment/grafana -n $PROMETHEUS_NAMESPACE"
         echo ""
-        echo "  Port forward Grafana:"
-        echo "    kubectl port-forward svc/grafana 3000:3000 -n $PROMETHEUS_NAMESPACE"
+        echo -e "${BOLD}Port forward Grafana:${RESET}"
+        echo -e "  ${DIM}\$${RESET} kubectl port-forward svc/grafana 3000:3000 -n $PROMETHEUS_NAMESPACE"
         echo ""
     fi
     
     if [[ "${DEPLOY_TARGET}" == "local" ]] && [[ -n "${PROMETHEUS_PORT:-}" ]]; then
-        echo "  Check Prometheus targets:"
-        echo "    curl http://$MINIKUBE_IP:$PROMETHEUS_PORT/api/v1/targets"
+        echo -e "${BOLD}Check Prometheus targets:${RESET}"
+        echo -e "  ${DIM}\$${RESET} curl http://$MINIKUBE_IP:$PROMETHEUS_PORT/api/v1/targets"
         echo ""
     fi
     
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    print_divider
+    
+    print_section "🎯 Monitoring Targets"
     echo ""
-    echo "🎯 Monitoring Targets:"
-    echo "  ✓ Kubernetes API Server"
-    echo "  ✓ Kubernetes Nodes"
-    echo "  ✓ Kubernetes Pods (with prometheus.io/scrape annotation)"
-    echo "  ✓ Application: $APP_NAME in namespace $NAMESPACE"
+    print_target "Kubernetes API Server"
+    print_target "Kubernetes Nodes"
+    print_target "Kubernetes Pods (with prometheus.io/scrape annotation)"
+    print_target "Application: ${BOLD}$APP_NAME${RESET} in namespace ${BOLD}$NAMESPACE${RESET}"
     if [[ -d "$WORK_DIR/kube-state-metrics" ]]; then
-        echo "  ✓ kube-state-metrics"
+        print_target "kube-state-metrics"
     fi
     echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    print_divider
 }
 
 # SCRIPT EXECUTION
