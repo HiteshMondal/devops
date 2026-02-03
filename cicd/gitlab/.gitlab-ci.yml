@@ -132,79 +132,54 @@ validate:prerequisites:
   stage: validate
   image: alpine:latest
   script:
-    - echo "============================================================================"
-    - echo "DevOps Project Deployment - GitLab CI/CD Pipeline"
-    - echo "============================================================================"
-    - echo "🔍 Validating configuration..."
-    - echo ""
-    - echo "🎯 Deployment Target: ${DEPLOY_TARGET}"
-    - echo "📦 Application Name: ${APP_NAME}"
-    - echo "🏷️  Image Tag: ${DOCKER_IMAGE_TAG}"
-    - echo ""
     - |
-      # Check required variables
+      echo "============================================================================"
+      echo "DevOps Project Deployment - GitLab CI/CD Pipeline"
+      echo "============================================================================"
+      echo "🔍 Validating configuration..."
+      echo ""
+      echo "🎯 Deployment Target: ${DEPLOY_TARGET}"
+      echo "📦 Application Name: ${APP_NAME}"
+      echo "🏷️  Image Tag: ${DOCKER_IMAGE_TAG}"
+      echo ""
+
       MISSING_VARS=()
-      
-      # Core variables
+
       for var in APP_NAME NAMESPACE DOCKERHUB_USERNAME DOCKER_IMAGE_TAG APP_PORT REPLICAS DEPLOY_TARGET; do
-        if [ -z "$(eval echo \$$var)" ]; then
-          MISSING_VARS+=("$var")
-        fi
+        [ -z "${!var}" ] && MISSING_VARS+=("$var")
       done
-      
-      # Secrets
+
       for var in DOCKERHUB_PASSWORD DB_PASSWORD JWT_SECRET API_KEY SESSION_SECRET GRAFANA_ADMIN_PASSWORD; do
-        if [ -z "$(eval echo \$$var)" ]; then
-          MISSING_VARS+=("$var")
-        fi
+        [ -z "${!var}" ] && MISSING_VARS+=("$var")
       done
-      
+
       if [ ${#MISSING_VARS[@]} -gt 0 ]; then
         echo "❌ Missing required variables:"
-        for var in "${MISSING_VARS[@]}"; do
-          echo "   - $var"
-        done
-        echo ""
-        echo "Configure these in GitLab: Settings > CI/CD > Variables"
+        printf ' - %s\n' "${MISSING_VARS[@]}"
         exit 1
-      else
-        echo "✅ All required variables are present"
       fi
-    - |
-      # Validate DEPLOY_TARGET
+
       if [ "$DEPLOY_TARGET" != "local" ] && [ "$DEPLOY_TARGET" != "prod" ]; then
         echo "❌ Invalid DEPLOY_TARGET: $DEPLOY_TARGET"
-        echo "   Valid options: 'local' or 'prod'"
         exit 1
       fi
-    - |
-      # For production, check AWS variables
+
       if [ "$DEPLOY_TARGET" = "prod" ]; then
-        echo ""
-        echo "🔍 Validating AWS/Production variables..."
         MISSING_AWS_VARS=()
-        
         for var in AWS_REGION AWS_ACCOUNT_ID EKS_CLUSTER_NAME AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
-          if [ -z "$(eval echo \$$var)" ]; then
-            MISSING_AWS_VARS+=("$var")
-          fi
+          [ -z "${!var}" ] && MISSING_AWS_VARS+=("$var")
         done
-        
+
         if [ ${#MISSING_AWS_VARS[@]} -gt 0 ]; then
-          echo "❌ Missing AWS/Production variables:"
-          for var in "${MISSING_AWS_VARS[@]}"; do
-            echo "   - $var"
-          done
+          echo "❌ Missing AWS variables:"
+          printf ' - %s\n' "${MISSING_AWS_VARS[@]}"
           exit 1
-        else
-          echo "✅ All AWS variables are present"
         fi
       fi
-    - echo ""
-    - echo "✅ Validation complete"
-  only:
-    variables:
-      - $DEPLOY_TARGET
+
+      echo "✅ Validation complete"
+  rules:
+    - if: $DEPLOY_TARGET
 
 # STAGE 2: BUILD
 build:configure-git-dockerhub:
@@ -215,14 +190,15 @@ build:configure-git-dockerhub:
   before_script:
     - apk add --no-cache bash git
   script:
-    - echo "⚙️  Configuring Git and DockerHub..."
-    - export PROJECT_ROOT=$CI_PROJECT_DIR
-    - chmod +x $CI_PROJECT_DIR/app/configure_dockerhub_username.sh
-    - chmod +x $CI_PROJECT_DIR/cicd/github/configure_git_github.sh
-    - source $CI_PROJECT_DIR/app/configure_dockerhub_username.sh
-    - source $CI_PROJECT_DIR/cicd/github/configure_git_github.sh
-    - configure_git_github
-    - configure_dockerhub_username
+    - |
+        echo "⚙️  Configuring Git and DockerHub..."
+        export PROJECT_ROOT=$CI_PROJECT_DIR
+        chmod +x $CI_PROJECT_DIR/app/configure_dockerhub_username.sh
+        chmod +x $CI_PROJECT_DIR/cicd/github/configure_git_github.sh
+        source $CI_PROJECT_DIR/app/configure_dockerhub_username.sh
+        source $CI_PROJECT_DIR/cicd/github/configure_git_github.sh
+        configure_git_github
+        configure_dockerhub_username
   artifacts:
     paths:
       - app/
@@ -239,18 +215,18 @@ build:docker-image:
   before_script:
     - apk add --no-cache bash
   script:
-    - export PROJECT_ROOT=$CI_PROJECT_DIR
-    - chmod +x $CI_PROJECT_DIR/app/build_and_push_image.sh
-    - source $CI_PROJECT_DIR/app/build_and_push_image.sh
     - |
-      if [ "$BUILD_PUSH" = "true" ]; then
-        echo "🔨 Building and pushing Docker image..."
-        build_and_push_image
-      else
-        echo "🔨 Building Docker image locally..."
-        cd $CI_PROJECT_DIR/app
-        docker build -t "$APP_NAME:latest" .
-      fi
+        export PROJECT_ROOT=$CI_PROJECT_DIR
+        chmod +x $CI_PROJECT_DIR/app/build_and_push_image.sh
+        source $CI_PROJECT_DIR/app/build_and_push_image.sh
+        if [ "$BUILD_PUSH" = "true" ]; then
+          echo "🔨 Building and pushing Docker image..."
+          build_and_push_image
+        else
+          echo "🔨 Building Docker image locally..."
+          cd $CI_PROJECT_DIR/app
+          docker build -t "$APP_NAME:latest" .
+        fi
   dependencies:
     - build:configure-git-dockerhub
   only:
@@ -264,15 +240,15 @@ deploy:terraform-infra:
   before_script:
     - apk add --no-cache bash aws-cli
   script:
-    - echo "🏗️  Deploying infrastructure with Terraform..."
-    - cd $CI_PROJECT_DIR/infra/terraform
-    - terraform init -upgrade
-    - terraform apply -auto-approve
-    - echo "⚙️  Configuring kubectl context..."
     - |
-      REGION=$(terraform output -raw region)
-      CLUSTER_NAME=$(terraform output -raw cluster_name)
-      aws eks update-kubeconfig --region "$REGION" --name "$CLUSTER_NAME"
+        echo "🏗️  Deploying infrastructure with Terraform..."
+        cd $CI_PROJECT_DIR/infra/terraform
+        terraform init -upgrade
+        terraform apply -auto-approve
+        echo "⚙️  Configuring kubectl context..."
+        REGION=$(terraform output -raw region)
+        CLUSTER_NAME=$(terraform output -raw cluster_name)
+        aws eks update-kubeconfig --region "$REGION" --name "$CLUSTER_NAME"
   artifacts:
     paths:
       - infra/terraform/.terraform/
@@ -289,19 +265,20 @@ deploy:kubernetes-app:
   before_script:
     - apk add --no-cache bash
   script:
-    - export PROJECT_ROOT=$CI_PROJECT_DIR
-    - chmod +x $CI_PROJECT_DIR/kubernetes/deploy_kubernetes.sh
-    - source $CI_PROJECT_DIR/kubernetes/deploy_kubernetes.sh
     - |
-      echo "📦 Deploying Kubernetes resources..."
-      if [ "$DEPLOY_TARGET" = "local" ]; then
-        # For local/minikube deployments
-        # Note: In GitLab CI, you'll need a runner with minikube or use a remote cluster
-        deploy_kubernetes local
-      else
-        # For production EKS deployments
-        deploy_kubernetes prod
-      fi
+        export PROJECT_ROOT=$CI_PROJECT_DIR
+        chmod +x $CI_PROJECT_DIR/kubernetes/deploy_kubernetes.sh
+        source $CI_PROJECT_DIR/kubernetes/deploy_kubernetes.sh
+
+        echo "📦 Deploying Kubernetes resources..."
+        if [ "$DEPLOY_TARGET" = "local" ]; then
+          # For local/minikube deployments
+          # Note: In GitLab CI, you'll need a runner with minikube or use a remote cluster
+          deploy_kubernetes local
+        else
+          # For production EKS deployments
+          deploy_kubernetes prod
+        fi
   dependencies:
     - build:docker-image
   only:
@@ -315,11 +292,12 @@ deploy:monitoring:
   before_script:
     - apk add --no-cache bash
   script:
-    - export PROJECT_ROOT=$CI_PROJECT_DIR
-    - chmod +x $CI_PROJECT_DIR/monitoring/deploy_monitoring.sh
-    - source $CI_PROJECT_DIR/monitoring/deploy_monitoring.sh
-    - echo "📊 Deploying Monitoring stack..."
-    - deploy_monitoring
+    - |
+        export PROJECT_ROOT=$CI_PROJECT_DIR
+        chmod +x $CI_PROJECT_DIR/monitoring/deploy_monitoring.sh
+        source $CI_PROJECT_DIR/monitoring/deploy_monitoring.sh
+        echo "📊 Deploying Monitoring stack..."
+        deploy_monitoring
   dependencies:
     - deploy:kubernetes-app
   only:
@@ -332,11 +310,12 @@ deploy:jenkins:
   before_script:
     - apk add --no-cache bash
   script:
-    - export PROJECT_ROOT=$CI_PROJECT_DIR
-    - chmod +x $CI_PROJECT_DIR/cicd/jenkins/deploy_jenkins.sh
-    - source $CI_PROJECT_DIR/cicd/jenkins/deploy_jenkins.sh
-    - echo "🔧 Deploying Jenkins..."
-    - deploy_jenkins
+    - |
+        export PROJECT_ROOT=$CI_PROJECT_DIR
+        chmod +x $CI_PROJECT_DIR/cicd/jenkins/deploy_jenkins.sh
+        source $CI_PROJECT_DIR/cicd/jenkins/deploy_jenkins.sh
+        echo "🔧 Deploying Jenkins..."
+        deploy_jenkins
   dependencies:
     - deploy:kubernetes-app
   only:
@@ -349,15 +328,16 @@ deploy:argocd:
   before_script:
     - apk add --no-cache bash
   script:
-    - export PROJECT_ROOT=$CI_PROJECT_DIR
-    - chmod +x $CI_PROJECT_DIR/cicd/argocd/deploy_argocd.sh
-    - chmod +x $CI_PROJECT_DIR/cicd/argocd/self_heal_app.sh
-    - source $CI_PROJECT_DIR/cicd/argocd/deploy_argocd.sh
-    - source $CI_PROJECT_DIR/cicd/argocd/self_heal_app.sh
-    - echo "🔄 Deploying ArgoCD..."
-    - deploy_argocd
-    - echo "🔄 Configuring ArgoCD self-healing..."
-    - self_heal_app
+    - |
+        export PROJECT_ROOT=$CI_PROJECT_DIR
+        chmod +x $CI_PROJECT_DIR/cicd/argocd/deploy_argocd.sh
+        chmod +x $CI_PROJECT_DIR/cicd/argocd/self_heal_app.sh
+        source $CI_PROJECT_DIR/cicd/argocd/deploy_argocd.sh
+        source $CI_PROJECT_DIR/cicd/argocd/self_heal_app.sh
+        echo "🔄 Deploying ArgoCD..."
+        deploy_argocd
+        echo "🔄 Configuring ArgoCD self-healing..."
+        self_heal_app
   dependencies:
     - deploy:kubernetes-app
   only:
@@ -370,11 +350,12 @@ deploy:configure-gitlab:
   before_script:
     - apk add --no-cache bash
   script:
-    - export PROJECT_ROOT=$CI_PROJECT_DIR
-    - chmod +x $CI_PROJECT_DIR/cicd/gitlab/configure_gitlab.sh
-    - source $CI_PROJECT_DIR/cicd/gitlab/configure_gitlab.sh
-    - echo "⚙️  Configuring GitLab integration..."
-    - configure_gitlab
+    - |
+        export PROJECT_ROOT=$CI_PROJECT_DIR
+        chmod +x $CI_PROJECT_DIR/cicd/gitlab/configure_gitlab.sh
+        source $CI_PROJECT_DIR/cicd/gitlab/configure_gitlab.sh
+        echo "⚙️  Configuring GitLab integration..."
+        configure_gitlab
   dependencies:
     - deploy:kubernetes-app
   only:
@@ -388,51 +369,52 @@ verify:deployment:
   before_script:
     - apk add --no-cache bash curl
   script:
-    - echo "🔍 Verifying deployment..."
-    - echo ""
-    - echo "Checking namespace: $NAMESPACE"
-    - kubectl get namespace $NAMESPACE || echo "⚠️  Namespace not found"
-    - echo ""
-    - echo "Checking deployments:"
-    - kubectl get deployments -n $NAMESPACE || echo "⚠️  No deployments found"
-    - echo ""
-    - echo "Checking pods:"
-    - kubectl get pods -n $NAMESPACE || echo "⚠️  No pods found"
-    - echo ""
-    - echo "Checking services:"
-    - kubectl get services -n $NAMESPACE || echo "⚠️  No services found"
-    - echo ""
     - |
-      # Wait for deployment to be ready
-      echo "⏳ Waiting for deployment to be ready..."
-      kubectl wait --for=condition=available --timeout=300s \
-        deployment/${APP_NAME} -n ${NAMESPACE} || echo "⚠️  Deployment not ready"
-    - |
-      # Display deployment summary
-      echo ""
-      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      echo ""
-      if [ "$DEPLOY_TARGET" = "local" ]; then
-        echo "  ✅ Application deployed to Minikube (Local)"
+        echo "🔍 Verifying deployment..."
         echo ""
-        echo "  📊 View resources:"
-        echo "     kubectl get all -n $NAMESPACE"
-      else
-        echo "  ✅ Application deployed to AWS EKS (Production)"
+        echo "Checking namespace: $NAMESPACE"
+        kubectl get namespace $NAMESPACE || echo "⚠️  Namespace not found"
         echo ""
-        echo "  🌐 Get LoadBalancer URL:"
-        echo "     kubectl get svc ${APP_NAME}-service -n $NAMESPACE"
-      fi
-      echo ""
-      echo "  📊 Monitoring:"
-      echo "     Prometheus: kubectl get svc -n monitoring"
-      echo "     Grafana:    kubectl get svc -n monitoring"
-      echo ""
-      echo "  🔄 CI/CD Tools:"
-      echo "     Jenkins:    kubectl get svc -n jenkins"
-      echo "     ArgoCD:     kubectl get svc -n argocd"
-      echo ""
-      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Checking deployments:"
+        kubectl get deployments -n $NAMESPACE || echo "⚠️  No deployments found"
+        echo ""
+        echo "Checking pods:"
+        kubectl get pods -n $NAMESPACE || echo "⚠️  No pods found"
+        echo ""
+        echo "Checking services:"
+        kubectl get services -n $NAMESPACE || echo "⚠️  No services found"
+        echo ""
+
+        # Wait for deployment to be ready
+        echo "⏳ Waiting for deployment to be ready..."
+        kubectl wait --for=condition=available --timeout=300s \
+          deployment/${APP_NAME} -n ${NAMESPACE} || echo "⚠️  Deployment not ready"
+
+        # Display deployment summary
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        if [ "$DEPLOY_TARGET" = "local" ]; then
+          echo "  ✅ Application deployed to Minikube (Local)"
+          echo ""
+          echo "  📊 View resources:"
+          echo "     kubectl get all -n $NAMESPACE"
+        else
+          echo "  ✅ Application deployed to AWS EKS (Production)"
+          echo ""
+          echo "  🌐 Get LoadBalancer URL:"
+          echo "     kubectl get svc ${APP_NAME}-service -n $NAMESPACE"
+        fi
+        echo ""
+        echo "  📊 Monitoring:"
+        echo "     Prometheus: kubectl get svc -n monitoring"
+        echo "     Grafana:    kubectl get svc -n monitoring"
+        echo ""
+        echo "  🔄 CI/CD Tools:"
+        echo "     Jenkins:    kubectl get svc -n jenkins"
+        echo "     ArgoCD:     kubectl get svc -n argocd"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   dependencies:
     - deploy:kubernetes-app
     - deploy:monitoring
@@ -449,18 +431,19 @@ cleanup:all:
   before_script:
     - apk add --no-cache bash
   script:
-    - echo "🧹 Cleaning up resources..."
-    - kubectl delete namespace $NAMESPACE --ignore-not-found=true
-    - kubectl delete namespace monitoring --ignore-not-found=true
-    - kubectl delete namespace jenkins --ignore-not-found=true
-    - kubectl delete namespace argocd --ignore-not-found=true
     - |
-      if [ "$DEPLOY_TARGET" = "prod" ]; then
-        echo "🏗️  Destroying Terraform infrastructure..."
-        cd $CI_PROJECT_DIR/infra/terraform
-        terraform destroy -auto-approve
-      fi
-    - echo "✅ Cleanup complete"
+        echo "🧹 Cleaning up resources..."
+        kubectl delete namespace $NAMESPACE --ignore-not-found=true
+        kubectl delete namespace monitoring --ignore-not-found=true
+        kubectl delete namespace jenkins --ignore-not-found=true
+        kubectl delete namespace argocd --ignore-not-found=true
+
+        if [ "$DEPLOY_TARGET" = "prod" ]; then
+          echo "🏗️  Destroying Terraform infrastructure..."
+          cd $CI_PROJECT_DIR/infra/terraform
+          terraform destroy -auto-approve
+        fi
+        echo "✅ Cleanup complete"
   when: manual
   only:
     variables:
