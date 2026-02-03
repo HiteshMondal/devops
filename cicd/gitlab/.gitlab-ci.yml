@@ -119,7 +119,7 @@ variables:
 # BUILD_PUSH                 - Set to "true" or "false"
 # ============================================================================
 
-# STAGE 1: VALIDATE
+# STAGE: VALIDATE
 validate:prerequisites:
   stage: validate
   image: alpine:latest
@@ -173,7 +173,7 @@ validate:prerequisites:
   rules:
     - if: $DEPLOY_TARGET
 
-# STAGE 2: BUILD
+# STAGE: BUILD
 build:configure-git-dockerhub:
   stage: build
   image: docker:latest
@@ -225,7 +225,7 @@ build:docker-image:
     variables:
       - $DEPLOY_TARGET
 
-# STAGE 3: DEPLOY INFRASTRUCTURE (Production only)
+# STAGE: DEPLOY INFRASTRUCTURE (Production only)
 deploy:terraform-infra:
   stage: deploy-infra
   image: hashicorp/terraform:latest
@@ -250,7 +250,7 @@ deploy:terraform-infra:
     variables:
       - $DEPLOY_TARGET == "prod"
 
-# STAGE 4: DEPLOY APPLICATION
+# STAGE: DEPLOY APPLICATION
 deploy:kubernetes-app:
   stage: deploy-app
   image: alpine/k8s:1.28.3
@@ -277,7 +277,7 @@ deploy:kubernetes-app:
     variables:
       - $DEPLOY_TARGET
 
-# STAGE 5: DEPLOY SERVICES
+# STAGE: DEPLOY SERVICES
 deploy:monitoring:
   stage: deploy-services
   image: alpine/k8s:1.28.3
@@ -354,7 +354,7 @@ deploy:configure-gitlab:
     variables:
       - $DEPLOY_TARGET
 
-# STAGE 6: VERIFY DEPLOYMENT
+# STAGE: VERIFY DEPLOYMENT
 verify:deployment:
   stage: verify
   image: alpine/k8s:1.28.3
