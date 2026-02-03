@@ -1,10 +1,7 @@
 stages:
-  - validate
-  - build
-  - deploy-infra
-  - deploy-app
-  - deploy-services
-  - verify
+  - sanity
 
-include:
-  - local: cicd/gitlab/.gitlab-ci.yml
+ci-sanity:
+  stage: sanity
+  script:
+    - echo "CI detected"
