@@ -80,10 +80,11 @@ variables:
 # VALIDATION STAGE
 validate:variables:
   stage: validate
-  image: alpine:latest
+  image: bash:5.3
   before_script:
     - apk add --no-cache bash
   script: |
+      #!/bin/bash
       echo "============================================================================"
       echo "Validating Required CI/CD Variables"
       echo "============================================================================"
