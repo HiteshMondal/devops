@@ -35,22 +35,6 @@ else
 fi
 
 # VISUAL HELPER FUNCTIONS
-print_header() {
-    local text="$1"
-    echo -e ""
-    echo -e "${BOLD}${CYAN}╔════════════════════════════════════════════════════════════════════════════╗${RESET}"
-    echo -e "${BOLD}${CYAN}║${RESET}  ${BOLD}${text}${RESET}"
-    echo -e "${BOLD}${CYAN}╚════════════════════════════════════════════════════════════════════════════╝${RESET}"
-    echo -e ""
-}
-
-print_section() {
-    local text="$1"
-    echo -e ""
-    echo -e "${BOLD}${BLUE}┌────────────────────────────────────────────────────────────────────────────┐${RESET}"
-    echo -e "${BOLD}${BLUE}│${RESET}  ${BOLD}${text}${RESET}"
-    echo -e "${BOLD}${BLUE}└────────────────────────────────────────────────────────────────────────────┘${RESET}"
-}
 
 print_subsection() {
     local text="$1"
@@ -288,7 +272,7 @@ deploy_monitoring() {
     # Small delay to ensure previous deployments have settled
     sleep 2
     
-    print_header "📊 MONITORING STACK DEPLOYMENT"
+    echo "📊 MONITORING STACK DEPLOYMENT"
     echo -e "${BOLD}Mode:${RESET} ${CYAN}$([ "$CI_MODE" == "true" ] && echo "CI/CD" || echo "Local")${RESET}"
     echo ""
     
@@ -343,7 +327,7 @@ deploy_monitoring() {
     trap "rm -rf $WORK_DIR" EXIT
     
     # Copy monitoring manifests to working directory
-    print_section "📋 Preparing Monitoring Manifests"
+    echo "📋 Preparing Monitoring Manifests"
     
     if [[ -d "$PROJECT_ROOT/monitoring/prometheus_grafana" ]]; then
         cp -r "$PROJECT_ROOT/monitoring/prometheus_grafana/"* "$WORK_DIR/monitoring/" 2>/dev/null || true
@@ -372,7 +356,7 @@ deploy_monitoring() {
     print_divider
     
     # Create monitoring namespace
-    print_section "📦 Setting Up Monitoring Namespace"
+    echo "📦 Setting Up Monitoring Namespace"
     kubectl create namespace "$PROMETHEUS_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
     print_success "Namespace ready: ${BOLD}$PROMETHEUS_NAMESPACE${RESET}"
     echo ""
@@ -394,7 +378,7 @@ deploy_monitoring() {
     print_divider
     
     # Deploy Prometheus resources
-    print_section "🔍 Deploying Prometheus Resources"
+    echo "🔍 Deploying Prometheus Resources"
     echo ""
     
     if [[ -f "$WORK_DIR/monitoring/prometheus.yaml" ]]; then
@@ -419,7 +403,7 @@ deploy_monitoring() {
     print_divider
     
     # Wait for Prometheus to be ready
-    print_section "⏳ Waiting for Prometheus to be Ready"
+    echo "⏳ Waiting for Prometheus to be Ready"
     if kubectl rollout status deployment/prometheus -n "$PROMETHEUS_NAMESPACE" --timeout=300s; then
         print_success "Prometheus is ready!"
     else
@@ -446,7 +430,7 @@ deploy_monitoring() {
     
     # Deploy Grafana if enabled
     if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
-        print_section "📈 Deploying Grafana"
+        echo "📈 Deploying Grafana"
         echo ""
         
         if [[ -f "$WORK_DIR/monitoring/grafana.yaml" ]]; then
@@ -483,14 +467,14 @@ deploy_monitoring() {
     print_divider
     
     # Display monitoring stack information
-    print_section "📊 Monitoring Components"
+    echo "📊 Monitoring Components"
     echo ""
     kubectl get all -n "$PROMETHEUS_NAMESPACE" -o wide
     
     print_divider
     
     # Get service URLs based on environment
-    print_section "🌐 Access URLs"
+    echo "🌐 Access URLs"
     echo ""
     
     if [[ "${DEPLOY_TARGET}" == "local" ]]; then
@@ -546,7 +530,7 @@ deploy_monitoring() {
     
     print_divider
     
-    print_section "💡 Useful Commands"
+    echo "💡 Useful Commands"
     echo ""
     echo -e "${BOLD}View Prometheus logs:${RESET}"
     echo -e "  ${DIM}\$${RESET} kubectl logs -f deployment/prometheus -n $PROMETHEUS_NAMESPACE"
@@ -575,7 +559,7 @@ deploy_monitoring() {
     
     print_divider
     
-    print_section "🎯 Monitoring Targets"
+    echo "🎯 Monitoring Targets"
     echo ""
     print_target "Kubernetes API Server"
     print_target "Kubernetes Nodes"

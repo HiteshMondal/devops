@@ -34,22 +34,6 @@ else
 fi
 
 # VISUAL HELPER FUNCTIONS
-print_header() {
-    local text="$1"
-    echo -e ""
-    echo -e "${BOLD}${CYAN}╔════════════════════════════════════════════════════════════════════════════╗${RESET}"
-    echo -e "${BOLD}${CYAN}║${RESET}  ${BOLD}${text}${RESET}"
-    echo -e "${BOLD}${CYAN}╚════════════════════════════════════════════════════════════════════════════╝${RESET}"
-    echo -e ""
-}
-
-print_section() {
-    local text="$1"
-    echo -e ""
-    echo -e "${BOLD}${BLUE}┌────────────────────────────────────────────────────────────────────────────┐${RESET}"
-    echo -e "${BOLD}${BLUE}│${RESET}  ${BOLD}${text}${RESET}"
-    echo -e "${BOLD}${BLUE}└────────────────────────────────────────────────────────────────────────────┘${RESET}"
-}
 
 print_subsection() {
     local text="$1"
@@ -204,7 +188,7 @@ process_yaml_files() {
 deploy_kubernetes() {
     local environment=${1:-local}
     
-    print_header "🚀 KUBERNETES DEPLOYMENT"
+    echo "🚀 KUBERNETES DEPLOYMENT"
     echo -e "${BOLD}Environment:${RESET} ${CYAN}$environment${RESET}"
     echo -e "${BOLD}Mode:${RESET}        ${CYAN}$([ "$CI_MODE" == "true" ] && echo "CI/CD" || echo "Local")${RESET}"
     echo ""
@@ -245,7 +229,7 @@ deploy_kubernetes() {
     trap "rm -rf $WORK_DIR" EXIT
     
     # Copy Kubernetes manifests to working directory
-    print_section "📋 Preparing Kubernetes Manifests"
+    echo "📋 Preparing Kubernetes Manifests"
     if [[ -d "$PROJECT_ROOT/kubernetes/base" ]]; then
         cp -r "$PROJECT_ROOT/kubernetes/base" "$WORK_DIR/"
         print_success "Copied base manifests"
@@ -270,14 +254,14 @@ deploy_kubernetes() {
     print_divider
     
     # Create namespace if it doesn't exist
-    print_section "📦 Setting Up Namespace"
+    echo "📦 Setting Up Namespace"
     kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
     print_success "Namespace ready: ${BOLD}$NAMESPACE${RESET}"
     
     print_divider
     
     # Apply Kubernetes resources in order
-    print_section "🔧 Deploying Kubernetes Resources"
+    echo "🔧 Deploying Kubernetes Resources"
     echo ""
     
     # Namespace (already created above, but apply for consistency)
@@ -328,7 +312,7 @@ deploy_kubernetes() {
     print_divider
     
     # Wait for deployment to be ready
-    print_section "⏳ Waiting for Deployment to be Ready"
+    echo "⏳ Waiting for Deployment to be Ready"
     if kubectl rollout status deployment/"$APP_NAME" -n "$NAMESPACE" --timeout=300s; then
         print_success "Deployment is ready!"
     else
@@ -350,7 +334,7 @@ deploy_kubernetes() {
     print_divider
     
     # Display deployment information
-    print_section "📊 Deployment Status"
+    echo "📊 Deployment Status"
     echo ""
     echo -e "${BOLD}${CYAN}Deployments:${RESET}"
     kubectl get deployments -n "$NAMESPACE" -o wide
@@ -364,7 +348,7 @@ deploy_kubernetes() {
     print_divider
     
     # Show access information based on environment
-    print_section "🌐 Access Information"
+    echo "🌐 Access Information"
     echo ""
     
     if [[ "$environment" == "local" ]]; then
@@ -406,7 +390,7 @@ deploy_kubernetes() {
     
     print_divider
     
-    print_section "💡 Useful Commands"
+    echo "💡 Useful Commands"
     echo ""
     echo -e "${BOLD}View logs:${RESET}"
     echo -e "  ${DIM}\$${RESET} kubectl logs -f deployment/$APP_NAME -n $NAMESPACE"
