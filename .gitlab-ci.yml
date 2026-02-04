@@ -10,10 +10,10 @@ variables:
 stages:
   - validate
   - build
-  - deploy-infra
-  - deploy-app
-  - deploy-services
-  - verify
+  - deploy-local
+  - deploy-prod
+  - monitoring
+  - cicd-tools
 
 include:
   - local: cicd/gitlab/.gitlab-ci.yml
