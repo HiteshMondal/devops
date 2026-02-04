@@ -555,6 +555,11 @@ jobs:
           kind create cluster --name devops-ci --wait 60s
           kubectl cluster-info
 
+      - name: Configure kubectl for Kind
+        run: |
+          export KUBECONFIG="$(kind get kubeconfig-path --name="devops-ci")"
+          kubectl cluster-info
+
       - name: Build Docker image locally for Kind
         run: |
           docker build -t "$APP_NAME:$IMAGE_TAG" ./app
@@ -566,25 +571,6 @@ jobs:
           APP_NAME: ${{ env.APP_NAME }}
         run: |
           kind load docker-image "$APP_NAME:$IMAGE_TAG" --name devops-ci
-
-      - name: Configure kubectl
-        run: |
-          mkdir -p $HOME/.kube
-          
-          if [ "$DEPLOY_TARGET" == "prod" ]; then
-            # Configure AWS and kubectl for EKS
-            echo "${{ secrets.AWS_ACCESS_KEY_ID }}" > /dev/null
-            echo "${{ secrets.AWS_SECRET_ACCESS_KEY }}" > /dev/null
-            
-            # This would use AWS CLI to configure kubectl
-            # aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
-            
-            echo "Note: AWS CLI configuration would be done here for production"
-          else
-            echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > $HOME/.kube/config
-            chmod 600 $HOME/.kube/config
-            kubectl config use-context "${{ vars.KUBE_CONTEXT }}" || true
-          fi
 
       - name: Deploy application to Kind
         run: |
