@@ -176,11 +176,22 @@ build-docker-image-local:
 # DEPLOY LOCAL STAGE (Minikube, Kind, K3s, etc.)
 deploy-local:
   stage: deploy-local
-  image: lachlanevenson/k8s-kubectl:v1.28.4
+  image: debian:11
   dependencies:
     - build-docker-image
     - build-docker-image-local
   before_script:
+    - apt-get update && apt-get install -y \
+        curl \
+        bash \
+        git \
+        docker.io \
+        ca-certificates \
+        gnupg
+    # Install kubectl
+    - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    - install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+    - kubectl version --client
     - mkdir -p $HOME/.kube
     - echo "$KUBECONFIG_PROD" | base64 -d > $HOME/.kube/config
     - chmod 600 $HOME/.kube/config
@@ -404,46 +415,17 @@ deploy-monitoring:
   rules:
     - if: '$PROMETHEUS_ENABLED == "true"'
 
-# CI/CD TOOLS STAGE
-deploy:gitlab-config:
-  stage: cicd-tools
-  image: 
-    name: alpine/k8s:1.28.3
-    entrypoint: [""]
-  needs:
-    - job: deploy:local
-      optional: true
-    - job: deploy:production
-      optional: true
-  before_script:
-    - apk add --no-cache bash
-  script:
-    - |
-      echo "============================================================================"
-      echo "Configuring GitLab Integration"
-      echo "============================================================================"
-      
-      export PROJECT_ROOT=$CI_PROJECT_DIR
-      
-      source "$CI_PROJECT_DIR/cicd/gitlab/configure_gitlab.sh"
-      configure_gitlab
-      
-      echo ""
-      echo "✅ GitLab configuration completed"
-  rules:
-    - if: '$DEPLOY_GITLAB == "true"'
-
-  tags:
-    - kubernetes
-
 # CLEANUP JOBS
 cleanup:local:
   stage: deploy-local
-  image: 
-    name: alpine/k8s:1.28.3
-    entrypoint: [""]
+  image: debian:11
   before_script:
-    - apk add --no-cache bash
+    - apt-get update && apt-get install -y bash curl git ca-certificates
+    # Install kubectl
+    - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    - install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+    - kubectl version --client
+    # Setup kubeconfig
     - mkdir -p $HOME/.kube
     - echo "$KUBECONFIG_PROD" | base64 -d > $HOME/.kube/config
     - chmod 600 $HOME/.kube/config
