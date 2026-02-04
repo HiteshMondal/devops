@@ -122,11 +122,7 @@ validate:variables:
 
 validate:tools:
   stage: validate
-  image: alpine:latest
-  before_script:
-    - sed -i 's/dl-cdn.alpinelinux.org/mirror.alpinelinux.org/g' /etc/apk/repositories
-    - apk update
-    - apk add --no-cache bash curl git ca-certificates docker-cli kubectl
+  image: bitnami/kubectl:1.28
   script:
     - |
       echo "============================================================================"
