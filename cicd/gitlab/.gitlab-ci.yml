@@ -156,7 +156,7 @@ build-docker-image:
     echo "✅ Docker image built and pushed successfully"
     echo "   Image: $DOCKERHUB_USERNAME/$APP_NAME:$DOCKER_IMAGE_TAG"
   rules:
-    - if: '$BUILD_PUSH == "true" || $BUILD_PUSH == ""'
+    - if: '$BUILD_PUSH=="true" || $BUILD_PUSH == ""'
 
 build-docker-image-local:
   stage: build
@@ -174,7 +174,7 @@ build-docker-image-local:
     echo ""
     echo "✅ Docker image built successfully (not pushed)"
   rules:
-    - if: '$BUILD_PUSH == "false"'
+    - if: '$BUILD_PUSH=="false"'
 
 # DEPLOY LOCAL STAGE (Minikube, Kind, K3s, etc.)
 deploy-local:
@@ -222,7 +222,7 @@ deploy-local:
     kubectl get svc -n $NAMESPACE || true
     kubectl get ingress -n $NAMESPACE || true
   rules:
-    - if: 'DEPLOY_TARGET == "local"'
+    - if: '$DEPLOY_TARGET == "local"'
 
 # DEPLOY PRODUCTION STAGE (EKS, GKE, AKS)
 deploy:terraform-infrastructure:
