@@ -5,32 +5,43 @@ IFS=$'\n\t'
 build_and_push_image() {
   echo "🚀 Build & Push Docker image"
 
-  # Detect CI
   IS_CI="${CI:-false}"
 
   DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-}"
   DOCKERHUB_PASSWORD="${DOCKERHUB_PASSWORD:-}"
 
-  if [[ "$IS_CI" == "true" ]]; then
-    # CI mode → NO PROMPTS
-    : "${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required in CI}"
-    : "${DOCKERHUB_PASSWORD:?DOCKERHUB_PASSWORD is required in CI}"
-  else
-    # Local mode → allow prompts
-    if [[ -z "$DOCKERHUB_USERNAME" ]]; then
-      read -p "Docker Hub username: " DOCKERHUB_USERNAME
-    fi
+  # Username is always required
+  : "${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}"
 
-    if [[ -z "$DOCKERHUB_PASSWORD" ]]; then
-      read -sp "Docker Hub password: " DOCKERHUB_PASSWORD
-      echo
+  # Authentication handling
+  if [[ "$IS_CI" == "true" ]]; then
+    # CI mode:
+    # Assume docker/login-action already authenticated
+    if ! docker info >/dev/null 2>&1; then
+      echo "❌ Docker is not authenticated in CI"
+      exit 1
+    fi
+    echo "✅ Using existing Docker login (CI)"
+  else
+    # Local mode:
+    if ! docker info >/dev/null 2>&1; then
+      if [[ -z "$DOCKERHUB_PASSWORD" ]]; then
+        read -sp "Docker Hub password: " DOCKERHUB_PASSWORD
+        echo
+      fi
+
+      echo "$DOCKERHUB_PASSWORD" | docker login \
+        -u "$DOCKERHUB_USERNAME" \
+        --password-stdin
+    else
+      echo "✅ Docker already logged in (local)"
     fi
   fi
 
-  IMAGE_TAG="$(git rev-parse --short HEAD)"
+  # Build & push
+  IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD)}"
   IMAGE_NAME="$DOCKERHUB_USERNAME/$APP_NAME:$IMAGE_TAG"
 
-  echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
   docker build -t "$IMAGE_NAME" ./app
   docker push "$IMAGE_NAME"
 
