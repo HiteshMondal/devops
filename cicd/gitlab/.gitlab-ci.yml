@@ -124,7 +124,9 @@ validate:tools:
   stage: validate
   image: alpine:latest
   before_script:
-    - apk add --no-cache docker-cli kubectl git bash curl
+    - sed -i 's/dl-cdn.alpinelinux.org/mirror.alpinelinux.org/g' /etc/apk/repositories
+    - apk update
+    - apk add --no-cache bash curl git ca-certificates docker-cli kubectl
   script:
     - |
       echo "============================================================================"
