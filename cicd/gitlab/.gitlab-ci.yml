@@ -224,6 +224,18 @@ deploy:kubernetes-app:
     - apk add --no-cache bash
   script:
     - |
+        export KUBECONFIG=/root/.kube/config
+
+        echo "🔧 Available kube contexts:"
+        kubectl config get-contexts
+
+        echo "🎯 Switching to minikube context"
+        kubectl config use-context minikube
+
+        kubectl config current-context | grep -q minikube || {
+          echo "❌ Refusing to deploy: not on minikube context"
+          exit 1
+        }
         export PROJECT_ROOT=$CI_PROJECT_DIR
         chmod +x $CI_PROJECT_DIR/kubernetes/deploy_kubernetes.sh
         source $CI_PROJECT_DIR/kubernetes/deploy_kubernetes.sh
@@ -258,6 +270,8 @@ deploy:monitoring:
     - apk add --no-cache bash
   script:
     - |
+        export KUBECONFIG=/root/.kube/config
+        kubectl config use-context minikube
         export PROJECT_ROOT=$CI_PROJECT_DIR
         chmod +x $CI_PROJECT_DIR/monitoring/deploy_monitoring.sh
         source $CI_PROJECT_DIR/monitoring/deploy_monitoring.sh
@@ -279,6 +293,9 @@ verify:deployment:
     - apk add --no-cache bash curl
   script:
     - |
+        export KUBECONFIG=/root/.kube/config
+        kubectl config use-context minikube
+
         echo "🔍 Verifying deployment..."
         echo ""
         echo "Checking namespace: $NAMESPACE"
@@ -338,6 +355,8 @@ cleanup:all:
     - apk add --no-cache bash
   script:
     - |
+        export KUBECONFIG=/root/.kube/config
+        kubectl config use-context minikube
         echo "🧹 Cleaning up resources..."
         kubectl delete namespace $NAMESPACE --ignore-not-found=true
         kubectl delete namespace monitoring --ignore-not-found=true
