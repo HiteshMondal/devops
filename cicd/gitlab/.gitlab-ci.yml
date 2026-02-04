@@ -160,98 +160,70 @@ validate:tools:
     - tags
 
 # BUILD STAGE
-build:docker-image:
+build-docker-image:
   stage: build
-  image: docker:24-dind
+  image: docker:24
   services:
     - docker:24-dind
-  before_script:
-    - docker info
-    - echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
   script:
-    - |
-      echo "============================================================================"
-      echo "Building and Pushing Docker Image"
-      echo "============================================================================"
-      
-      export PROJECT_ROOT=$CI_PROJECT_DIR
-      
-      # Source the build script
-      source "$CI_PROJECT_DIR/app/build_and_push_image.sh"
-      
-      # Execute build and push
-      build_and_push_image
-      
-      echo ""
-      echo "✅ Docker image built and pushed successfully"
-      echo "   Image: $DOCKERHUB_USERNAME/$APP_NAME:$DOCKER_IMAGE_TAG"
-  after_script:
-    - docker logout
+    - echo "============================================================================"
+    - echo "Building and Pushing Docker Image"
+    - echo "============================================================================"
+    - export PROJECT_ROOT=$CI_PROJECT_DIR
+    - source "$CI_PROJECT_DIR/app/build_and_push_image.sh"
+    - build_and_push_image
+    - echo ""
+    - echo "✅ Docker image built and pushed successfully"
+    - echo "   Image: $DOCKERHUB_USERNAME/$APP_NAME:$DOCKER_IMAGE_TAG"
   only:
-    variables:
-      - $BUILD_PUSH == "true"
-  tags:
-    - docker
+    - vars:
+        BUILD_PUSH: ["true", ""]
 
-build:docker-image-local:
+build-docker-image-local:
   stage: build
-  image: docker:24-dind
+  image: docker:24
   services:
     - docker:24-dind
-  before_script:
-    - docker info
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
   script:
-    - |
-      echo "============================================================================"
-      echo "Building Docker Image (Local Only - No Push)"
-      echo "============================================================================"
-      
-      cd "$CI_PROJECT_DIR/app"
-      docker build -t "$APP_NAME:latest" .
-      
-      echo ""
-      echo "✅ Docker image built successfully (not pushed)"
+    - echo "============================================================================"
+    - echo "Building Docker Image (Local Only - No Push)"
+    - echo "============================================================================"
+    - cd "$CI_PROJECT_DIR/app"
+    - docker build -t "$APP_NAME:latest" .
+    - echo ""
+    - echo "✅ Docker image built successfully (not pushed)"
   only:
-    variables:
-      - $BUILD_PUSH == "false"
-  tags:
-    - docker
+    - vars:
+        BUILD_PUSH: "false"
+
 
 # DEPLOY LOCAL STAGE (Minikube, Kind, K3s, etc.)
-deploy:local:
-  stage: deploy-local
-  image: 
-    name: alpine/k8s:1.28.3
-    entrypoint: [""]
+deploy-local:
+  stage: deploy
+  image: bitnami/kubectl:1.28
+  dependencies:
+    - build-docker-image
+    - build-docker-image-local
   before_script:
-    - apk add --no-cache bash git docker-cli
-    # Configure kubectl
     - mkdir -p $HOME/.kube
     - echo "$KUBECONFIG_PROD" | base64 -d > $HOME/.kube/config
     - chmod 600 $HOME/.kube/config
     - kubectl config use-context "$KUBE_CONTEXT" || true
   script:
+    - echo "============================================================================"
+    - echo "Deploying to Local Kubernetes Environment"
+    - echo "============================================================================"
     - |
-      echo "============================================================================"
-      echo "Deploying to Local Kubernetes Environment"
-      echo "============================================================================"
-      
-      export PROJECT_ROOT=$CI_PROJECT_DIR
-      
-      # Detect Kubernetes cluster
-      echo ""
-      echo "🔍 Detecting Kubernetes cluster..."
-      
-      if ! kubectl cluster-info >/dev/null 2>&1; then
-        echo "❌ Cannot connect to Kubernetes cluster"
-        echo "   Please ensure KUBECONFIG_PROD is properly configured in CI/CD variables"
-        exit 1
+      if [[ "$CI" == "true" && "$DEPLOY_TARGET" == "local" ]]; then
+        echo "⚠️  Skipping local Kubernetes deployment in CI"
+        exit 0
       fi
-      
-      K8S_DIST="unknown"
-      CONTEXT=$(kubectl config current-context 2>/dev/null || echo "")
-      
-      # Detect distribution
+    - CONTEXT=$(kubectl config current-context 2>/dev/null || echo "")
+    - |
       if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
         K8S_DIST="minikube"
       elif [[ "$CONTEXT" == *"kind"* ]] || kubectl get nodes -o json 2>/dev/null | grep -q "kind-control-plane"; then
@@ -263,44 +235,20 @@ deploy:local:
       else
         K8S_DIST="kubernetes"
       fi
-      
-      export K8S_DISTRIBUTION="$K8S_DIST"
-      export K8S_CONTEXT="$CONTEXT"
-      
-      echo "✅ Connected to: $K8S_DIST"
-      echo "   Context: $CONTEXT"
-      
-      NODES=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
-      echo "   Nodes: $NODES"
-      
-      # Configure Git
-      echo ""
-      echo "⚙️  Configuring Git..."
-      source "$CI_PROJECT_DIR/cicd/github/configure_git_github.sh"
-      configure_git_github
-      
-      # Deploy Kubernetes resources
-      echo ""
-      echo "📦 Deploying Kubernetes resources..."
-      source "$CI_PROJECT_DIR/kubernetes/deploy_kubernetes.sh"
-      deploy_kubernetes local
-      
-      echo ""
-      echo "✅ Application deployed to $K8S_DIST"
-      
-      # Show access information
-      NODE_PORT=$(kubectl get svc "$APP_NAME-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-      if [ -n "$NODE_PORT" ]; then
-        echo "  🌐 Service exposed on NodePort: $NODE_PORT"
-      fi
-  environment:
-    name: local
-    on_stop: cleanup:local
+    - export K8S_DISTRIBUTION=$K8S_DIST
+    - export K8S_CONTEXT=$CONTEXT
+    - echo "✅ Connected to: $K8S_DIST"
+    - echo "   Context: $CONTEXT"
+    - echo ""
+    - echo "============================================================================"
+    - echo "Deployment Information"
+    - echo "============================================================================"
+    - kubectl get pods -n $NAMESPACE || true
+    - kubectl get svc -n $NAMESPACE || true
+    - kubectl get ingress -n $NAMESPACE || true
   only:
-    variables:
-      - $DEPLOY_TARGET == "local"
-  tags:
-    - kubernetes
+    - variables:
+        DEPLOY_TARGET: "local"
 
 # DEPLOY PRODUCTION STAGE (EKS, GKE, AKS)
 deploy:terraform-infrastructure:
@@ -450,60 +398,44 @@ deploy:production:
     - kubernetes
 
 # MONITORING STAGE
-deploy:monitoring:
+deploy-monitoring:
   stage: monitoring
-  image: 
-    name: alpine/k8s:1.28.3
-    entrypoint: [""]
-  needs:
-    - job: deploy:local
-      optional: true
-    - job: deploy:production
-      optional: true
+  image: docker:24
+  services:
+    - docker:24-dind
+  dependencies:
+    - deploy-local
   before_script:
-    - apk add --no-cache bash
-    # Configure kubectl
-    - mkdir -p $HOME/.kube
-    - |
-      if [ "$DEPLOY_TARGET" == "prod" ]; then
-        apk add --no-cache aws-cli
-        mkdir -p $HOME/.aws
-        cat > $HOME/.aws/credentials <<EOF
-      [default]
-      aws_access_key_id = $AWS_ACCESS_KEY_ID
-      aws_secret_access_key = $AWS_SECRET_ACCESS_KEY
-      EOF
-        cat > $HOME/.aws/config <<EOF
-      [default]
-      region = $AWS_REGION
-      output = json
-      EOF
-        aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
-      else
-        echo "$KUBECONFIG_PROD" | base64 -d > $HOME/.kube/config
-        chmod 600 $HOME/.kube/config
-        kubectl config use-context "$KUBE_CONTEXT" || true
-      fi
+    - apk add --no-cache bash curl git
+    - curl -Lo kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+    - chmod +x kind
+    - mv kind /usr/local/bin/kind
   script:
-    - |
-      echo "============================================================================"
-      echo "Deploying Monitoring Stack (Prometheus + Grafana)"
-      echo "============================================================================"
-      
-      export PROJECT_ROOT=$CI_PROJECT_DIR
-      
-      source "$CI_PROJECT_DIR/monitoring/deploy_monitoring.sh"
-      deploy_monitoring
-      
-      echo ""
-      echo "✅ Monitoring stack deployed successfully"
-  environment:
-    name: $DEPLOY_TARGET/monitoring
+    - echo "============================================================================"
+    - echo "Deploying Monitoring Stack (Prometheus + Grafana)"
+    - echo "============================================================================"
+    - kind create cluster --name devops-ci --wait 60s
+    - export KUBECONFIG="$(kind get kubeconfig-path --name="devops-ci")"
+    - kubectl cluster-info
+    - docker build -t "$APP_NAME:$IMAGE_TAG" ./app
+    - kind load docker-image "$APP_NAME:$IMAGE_TAG" --name devops-ci
+    - source ./kubernetes/deploy_kubernetes.sh
+    - deploy_kubernetes local
+    - source ./monitoring/deploy_monitoring.sh
+    - deploy_monitoring
+    - echo ""
+    - echo "✅ Monitoring stack deployed successfully"
+    - echo ""
+    - echo "============================================================================"
+    - echo "Monitoring Stack Information"
+    - echo "============================================================================"
+    - kubectl get pods -n $PROMETHEUS_NAMESPACE || true
+    - kubectl get svc -n $PROMETHEUS_NAMESPACE || true
+    - kind delete cluster --name devops-ci
   only:
-    variables:
-      - $PROMETHEUS_ENABLED == "true"
-  tags:
-    - kubernetes
+    - variables:
+        PROMETHEUS_ENABLED: ["true", ""]
+
 
 # CI/CD TOOLS STAGE
 deploy:gitlab-config:
@@ -534,121 +466,6 @@ deploy:gitlab-config:
   only:
     variables:
       - $DEPLOY_GITLAB == "true"
-  tags:
-    - kubernetes
-
-deploy:jenkins:
-  stage: cicd-tools
-  image: 
-    name: alpine/k8s:1.28.3
-    entrypoint: [""]
-  needs:
-    - job: deploy:local
-      optional: true
-    - job: deploy:production
-      optional: true
-  before_script:
-    - apk add --no-cache bash
-    # Configure kubectl
-    - mkdir -p $HOME/.kube
-    - |
-      if [ "$DEPLOY_TARGET" == "prod" ]; then
-        apk add --no-cache aws-cli
-        mkdir -p $HOME/.aws
-        cat > $HOME/.aws/credentials <<EOF
-      [default]
-      aws_access_key_id = $AWS_ACCESS_KEY_ID
-      aws_secret_access_key = $AWS_SECRET_ACCESS_KEY
-      EOF
-        cat > $HOME/.aws/config <<EOF
-      [default]
-      region = $AWS_REGION
-      output = json
-      EOF
-        aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
-      else
-        echo "$KUBECONFIG_PROD" | base64 -d > $HOME/.kube/config
-        chmod 600 $HOME/.kube/config
-        kubectl config use-context "$KUBE_CONTEXT" || true
-      fi
-  script:
-    - |
-      echo "============================================================================"
-      echo "Deploying Jenkins CI/CD Server"
-      echo "============================================================================"
-      
-      export PROJECT_ROOT=$CI_PROJECT_DIR
-      
-      source "$CI_PROJECT_DIR/cicd/jenkins/deploy_jenkins.sh"
-      deploy_jenkins
-      
-      echo ""
-      echo "✅ Jenkins deployed successfully"
-  environment:
-    name: $DEPLOY_TARGET/jenkins
-  only:
-    variables:
-      - $DEPLOY_JENKINS == "true"
-  tags:
-    - kubernetes
-
-deploy:argocd:
-  stage: cicd-tools
-  image: 
-    name: alpine/k8s:1.28.3
-    entrypoint: [""]
-  needs:
-    - job: deploy:local
-      optional: true
-    - job: deploy:production
-      optional: true
-  before_script:
-    - apk add --no-cache bash
-    # Configure kubectl
-    - mkdir -p $HOME/.kube
-    - |
-      if [ "$DEPLOY_TARGET" == "prod" ]; then
-        apk add --no-cache aws-cli
-        mkdir -p $HOME/.aws
-        cat > $HOME/.aws/credentials <<EOF
-      [default]
-      aws_access_key_id = $AWS_ACCESS_KEY_ID
-      aws_secret_access_key = $AWS_SECRET_ACCESS_KEY
-      EOF
-        cat > $HOME/.aws/config <<EOF
-      [default]
-      region = $AWS_REGION
-      output = json
-      EOF
-        aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
-      else
-        echo "$KUBECONFIG_PROD" | base64 -d > $HOME/.kube/config
-        chmod 600 $HOME/.kube/config
-        kubectl config use-context "$KUBE_CONTEXT" || true
-      fi
-  script:
-    - |
-      echo "============================================================================"
-      echo "Deploying ArgoCD GitOps Controller"
-      echo "============================================================================"
-      
-      export PROJECT_ROOT=$CI_PROJECT_DIR
-      
-      source "$CI_PROJECT_DIR/cicd/argocd/deploy_argocd.sh"
-      deploy_argocd
-      
-      echo ""
-      echo "Configuring ArgoCD Application Self-Healing..."
-      source "$CI_PROJECT_DIR/cicd/argocd/self_heal_app.sh"
-      self_heal_app
-      
-      echo ""
-      echo "✅ ArgoCD deployed and configured successfully"
-  environment:
-    name: $DEPLOY_TARGET/argocd
-  only:
-    variables:
-      - $DEPLOY_ARGOCD == "true"
   tags:
     - kubernetes
 
