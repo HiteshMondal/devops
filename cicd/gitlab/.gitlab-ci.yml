@@ -178,7 +178,7 @@ build-docker-image-local:
 
 # DEPLOY LOCAL STAGE (Minikube, Kind, K3s, etc.)
 deploy-local:
-  stage: deploy
+  stage: deploy-local
   image: bitnami/kubectl:1.28
   dependencies:
     - build-docker-image
