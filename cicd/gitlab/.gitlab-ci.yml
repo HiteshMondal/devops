@@ -83,9 +83,7 @@ validate:variables:
   image: alpine:latest
   before_script:
     - apk add --no-cache bash
-    - export SHELL=/bin/bash
-  script:
-    - |
+  script: |
       echo "============================================================================"
       echo "Validating Required CI/CD Variables"
       echo "============================================================================"
@@ -113,30 +111,11 @@ validate:variables:
         for var in "${MISSING_VARS[@]}"; do
           echo "   - $var"
         done
-        echo ""
-        echo "Configure these in: Project Settings → CI/CD → Variables"
         exit 1
       else
         echo "✅ All required variables are present"
       fi
-      
-      # Check secret variables (these should be masked)
-      SECRET_VARS=(
-        "DOCKERHUB_PASSWORD"
-        "DB_PASSWORD"
-        "JWT_SECRET"
-        "API_KEY"
-      )
-      
-      echo ""
-      echo "Checking secret variables (values will not be displayed)..."
-      for var in "${SECRET_VARS[@]}"; do
-        if [ -z "${!var}" ]; then
-          echo "⚠️  Warning: $var is not set"
-        else
-          echo "✅ $var is configured"
-        fi
-      done
+
   only:
     - branches
     - tags
