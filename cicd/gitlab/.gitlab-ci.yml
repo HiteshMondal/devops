@@ -145,16 +145,16 @@ build-docker-image:
     - docker:24-dind
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
-  script:
-    - echo "============================================================================"
-    - echo "Building and Pushing Docker Image"
-    - echo "============================================================================"
-    - export PROJECT_ROOT=$CI_PROJECT_DIR
-    - source "$CI_PROJECT_DIR/app/build_and_push_image.sh"
-    - build_and_push_image
-    - echo ""
-    - echo "✅ Docker image built and pushed successfully"
-    - echo "   Image: $DOCKERHUB_USERNAME/$APP_NAME:$DOCKER_IMAGE_TAG"
+  script: |
+    echo "============================================================================"
+    echo "Building and Pushing Docker Image"
+    echo "============================================================================"
+    export PROJECT_ROOT=$CI_PROJECT_DIR
+    source "$CI_PROJECT_DIR/app/build_and_push_image.sh"
+    build_and_push_image
+    echo ""
+    echo "✅ Docker image built and pushed successfully"
+    echo "   Image: $DOCKERHUB_USERNAME/$APP_NAME:$DOCKER_IMAGE_TAG"
   rules:
     - if: '$BUILD_PUSH == "true" || $BUILD_PUSH == ""'
 
@@ -165,14 +165,14 @@ build-docker-image-local:
     - docker:24-dind
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
-  script:
-    - echo "============================================================================"
-    - echo "Building Docker Image (Local Only - No Push)"
-    - echo "============================================================================"
-    - cd "$CI_PROJECT_DIR/app"
-    - docker build -t "$APP_NAME:latest" .
-    - echo ""
-    - echo "✅ Docker image built successfully (not pushed)"
+  script: |
+    echo "============================================================================"
+    echo "Building Docker Image (Local Only - No Push)"
+    echo "============================================================================"
+    cd "$CI_PROJECT_DIR/app"
+    docker build -t "$APP_NAME:latest" .
+    echo ""
+    echo "✅ Docker image built successfully (not pushed)"
   rules:
     - if: '$BUILD_PUSH == "false"'
 
@@ -188,39 +188,39 @@ deploy-local:
     - echo "$KUBECONFIG_PROD" | base64 -d > $HOME/.kube/config
     - chmod 600 $HOME/.kube/config
     - kubectl config use-context "$KUBE_CONTEXT" || true
-  script:
-    - echo "============================================================================"
-    - echo "Deploying to Local Kubernetes Environment"
-    - echo "============================================================================"
-    - |
-      if [[ "$CI" == "true" && "$DEPLOY_TARGET" == "local" ]]; then
-        echo "⚠️  Skipping local Kubernetes deployment in CI"
-        exit 0
-      fi
-    - CONTEXT=$(kubectl config current-context 2>/dev/null || echo "")
-    - |
-      if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
-        K8S_DIST="minikube"
-      elif [[ "$CONTEXT" == *"kind"* ]] || kubectl get nodes -o json 2>/dev/null | grep -q "kind-control-plane"; then
-        K8S_DIST="kind"
-      elif kubectl get nodes -o json 2>/dev/null | grep -q '"k3s.io"'; then
-        K8S_DIST="k3s"
-      elif kubectl get nodes -o json 2>/dev/null | grep -q '"microk8s.io"'; then
-        K8S_DIST="microk8s"
-      else
-        K8S_DIST="kubernetes"
-      fi
-    - export K8S_DISTRIBUTION=$K8S_DIST
-    - export K8S_CONTEXT=$CONTEXT
-    - echo "✅ Connected to: $K8S_DIST"
-    - echo "   Context: $CONTEXT"
-    - echo ""
-    - echo "============================================================================"
-    - echo "Deployment Information"
-    - echo "============================================================================"
-    - kubectl get pods -n $NAMESPACE || true
-    - kubectl get svc -n $NAMESPACE || true
-    - kubectl get ingress -n $NAMESPACE || true
+  script: |
+    echo "============================================================================"
+    echo "Deploying to Local Kubernetes Environment"
+    echo "============================================================================"
+
+    if [[ "$CI" == "true" && "$DEPLOY_TARGET" == "local" ]]; then
+      echo "⚠️  Skipping local Kubernetes deployment in CI"
+      exit 0
+    fi
+    CONTEXT=$(kubectl config current-context 2>/dev/null || echo "")
+      
+    if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
+      K8S_DIST="minikube"
+    elif [[ "$CONTEXT" == *"kind"* ]] || kubectl get nodes -o json 2>/dev/null | grep -q "kind-control-plane"; then
+      K8S_DIST="kind"
+    elif kubectl get nodes -o json 2>/dev/null | grep -q '"k3s.io"'; then
+      K8S_DIST="k3s"
+    elif kubectl get nodes -o json 2>/dev/null | grep -q '"microk8s.io"'; then
+      K8S_DIST="microk8s"
+    else
+      K8S_DIST="kubernetes"
+    fi
+    export K8S_DISTRIBUTION=$K8S_DIST
+    export K8S_CONTEXT=$CONTEXT
+    echo "✅ Connected to: $K8S_DIST"
+    echo "   Context: $CONTEXT"
+    echo ""
+    echo "============================================================================"
+    echo "Deployment Information"
+    echo "============================================================================"
+    kubectl get pods -n $NAMESPACE || true
+    kubectl get svc -n $NAMESPACE || true
+    kubectl get ingress -n $NAMESPACE || true
   rules :
     - if: 'DEPLOY_TARGET == "local"'
 
@@ -382,28 +382,28 @@ deploy-monitoring:
     - curl -Lo kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
     - chmod +x kind
     - mv kind /usr/local/bin/kind
-  script:
-    - echo "============================================================================"
-    - echo "Deploying Monitoring Stack (Prometheus + Grafana)"
-    - echo "============================================================================"
-    - kind create cluster --name devops-ci --wait 60s
-    - export KUBECONFIG="$(kind get kubeconfig-path --name="devops-ci")"
-    - kubectl cluster-info
-    - docker build -t "$APP_NAME:$IMAGE_TAG" ./app
-    - kind load docker-image "$APP_NAME:$IMAGE_TAG" --name devops-ci
-    - source ./kubernetes/deploy_kubernetes.sh
-    - deploy_kubernetes local
-    - source ./monitoring/deploy_monitoring.sh
-    - deploy_monitoring
-    - echo ""
-    - echo "✅ Monitoring stack deployed successfully"
-    - echo ""
-    - echo "============================================================================"
-    - echo "Monitoring Stack Information"
-    - echo "============================================================================"
-    - kubectl get pods -n $PROMETHEUS_NAMESPACE || true
-    - kubectl get svc -n $PROMETHEUS_NAMESPACE || true
-    - kind delete cluster --name devops-ci
+  script: |
+    echo "============================================================================"
+    echo "Deploying Monitoring Stack (Prometheus + Grafana)"
+    echo "============================================================================"
+    kind create cluster --name devops-ci --wait 60s
+    export KUBECONFIG="$(kind get kubeconfig-path --name="devops-ci")"
+    kubectl cluster-info
+    docker build -t "$APP_NAME:$IMAGE_TAG" ./app
+    kind load docker-image "$APP_NAME:$IMAGE_TAG" --name devops-ci
+    source ./kubernetes/deploy_kubernetes.sh
+    deploy_kubernetes local
+    source ./monitoring/deploy_monitoring.sh
+    deploy_monitoring
+    echo ""
+    echo "✅ Monitoring stack deployed successfully"
+    echo ""
+    echo "============================================================================"
+    echo "Monitoring Stack Information"
+    echo "============================================================================"
+    kubectl get pods -n $PROMETHEUS_NAMESPACE || true
+    kubectl get svc -n $PROMETHEUS_NAMESPACE || true
+    kind delete cluster --name devops-ci
   rules:
     - if: '$PROMETHEUS_ENABLED == "true"'
 
