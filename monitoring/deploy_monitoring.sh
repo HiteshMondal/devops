@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# /monitoring/deploy_monitoring.sh - Works with both .env (run.sh) and CI/CD environments
+# /monitoring/deploy_monitoring.sh - Universal Monitoring Deployment Script
+# Works with: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, and any Kubernetes distribution
 # Usage: ./deploy_monitoring.sh
 
 set -euo pipefail
@@ -83,8 +84,115 @@ print_target() {
     echo -e "  ${GREEN}✓${RESET} $1"
 }
 
+# KUBERNETES DISTRIBUTION DETECTION (reuse from deploy_kubernetes.sh)
+
+detect_k8s_distribution() {
+    print_subsection "Detecting Kubernetes Distribution"
+    
+    local k8s_dist="unknown"
+    
+    # Detect distribution based on various indicators
+    if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
+        k8s_dist="minikube"
+    elif [[ "$(kubectl config current-context 2>/dev/null || echo "")" == *"kind"* ]] || kubectl get nodes -o json 2>/dev/null | grep -q '"node-role.kubernetes.io/control-plane"' && kubectl get nodes 2>/dev/null | grep -q "kind-control-plane"; then
+        k8s_dist="kind"
+    elif kubectl get nodes -o json 2>/dev/null | grep -q '"eks.amazonaws.com"'; then
+        k8s_dist="eks"
+    elif kubectl get nodes -o json 2>/dev/null | grep -q '"cloud.google.com/gke"'; then
+        k8s_dist="gke"
+    elif kubectl get nodes -o json 2>/dev/null | grep -q '"kubernetes.azure.com"'; then
+        k8s_dist="aks"
+    elif kubectl get nodes -o json 2>/dev/null | grep -q '"k3s.io"'; then
+        k8s_dist="k3s"
+    elif kubectl get nodes -o json 2>/dev/null | grep -q '"microk8s.io"'; then
+        k8s_dist="microk8s"
+    else
+        if kubectl cluster-info 2>/dev/null | grep -q "Kubernetes"; then
+            k8s_dist="kubernetes"
+        fi
+    fi
+    
+    export K8S_DISTRIBUTION="$k8s_dist"
+    
+    print_success "Detected: ${BOLD}$k8s_dist${RESET}"
+    
+    # Set distribution-specific configurations for monitoring
+    case "$k8s_dist" in
+        minikube|kind|microk8s)
+            export MONITORING_SERVICE_TYPE="NodePort"
+            ;;
+        k3s)
+            export MONITORING_SERVICE_TYPE="LoadBalancer"  # k3s has built-in LB
+            ;;
+        eks|gke|aks)
+            export MONITORING_SERVICE_TYPE="LoadBalancer"
+            ;;
+        *)
+            export MONITORING_SERVICE_TYPE="ClusterIP"
+            ;;
+    esac
+    
+    print_info "Monitoring Service Type: ${BOLD}$MONITORING_SERVICE_TYPE${RESET}"
+}
+
+# Get monitoring access URL based on distribution
+get_monitoring_url() {
+    local service_name="$1"
+    local namespace="$2"
+    local default_port="$3"
+    
+    case "$K8S_DISTRIBUTION" in
+        minikube)
+            if command -v minikube >/dev/null 2>&1; then
+                local minikube_ip=$(minikube ip 2>/dev/null || echo "localhost")
+                local node_port=$(kubectl get svc "$service_name" -n "$namespace" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+                if [[ -n "$node_port" ]]; then
+                    echo "http://$minikube_ip:$node_port"
+                else
+                    echo "port-forward:$default_port"
+                fi
+            else
+                echo "minikube-cli-missing"
+            fi
+            ;;
+        kind)
+            local node_port=$(kubectl get svc "$service_name" -n "$namespace" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+            if [[ -n "$node_port" ]]; then
+                echo "http://localhost:$node_port"
+            else
+                echo "port-forward:$default_port"
+            fi
+            ;;
+        k3s)
+            local external_ip=$(kubectl get svc "$service_name" -n "$namespace" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            if [[ -n "$external_ip" ]]; then
+                echo "http://$external_ip:$default_port"
+            else
+                local node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "localhost")
+                local node_port=$(kubectl get svc "$service_name" -n "$namespace" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+                if [[ -n "$node_port" ]]; then
+                    echo "http://$node_ip:$node_port"
+                else
+                    echo "port-forward:$default_port"
+                fi
+            fi
+            ;;
+        eks|gke|aks)
+            local external_ip=$(kubectl get svc "$service_name" -n "$namespace" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || \
+                               kubectl get svc "$service_name" -n "$namespace" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            if [[ -n "$external_ip" ]]; then
+                echo "http://$external_ip:$default_port"
+            else
+                echo "pending-loadbalancer"
+            fi
+            ;;
+        *)
+            echo "port-forward:$default_port"
+            ;;
+    esac
+}
+
 # ENVIRONMENT DETECTION & CONFIGURATION
-# Detect if running in CI/CD environment
 if [[ "${CI:-false}" == "true" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ -n "${GITLAB_CI:-}" ]]; then
     print_info "Detected CI/CD environment"
     CI_MODE=true
@@ -95,18 +203,14 @@ fi
 
 # Determine PROJECT_ROOT
 if [[ -n "${PROJECT_ROOT:-}" ]]; then
-    # PROJECT_ROOT already set (from run.sh or CI/CD)
     print_info "Using PROJECT_ROOT: ${BOLD}$PROJECT_ROOT${RESET}"
 elif [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
-    # Running in GitHub Actions
     PROJECT_ROOT="${GITHUB_WORKSPACE}"
     print_info "Using GITHUB_WORKSPACE: ${BOLD}$PROJECT_ROOT${RESET}"
 elif [[ -n "${CI_PROJECT_DIR:-}" ]]; then
-    # Running in GitLab CI
     PROJECT_ROOT="${CI_PROJECT_DIR}"
     print_info "Using CI_PROJECT_DIR: ${BOLD}$PROJECT_ROOT${RESET}"
 else
-    # Default to script's parent directory
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     print_info "Using script parent directory: ${BOLD}$PROJECT_ROOT${RESET}"
 fi
@@ -166,6 +270,7 @@ substitute_env_vars() {
     export GRAFANA_MEMORY_REQUEST GRAFANA_MEMORY_LIMIT
     export GRAFANA_STORAGE_SIZE GRAFANA_ADMIN_USER GRAFANA_ADMIN_PASSWORD
     export GRAFANA_PORT DEPLOY_TARGET
+    export K8S_DISTRIBUTION MONITORING_SERVICE_TYPE
     
     # Use envsubst to replace all exported variables
     envsubst < "$file" > "$temp_file"
@@ -190,7 +295,7 @@ create_prometheus_configmap() {
     # Export variables for substitution
     export APP_NAME NAMESPACE PROMETHEUS_NAMESPACE
     export PROMETHEUS_SCRAPE_INTERVAL PROMETHEUS_SCRAPE_TIMEOUT
-    export DEPLOY_TARGET
+    export DEPLOY_TARGET K8S_DISTRIBUTION
     
     # Create a temporary file with substituted values
     local temp_config="/tmp/prometheus-config-$$.yml"
@@ -248,7 +353,6 @@ process_yaml_files() {
     
     # Find all YAML files and substitute environment variables
     find "$dir" -type f \( -name "*.yaml" -o -name "*.yml" \) 2>/dev/null | while read -r file; do
-        # Skip prometheus.yaml ConfigMap sections (handled separately)
         if [[ "$(basename "$file")" == "prometheus.yaml" ]]; then
             if [[ "$CI_MODE" == "true" ]]; then
                 echo -e "  ${GREEN}✓${RESET} $(basename "$file") ${DIM}(ConfigMap handled separately)${RESET}"
@@ -275,6 +379,9 @@ deploy_monitoring() {
     echo "📊 MONITORING STACK DEPLOYMENT"
     echo -e "${BOLD}Mode:${RESET} ${CYAN}$([ "$CI_MODE" == "true" ] && echo "CI/CD" || echo "Local")${RESET}"
     echo ""
+    
+    # Detect Kubernetes distribution
+    detect_k8s_distribution
     
     # Check if monitoring is enabled
     if [[ "${PROMETHEUS_ENABLED:-true}" != "true" ]]; then
@@ -473,59 +580,65 @@ deploy_monitoring() {
     
     print_divider
     
-    # Get service URLs based on environment
+    # Get service URLs based on distribution
     echo "🌐 Access URLs"
     echo ""
     
-    if [[ "${DEPLOY_TARGET}" == "local" ]]; then
-        echo -e "${BOLD}${GREEN}Local Environment Access:${RESET}"
-        echo ""
-        
-        if command -v minikube >/dev/null 2>&1; then
-            MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "localhost")
-        else
-            MINIKUBE_IP="localhost"
-        fi
-        
-        # Prometheus URL
-        PROMETHEUS_PORT=$(kubectl get svc prometheus -n "$PROMETHEUS_NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-        if [[ -n "$PROMETHEUS_PORT" ]]; then
-            print_url "🔍 Prometheus:" "http://$MINIKUBE_IP:$PROMETHEUS_PORT"
-        else
+    echo -e "${BOLD}${GREEN}Kubernetes Distribution: $K8S_DISTRIBUTION${RESET}"
+    echo ""
+    
+    # Prometheus URL
+    local prometheus_url=$(get_monitoring_url "prometheus" "$PROMETHEUS_NAMESPACE" "9090")
+    
+    case "$prometheus_url" in
+        port-forward:*)
+            local port="${prometheus_url#port-forward:}"
             echo -e "  ${BOLD}🔍 Prometheus:${RESET}"
-            echo -e "     ${DIM}Use port-forward:${RESET} kubectl port-forward svc/prometheus 9090:9090 -n $PROMETHEUS_NAMESPACE"
-        fi
+            echo -e "     ${DIM}Use port-forward:${RESET} kubectl port-forward svc/prometheus $port:$port -n $PROMETHEUS_NAMESPACE"
+            echo -e "     ${DIM}Then access:${RESET} ${LINK}http://localhost:$port${RESET}"
+            ;;
+        pending-loadbalancer)
+            echo -e "  ${BOLD}🔍 Prometheus:${RESET} ${YELLOW}LoadBalancer IP pending${RESET}"
+            echo -e "     ${DIM}Check status:${RESET} kubectl get svc prometheus -n $PROMETHEUS_NAMESPACE"
+            ;;
+        minikube-cli-missing)
+            print_warning "Minikube CLI not found"
+            echo -e "     ${CYAN}Install minikube to get access URL${RESET}"
+            ;;
+        *)
+            print_url "🔍 Prometheus:" "$prometheus_url"
+            ;;
+    esac
+    
+    # Grafana URL
+    if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
+        echo ""
+        local grafana_url=$(get_monitoring_url "grafana" "$PROMETHEUS_NAMESPACE" "$GRAFANA_PORT")
         
-        # Grafana URL
-        if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
-            echo ""
-            GRAFANA_PORT_NUM=$(kubectl get svc grafana -n "$PROMETHEUS_NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-            if [[ -n "$GRAFANA_PORT_NUM" ]]; then
-                print_url "📈 Grafana:" "http://$MINIKUBE_IP:$GRAFANA_PORT_NUM"
-                echo ""
-                print_credential "Username:" "${GRAFANA_ADMIN_USER}"
-                print_credential "Password:" "${GRAFANA_ADMIN_PASSWORD}"
-            else
+        case "$grafana_url" in
+            port-forward:*)
+                local port="${grafana_url#port-forward:}"
                 echo -e "  ${BOLD}📈 Grafana:${RESET}"
-                echo -e "     ${DIM}Use port-forward:${RESET} kubectl port-forward svc/grafana 3000:3000 -n $PROMETHEUS_NAMESPACE"
+                echo -e "     ${DIM}Use port-forward:${RESET} kubectl port-forward svc/grafana $port:$port -n $PROMETHEUS_NAMESPACE"
+                echo -e "     ${DIM}Then access:${RESET} ${LINK}http://localhost:$port${RESET}"
                 echo ""
                 print_credential "Username:" "${GRAFANA_ADMIN_USER}"
                 print_credential "Password:" "${GRAFANA_ADMIN_PASSWORD}"
-            fi
-        fi
-    else
-        echo -e "${BOLD}${GREEN}Production Environment Access:${RESET}"
-        echo ""
-        print_info "Check LoadBalancer external IPs:"
-        echo ""
-        echo -e "  ${BOLD}🔍 Prometheus:${RESET}"
-        echo -e "     ${DIM}\$${RESET} kubectl get svc prometheus -n $PROMETHEUS_NAMESPACE"
-        
-        if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
-            echo ""
-            echo -e "  ${BOLD}📈 Grafana:${RESET}"
-            echo -e "     ${DIM}\$${RESET} kubectl get svc grafana -n $PROMETHEUS_NAMESPACE"
-        fi
+                ;;
+            pending-loadbalancer)
+                echo -e "  ${BOLD}📈 Grafana:${RESET} ${YELLOW}LoadBalancer IP pending${RESET}"
+                echo -e "     ${DIM}Check status:${RESET} kubectl get svc grafana -n $PROMETHEUS_NAMESPACE"
+                echo ""
+                print_credential "Username:" "${GRAFANA_ADMIN_USER}"
+                print_credential "Password:" "${GRAFANA_ADMIN_PASSWORD}"
+                ;;
+            *)
+                print_url "📈 Grafana:" "$grafana_url"
+                echo ""
+                print_credential "Username:" "${GRAFANA_ADMIN_USER}"
+                print_credential "Password:" "${GRAFANA_ADMIN_PASSWORD}"
+                ;;
+        esac
     fi
     
     print_divider
@@ -548,12 +661,6 @@ deploy_monitoring() {
         echo ""
         echo -e "${BOLD}Port forward Grafana:${RESET}"
         echo -e "  ${DIM}\$${RESET} kubectl port-forward svc/grafana 3000:3000 -n $PROMETHEUS_NAMESPACE"
-        echo ""
-    fi
-    
-    if [[ "${DEPLOY_TARGET}" == "local" ]] && [[ -n "${PROMETHEUS_PORT:-}" ]]; then
-        echo -e "${BOLD}Check Prometheus targets:${RESET}"
-        echo -e "  ${DIM}\$${RESET} curl http://$MINIKUBE_IP:$PROMETHEUS_PORT/api/v1/targets"
         echo ""
     fi
     

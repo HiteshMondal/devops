@@ -1,6 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+# Universal Local Environment Overlay
+# Works with: Minikube, Kind, K3s, MicroK8s, and local Kubernetes clusters
+
 bases:
   - ../../base
 
@@ -10,9 +13,10 @@ namePrefix: local-
 
 commonLabels:
   environment: local
-  deployment: minikube
+  managed-by: kustomize
 
 patchesStrategicMerge:
+  # Reduce resource requirements for local environments
   - |-
     apiVersion: apps/v1
     kind: Deployment
@@ -22,6 +26,9 @@ patchesStrategicMerge:
     spec:
       replicas: 1
       template:
+        metadata:
+          labels:
+            environment: local
         spec:
           containers:
           - name: ${APP_NAME}
@@ -32,7 +39,8 @@ patchesStrategicMerge:
               limits:
                 cpu: 200m
                 memory: 256Mi
-
+  
+  # Scale down HPA for local environment
   - |-
     apiVersion: autoscaling/v2
     kind: HorizontalPodAutoscaler
@@ -42,3 +50,63 @@ patchesStrategicMerge:
     spec:
       minReplicas: 1
       maxReplicas: 3
+      metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 80
+  
+  # Use NodePort for universal local access
+  # Works with: Minikube, Kind, K3s (with LB), MicroK8s, vanilla K8s
+  - |-
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: ${APP_NAME}-service
+      namespace: ${NAMESPACE}
+      annotations:
+        # K3s LoadBalancer support (optional, falls back to NodePort)
+        servicelb.k3s.cattle.io/enable: "true"
+    spec:
+      type: NodePort
+      ports:
+      - port: 80
+        targetPort: ${APP_PORT}
+        nodePort: 30080
+        protocol: TCP
+        name: http
+  
+  # Universal Ingress configuration
+  # Supports: NGINX (Minikube, Kind, K8s), Traefik (K3s), MicroK8s ingress
+  - |-
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: ${APP_NAME}-ingress
+      namespace: ${NAMESPACE}
+      annotations:
+        # Universal annotations that work across different ingress controllers
+        
+        # NGINX Ingress (Minikube, Kind, vanilla K8s)
+        nginx.ingress.kubernetes.io/rewrite-target: /
+        
+        # Traefik Ingress (K3s default)
+        traefik.ingress.kubernetes.io/router.entrypoints: web
+        
+        # MicroK8s NGINX
+        kubernetes.io/ingress.class: ${INGRESS_CLASS}
+    spec:
+      ingressClassName: ${INGRESS_CLASS}
+      rules:
+      - host: ${INGRESS_HOST}
+        http:
+          paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${APP_NAME}-service
+                port:
+                  number: 80

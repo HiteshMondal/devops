@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# /kubernetes/deploy_kubernetes.sh- Works with both .env (run.sh) and CI/CD environments
+# /kubernetes/deploy_kubernetes.sh - Universal Kubernetes Deployment Script
+# Works with: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, and any Kubernetes distribution
 # Usage: ./deploy_kubernetes.sh [local|prod]
 
 set -euo pipefail
@@ -72,6 +73,163 @@ print_divider() {
     echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 }
 
+# KUBERNETES DISTRIBUTION DETECTION
+
+detect_k8s_distribution() {
+    print_subsection "Detecting Kubernetes Distribution"
+    
+    local k8s_dist="unknown"
+    local k8s_version=""
+    local cluster_info=""
+    
+    # Get Kubernetes version
+    if k8s_version=$(kubectl version --short 2>/dev/null | grep Server || kubectl version -o json 2>/dev/null | grep gitVersion || echo ""); then
+        print_info "Kubernetes version detected"
+    fi
+    
+    # Get cluster context
+    local context=$(kubectl config current-context 2>/dev/null || echo "")
+    
+    # Detect distribution based on various indicators
+    if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
+        k8s_dist="minikube"
+    elif [[ "$context" == *"kind"* ]] || kubectl get nodes -o json 2>/dev/null | grep -q '"node-role.kubernetes.io/control-plane"' && kubectl get nodes 2>/dev/null | grep -q "kind-control-plane"; then
+        k8s_dist="kind"
+    elif kubectl get nodes -o json 2>/dev/null | grep -q '"eks.amazonaws.com"'; then
+        k8s_dist="eks"
+    elif kubectl get nodes -o json 2>/dev/null | grep -q '"cloud.google.com/gke"'; then
+        k8s_dist="gke"
+    elif kubectl get nodes -o json 2>/dev/null | grep -q '"kubernetes.azure.com"'; then
+        k8s_dist="aks"
+    elif kubectl get nodes -o json 2>/dev/null | grep -q '"k3s.io"'; then
+        k8s_dist="k3s"
+    elif kubectl get nodes -o json 2>/dev/null | grep -q '"microk8s.io"'; then
+        k8s_dist="microk8s"
+    else
+        # Generic Kubernetes cluster
+        if kubectl cluster-info 2>/dev/null | grep -q "Kubernetes"; then
+            k8s_dist="kubernetes"
+        fi
+    fi
+    
+    # Export detected distribution
+    export K8S_DISTRIBUTION="$k8s_dist"
+    
+    print_success "Detected: ${BOLD}$k8s_dist${RESET}"
+    
+    # Set distribution-specific configurations
+    case "$k8s_dist" in
+        minikube)
+            export K8S_SERVICE_TYPE="NodePort"
+            export K8S_INGRESS_CLASS="nginx"
+            export K8S_SUPPORTS_LOADBALANCER="false"
+            ;;
+        kind)
+            export K8S_SERVICE_TYPE="NodePort"
+            export K8S_INGRESS_CLASS="nginx"
+            export K8S_SUPPORTS_LOADBALANCER="false"
+            ;;
+        k3s)
+            export K8S_SERVICE_TYPE="NodePort"
+            export K8S_INGRESS_CLASS="traefik"
+            export K8S_SUPPORTS_LOADBALANCER="true"  # k3s has built-in LB
+            ;;
+        microk8s)
+            export K8S_SERVICE_TYPE="NodePort"
+            export K8S_INGRESS_CLASS="nginx"
+            export K8S_SUPPORTS_LOADBALANCER="false"
+            ;;
+        eks)
+            export K8S_SERVICE_TYPE="LoadBalancer"
+            export K8S_INGRESS_CLASS="alb"
+            export K8S_SUPPORTS_LOADBALANCER="true"
+            ;;
+        gke)
+            export K8S_SERVICE_TYPE="LoadBalancer"
+            export K8S_INGRESS_CLASS="gce"
+            export K8S_SUPPORTS_LOADBALANCER="true"
+            ;;
+        aks)
+            export K8S_SERVICE_TYPE="LoadBalancer"
+            export K8S_INGRESS_CLASS="azure"
+            export K8S_SUPPORTS_LOADBALANCER="true"
+            ;;
+        *)
+            # Default to generic Kubernetes
+            export K8S_SERVICE_TYPE="ClusterIP"
+            export K8S_INGRESS_CLASS="nginx"
+            export K8S_SUPPORTS_LOADBALANCER="false"
+            print_warning "Unknown distribution, using conservative defaults"
+            ;;
+    esac
+    
+    print_info "Service Type: ${BOLD}$K8S_SERVICE_TYPE${RESET}"
+    print_info "Ingress Class: ${BOLD}$K8S_INGRESS_CLASS${RESET}"
+}
+
+# Get access URL based on distribution
+get_access_url() {
+    local service_name="$1"
+    local namespace="$2"
+    
+    case "$K8S_DISTRIBUTION" in
+        minikube)
+            if command -v minikube >/dev/null 2>&1; then
+                local minikube_ip=$(minikube ip 2>/dev/null || echo "localhost")
+                local node_port=$(kubectl get svc "$service_name" -n "$namespace" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+                if [[ -n "$node_port" ]]; then
+                    echo "http://$minikube_ip:$node_port"
+                else
+                    echo "port-forward-required"
+                fi
+            else
+                echo "minikube-cli-missing"
+            fi
+            ;;
+        kind)
+            local node_port=$(kubectl get svc "$service_name" -n "$namespace" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+            if [[ -n "$node_port" ]]; then
+                echo "http://localhost:$node_port"
+            else
+                echo "port-forward-required"
+            fi
+            ;;
+        k3s)
+            local external_ip=$(kubectl get svc "$service_name" -n "$namespace" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            if [[ -n "$external_ip" ]]; then
+                echo "http://$external_ip"
+            else
+                local node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "localhost")
+                local node_port=$(kubectl get svc "$service_name" -n "$namespace" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+                if [[ -n "$node_port" ]]; then
+                    echo "http://$node_ip:$node_port"
+                else
+                    echo "port-forward-required"
+                fi
+            fi
+            ;;
+        eks|gke|aks)
+            local external_ip=$(kubectl get svc "$service_name" -n "$namespace" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || \
+                               kubectl get svc "$service_name" -n "$namespace" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            if [[ -n "$external_ip" ]]; then
+                echo "http://$external_ip"
+            else
+                echo "pending-loadbalancer"
+            fi
+            ;;
+        *)
+            local node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null || \
+                           kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "localhost")
+            local node_port=$(kubectl get svc "$service_name" -n "$namespace" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+            if [[ -n "$node_port" ]]; then
+                echo "http://$node_ip:$node_port"
+            else
+                echo "port-forward-required"
+            fi
+            ;;
+    esac
+}
+
 # ENVIRONMENT DETECTION & CONFIGURATION
 
 # Detect if running in CI/CD environment
@@ -85,18 +243,14 @@ fi
 
 # Determine PROJECT_ROOT
 if [[ -n "${PROJECT_ROOT:-}" ]]; then
-    # PROJECT_ROOT already set (from run.sh or CI/CD)
     print_info "Using PROJECT_ROOT: ${BOLD}$PROJECT_ROOT${RESET}"
 elif [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
-    # Running in GitHub Actions
     PROJECT_ROOT="${GITHUB_WORKSPACE}"
     print_info "Using GITHUB_WORKSPACE: ${BOLD}$PROJECT_ROOT${RESET}"
 elif [[ -n "${CI_PROJECT_DIR:-}" ]]; then
-    # Running in GitLab CI
     PROJECT_ROOT="${CI_PROJECT_DIR}"
     print_info "Using CI_PROJECT_DIR: ${BOLD}$PROJECT_ROOT${RESET}"
 else
-    # Default to script's parent directory
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     print_info "Using script parent directory: ${BOLD}$PROJECT_ROOT${RESET}"
 fi
@@ -153,6 +307,7 @@ substitute_env_vars() {
     export JWT_SECRET API_KEY SESSION_SECRET
     export INGRESS_HOST INGRESS_CLASS TLS_SECRET_NAME
     export PROMETHEUS_NAMESPACE INGRESS_ENABLED
+    export K8S_DISTRIBUTION K8S_SERVICE_TYPE K8S_INGRESS_CLASS K8S_SUPPORTS_LOADBALANCER
     
     # Use envsubst to replace all exported variables
     envsubst < "$file" > "$temp_file"
@@ -193,6 +348,9 @@ deploy_kubernetes() {
     echo -e "${BOLD}Mode:${RESET}        ${CYAN}$([ "$CI_MODE" == "true" ] && echo "CI/CD" || echo "Local")${RESET}"
     echo ""
     
+    # Detect Kubernetes distribution
+    detect_k8s_distribution
+    
     # Validate environment variables
     validate_required_vars
     
@@ -204,9 +362,13 @@ deploy_kubernetes() {
     : "${MEMORY_TARGET_UTILIZATION:=80}"
     : "${INGRESS_ENABLED:=true}"
     : "${INGRESS_HOST:=devops-app.local}"
-    : "${INGRESS_CLASS:=nginx}"
     : "${TLS_SECRET_NAME:=devops-app-tls}"
     : "${PROMETHEUS_NAMESPACE:=monitoring}"
+    
+    # Override ingress class if not set, based on distribution
+    if [[ -z "${INGRESS_CLASS:-}" ]]; then
+        INGRESS_CLASS="$K8S_INGRESS_CLASS"
+    fi
     
     # Set resource limits defaults
     : "${APP_CPU_REQUEST:=100m}"
@@ -347,44 +509,61 @@ deploy_kubernetes() {
     
     print_divider
     
-    # Show access information based on environment
+    # Show access information based on distribution
     echo "🌐 Access Information"
     echo ""
     
-    if [[ "$environment" == "local" ]]; then
-        echo -e "${BOLD}${GREEN}Local Environment Access:${RESET}"
+    echo -e "${BOLD}${GREEN}Kubernetes Distribution: $K8S_DISTRIBUTION${RESET}"
+    echo ""
+    
+    # Get application URL
+    local app_url=$(get_access_url "${APP_NAME}-service" "$NAMESPACE")
+    
+    case "$app_url" in
+        port-forward-required)
+            echo -e "${BOLD}📱 Application Access:${RESET}"
+            echo -e "  ${CYAN}Use port-forward:${RESET}"
+            echo -e "  ${DIM}\$${RESET} kubectl port-forward svc/${APP_NAME}-service $APP_PORT:80 -n $NAMESPACE"
+            echo -e "  ${CYAN}Then access:${RESET} ${LINK}http://localhost:$APP_PORT${RESET}"
+            ;;
+        pending-loadbalancer)
+            echo -e "${BOLD}📱 Application:${RESET} ${YELLOW}LoadBalancer IP pending${RESET}"
+            echo -e "  ${CYAN}Check status:${RESET}"
+            echo -e "  ${DIM}\$${RESET} kubectl get svc ${APP_NAME}-service -n $NAMESPACE"
+            ;;
+        minikube-cli-missing)
+            print_warning "Minikube CLI not found"
+            echo -e "  ${CYAN}Install minikube to get access URL${RESET}"
+            ;;
+        *)
+            print_url "📱 Application URL:" "$app_url"
+            ;;
+    esac
+    
+    if [[ "${INGRESS_ENABLED}" == "true" ]]; then
         echo ""
+        print_url "🌐 Ingress URL:" "http://${INGRESS_HOST}"
         
-        # Try to get NodePort
-        NODE_PORT=$(kubectl get svc "${APP_NAME}-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-        
-        if [[ -n "$NODE_PORT" ]]; then
-            if command -v minikube >/dev/null 2>&1; then
-                MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "localhost")
-                print_url "📱 Application URL:" "http://$MINIKUBE_IP:$NODE_PORT"
-            else
-                echo -e "  ${BOLD}📱 Application Port:${RESET} ${CYAN}$NODE_PORT${RESET} ${DIM}(access via cluster IP)${RESET}"
-            fi
-        fi
-        
-        if [[ "${INGRESS_ENABLED}" == "true" ]]; then
-            echo ""
-            print_url "🌐 Ingress URL:" "http://${INGRESS_HOST}"
-            if command -v minikube >/dev/null 2>&1; then
-                MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "127.0.0.1")
-                echo ""
-                print_info "Add to /etc/hosts: ${BOLD}$MINIKUBE_IP ${INGRESS_HOST}${RESET}"
-            fi
-        fi
-    else
-        echo -e "${BOLD}${GREEN}Production Environment Access:${RESET}"
-        echo ""
-        print_info "Check LoadBalancer external IP:"
-        echo -e "  ${DIM}\$${RESET} kubectl get svc ${APP_NAME}-service -n $NAMESPACE"
-        echo ""
-        if [[ "${INGRESS_ENABLED}" == "true" ]]; then
-            print_info "Check Ingress:"
-            echo -e "  ${DIM}\$${RESET} kubectl get ingress -n $NAMESPACE"
+        # Add /etc/hosts hint for local environments
+        if [[ "$K8S_DISTRIBUTION" == "minikube" ]] || [[ "$K8S_DISTRIBUTION" == "kind" ]] || [[ "$K8S_DISTRIBUTION" == "k3s" ]]; then
+            case "$K8S_DISTRIBUTION" in
+                minikube)
+                    if command -v minikube >/dev/null 2>&1; then
+                        local cluster_ip=$(minikube ip 2>/dev/null || echo "127.0.0.1")
+                        echo ""
+                        print_info "Add to /etc/hosts: ${BOLD}$cluster_ip ${INGRESS_HOST}${RESET}"
+                    fi
+                    ;;
+                kind)
+                    echo ""
+                    print_info "Add to /etc/hosts: ${BOLD}127.0.0.1 ${INGRESS_HOST}${RESET}"
+                    ;;
+                k3s)
+                    local node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "127.0.0.1")
+                    echo ""
+                    print_info "Add to /etc/hosts: ${BOLD}$node_ip ${INGRESS_HOST}${RESET}"
+                    ;;
+            esac
         fi
     fi
     
