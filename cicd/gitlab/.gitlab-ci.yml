@@ -152,13 +152,10 @@ build:configure-git-dockerhub:
     - apk add --no-cache bash git
   script:
     - |
-        echo "⚙️  Configuring Git and DockerHub..."
+        echo "⚙️  Configuring DockerHub..."
         export PROJECT_ROOT=$CI_PROJECT_DIR
         chmod +x $CI_PROJECT_DIR/app/configure_dockerhub_username.sh
-        chmod +x $CI_PROJECT_DIR/cicd/github/configure_git_github.sh
         source $CI_PROJECT_DIR/app/configure_dockerhub_username.sh
-        source $CI_PROJECT_DIR/cicd/github/configure_git_github.sh
-        configure_git_github
         configure_dockerhub_username
   artifacts:
     paths:
@@ -265,46 +262,6 @@ deploy:monitoring:
     variables:
       - $DEPLOY_TARGET
 
-deploy:jenkins:
-  stage: deploy-services
-  image: alpine/k8s:1.28.3
-  before_script:
-    - apk add --no-cache bash
-  script:
-    - |
-        export PROJECT_ROOT=$CI_PROJECT_DIR
-        chmod +x $CI_PROJECT_DIR/cicd/jenkins/deploy_jenkins.sh
-        source $CI_PROJECT_DIR/cicd/jenkins/deploy_jenkins.sh
-        echo "🔧 Deploying Jenkins..."
-        deploy_jenkins
-  dependencies:
-    - deploy:kubernetes-app
-  only:
-    variables:
-      - $DEPLOY_TARGET
-
-deploy:argocd:
-  stage: deploy-services
-  image: alpine/k8s:1.28.3
-  before_script:
-    - apk add --no-cache bash
-  script:
-    - |
-        export PROJECT_ROOT=$CI_PROJECT_DIR
-        chmod +x $CI_PROJECT_DIR/cicd/argocd/deploy_argocd.sh
-        chmod +x $CI_PROJECT_DIR/cicd/argocd/self_heal_app.sh
-        source $CI_PROJECT_DIR/cicd/argocd/deploy_argocd.sh
-        source $CI_PROJECT_DIR/cicd/argocd/self_heal_app.sh
-        echo "🔄 Deploying ArgoCD..."
-        deploy_argocd
-        echo "🔄 Configuring ArgoCD self-healing..."
-        self_heal_app
-  dependencies:
-    - deploy:kubernetes-app
-  only:
-    variables:
-      - $DEPLOY_TARGET
-
 # STAGE: VERIFY DEPLOYMENT
 verify:deployment:
   stage: verify
@@ -353,16 +310,10 @@ verify:deployment:
         echo "     Prometheus: kubectl get svc -n monitoring"
         echo "     Grafana:    kubectl get svc -n monitoring"
         echo ""
-        echo "  🔄 CI/CD Tools:"
-        echo "     Jenkins:    kubectl get svc -n jenkins"
-        echo "     ArgoCD:     kubectl get svc -n argocd"
-        echo ""
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   dependencies:
     - deploy:kubernetes-app
     - deploy:monitoring
-    - deploy:jenkins
-    - deploy:argocd
   only:
     variables:
       - $DEPLOY_TARGET
@@ -378,8 +329,6 @@ cleanup:all:
         echo "🧹 Cleaning up resources..."
         kubectl delete namespace $NAMESPACE --ignore-not-found=true
         kubectl delete namespace monitoring --ignore-not-found=true
-        kubectl delete namespace jenkins --ignore-not-found=true
-        kubectl delete namespace argocd --ignore-not-found=true
 
         if [ "$DEPLOY_TARGET" = "prod" ]; then
           echo "🏗️  Destroying Terraform infrastructure..."

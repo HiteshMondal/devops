@@ -270,18 +270,7 @@ jobs:
           chmod +x app/configure_dockerhub_username.sh
           chmod +x kubernetes/deploy_kubernetes.sh
           chmod +x monitoring/deploy_monitoring.sh
-          chmod +x cicd/jenkins/deploy_jenkins.sh
-          chmod +x cicd/github/configure_git_github.sh
-          chmod +x cicd/gitlab/configure_gitlab.sh
-          chmod +x cicd/argocd/deploy_argocd.sh
-          chmod +x cicd/argocd/self_heal_app.sh
           echo "✅ Scripts loaded and made executable"
-      
-      - name: Configure Git and GitHub
-        run: |
-          echo "⚙️  Configuring Git and GitHub..."
-          source ./cicd/github/configure_git_github.sh
-          configure_git_github
       
       - name: Configure DockerHub
         run: |
@@ -318,30 +307,6 @@ jobs:
           echo "📊 Deploying monitoring stack..."
           source ./monitoring/deploy_monitoring.sh
           deploy_monitoring
-      
-      - name: Deploy Jenkins
-        run: |
-          echo "🔧 Deploying Jenkins..."
-          source ./cicd/jenkins/deploy_jenkins.sh
-          deploy_jenkins
-      
-      - name: Deploy ArgoCD
-        run: |
-          echo "🔄 Deploying ArgoCD..."
-          source ./cicd/argocd/deploy_argocd.sh
-          deploy_argocd
-      
-      - name: Configure GitLab
-        run: |
-          echo "⚙️  Configuring GitLab..."
-          source ./cicd/gitlab/configure_gitlab.sh
-          configure_gitlab
-      
-      - name: Enable ArgoCD Self-Healing
-        run: |
-          echo "🔧 Enabling ArgoCD self-healing..."
-          source ./cicd/argocd/self_heal_app.sh
-          self_heal_app
       
       - name: Get Deployment Info
         id: deployment_info
@@ -466,18 +431,7 @@ jobs:
           chmod +x app/configure_dockerhub_username.sh
           chmod +x kubernetes/deploy_kubernetes.sh
           chmod +x monitoring/deploy_monitoring.sh
-          chmod +x cicd/jenkins/deploy_jenkins.sh
-          chmod +x cicd/github/configure_git_github.sh
-          chmod +x cicd/gitlab/configure_gitlab.sh
-          chmod +x cicd/argocd/deploy_argocd.sh
-          chmod +x cicd/argocd/self_heal_app.sh
           echo "✅ Scripts loaded and made executable"
-      
-      - name: Configure Git and GitHub
-        run: |
-          echo "⚙️  Configuring Git and GitHub..."
-          source ./cicd/github/configure_git_github.sh
-          configure_git_github
       
       - name: Configure DockerHub
         run: |
@@ -508,34 +462,6 @@ jobs:
           echo "📊 Deploying monitoring stack..."
           source ./monitoring/deploy_monitoring.sh
           deploy_monitoring
-      
-      - name: Deploy Jenkins
-        if: env.DRY_RUN != 'true'
-        run: |
-          echo "🔧 Deploying Jenkins..."
-          source ./cicd/jenkins/deploy_jenkins.sh
-          deploy_jenkins
-      
-      - name: Deploy ArgoCD
-        if: env.DRY_RUN != 'true'
-        run: |
-          echo "🔄 Deploying ArgoCD..."
-          source ./cicd/argocd/deploy_argocd.sh
-          deploy_argocd
-      
-      - name: Configure GitLab
-        if: env.DRY_RUN != 'true'
-        run: |
-          echo "⚙️  Configuring GitLab..."
-          source ./cicd/gitlab/configure_gitlab.sh
-          configure_gitlab
-      
-      - name: Enable ArgoCD Self-Healing
-        if: env.DRY_RUN != 'true'
-        run: |
-          echo "🔧 Enabling ArgoCD self-healing..."
-          source ./cicd/argocd/self_heal_app.sh
-          self_heal_app
       
       - name: Get Deployment Info
         if: env.DRY_RUN != 'true'
