@@ -15,13 +15,9 @@ build_and_push_image() {
 
   # Authentication handling
   if [[ "$IS_CI" == "true" ]]; then
-    # CI mode:
-    # Assume docker/login-action already authenticated
-    if ! docker info >/dev/null 2>&1; then
-      echo "❌ Docker is not authenticated in CI"
-      exit 1
-    fi
-    echo "✅ Using existing Docker login (CI)"
+    # CI mode: login with variables
+    echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+    echo "✅ Docker login successful (CI)"
   else
     # Local mode:
     if ! docker info >/dev/null 2>&1; then
