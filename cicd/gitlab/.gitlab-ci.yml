@@ -122,7 +122,7 @@ validate:variables:
 
 validate:tools:
   stage: validate
-  image: docker.io/bitnami/kubectl:1.28
+  image: lachlanevenson/k8s-kubectl:v1.28.4
   script:
     - |
       echo "============================================================================"
@@ -178,7 +178,7 @@ build-docker-image-local:
 # DEPLOY LOCAL STAGE (Minikube, Kind, K3s, etc.)
 deploy-local:
   stage: deploy-local
-  image: docker.io/bitnami/kubectl:1.28
+  image: lachlanevenson/k8s-kubectl:v1.28.4
   dependencies:
     - build-docker-image
     - build-docker-image-local
