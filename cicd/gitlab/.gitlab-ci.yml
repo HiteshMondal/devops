@@ -180,6 +180,7 @@ deploy-local:
   dependencies:
     - build-docker-image
     - build-docker-image-local
+  before_script:
     - apt-get update -y
     - apt-get install -y --no-install-recommends \
         curl \
@@ -430,7 +431,7 @@ cleanup:local:
         gnupg \
         lsb-release \
         software-properties-common
-
+        
     # Install kubectl
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     - install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
