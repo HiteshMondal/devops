@@ -221,7 +221,7 @@ deploy-local:
     kubectl get pods -n $NAMESPACE || true
     kubectl get svc -n $NAMESPACE || true
     kubectl get ingress -n $NAMESPACE || true
-  rules :
+  rules:
     - if: 'DEPLOY_TARGET == "local"'
 
 # DEPLOY PRODUCTION STAGE (EKS, GKE, AKS)
