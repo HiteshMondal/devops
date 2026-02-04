@@ -544,7 +544,30 @@ jobs:
         uses: azure/setup-kubectl@v3
         with:
           version: 'v1.28.0'
-      
+
+      - name: Set up Kind (Kubernetes in Docker)
+        uses: engineerd/setup-kind@v0.5.0
+        with:
+          version: v0.20.0
+
+      - name: Create Kind cluster
+        run: |
+          kind create cluster --name devops-ci --wait 60s
+          kubectl cluster-info
+
+      - name: Load Docker image into Kind
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          APP_NAME: ${{ env.APP_NAME }}
+        run: |
+          kind load docker-image "$DOCKERHUB_USERNAME/$APP_NAME:$IMAGE_TAG" --name devops-ci
+
+      - name: Deploy application to Kind
+        run: |
+          source ./kubernetes/deploy_kubernetes.sh
+          deploy_kubernetes local
+
       - name: Configure kubectl
         run: |
           mkdir -p $HOME/.kube
@@ -563,7 +586,7 @@ jobs:
             chmod 600 $HOME/.kube/config
             kubectl config use-context "${{ vars.KUBE_CONTEXT }}" || true
           fi
-      
+
       - name: Deploy monitoring stack
         env:
           GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
@@ -595,146 +618,9 @@ jobs:
           kubectl get pods -n $PROMETHEUS_NAMESPACE || true
           kubectl get svc -n $PROMETHEUS_NAMESPACE || true
 
-  # CI/CD TOOLS JOBS  
-  deploy-gitlab-config:
-    name: Configure GitLab Integration
-    runs-on: ubuntu-latest
-    needs: [deploy-local, deploy-production]
-    if: |
-      always() && 
-      !cancelled() && 
-      (needs.deploy-local.result == 'success' || needs.deploy-production.result == 'success') &&
-      vars.DEPLOY_GITLAB == 'true'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Configure GitLab integration
-        run: |
-          echo "============================================================================"
-          echo "Configuring GitLab Integration"
-          echo "============================================================================"
-          
-          export PROJECT_ROOT=${{ github.workspace }}
-          
-          source "${{ github.workspace }}/cicd/gitlab/configure_gitlab.sh"
-          configure_gitlab
-          
-          echo ""
-          echo "✅ GitLab configuration completed"
-  
-  deploy-jenkins:
-    name: Deploy Jenkins CI/CD Server
-    runs-on: ubuntu-latest
-    needs: [deploy-local, deploy-production]
-    if: |
-      always() && 
-      !cancelled() && 
-      (needs.deploy-local.result == 'success' || needs.deploy-production.result == 'success') &&
-      vars.DEPLOY_JENKINS == 'true'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.28.0'
-      
-      - name: Configure kubectl
-        run: |
-          mkdir -p $HOME/.kube
-          
-          if [ "$DEPLOY_TARGET" == "prod" ]; then
-            echo "Note: AWS CLI configuration would be done here for production"
-          else
-            echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > $HOME/.kube/config
-            chmod 600 $HOME/.kube/config
-            kubectl config use-context "${{ vars.KUBE_CONTEXT }}" || true
-          fi
-      
-      - name: Deploy Jenkins
-        run: |
-          echo "============================================================================"
-          echo "Deploying Jenkins CI/CD Server"
-          echo "============================================================================"
-          
-          export PROJECT_ROOT=${{ github.workspace }}
-          
-          source "${{ github.workspace }}/cicd/jenkins/deploy_jenkins.sh"
-          deploy_jenkins
-          
-          echo ""
-          echo "✅ Jenkins deployed successfully"
-      
-      - name: Display Jenkins info
+      - name: Delete Kind cluster
         if: always()
-        run: |
-          echo ""
-          echo "============================================================================"
-          echo "Jenkins Information"
-          echo "============================================================================"
-          kubectl get pods -n jenkins || true
-          kubectl get svc -n jenkins || true
-  
-  deploy-argocd:
-    name: Deploy ArgoCD GitOps
-    runs-on: ubuntu-latest
-    needs: [deploy-local, deploy-production]
-    if: |
-      always() && 
-      !cancelled() && 
-      (needs.deploy-local.result == 'success' || needs.deploy-production.result == 'success') &&
-      vars.DEPLOY_ARGOCD == 'true'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.28.0'
-      
-      - name: Configure kubectl
-        run: |
-          mkdir -p $HOME/.kube
-          
-          if [ "$DEPLOY_TARGET" == "prod" ]; then
-            echo "Note: AWS CLI configuration would be done here for production"
-          else
-            echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > $HOME/.kube/config
-            chmod 600 $HOME/.kube/config
-            kubectl config use-context "${{ vars.KUBE_CONTEXT }}" || true
-          fi
-      
-      - name: Deploy ArgoCD
-        run: |
-          echo "============================================================================"
-          echo "Deploying ArgoCD GitOps Controller"
-          echo "============================================================================"
-          
-          export PROJECT_ROOT=${{ github.workspace }}
-          
-          source "${{ github.workspace }}/cicd/argocd/deploy_argocd.sh"
-          deploy_argocd
-          
-          echo ""
-          echo "Configuring ArgoCD Application Self-Healing..."
-          source "${{ github.workspace }}/cicd/argocd/self_heal_app.sh"
-          self_heal_app
-          
-          echo ""
-          echo "✅ ArgoCD deployed and configured successfully"
-      
-      - name: Display ArgoCD info
-        if: always()
-        run: |
-          echo ""
-          echo "============================================================================"
-          echo "ArgoCD Information"
-          echo "============================================================================"
-          kubectl get pods -n argocd || true
-          kubectl get svc -n argocd || true
+        run: kind delete cluster --name devops-ci
 
   # CLEANUP JOBS  
   cleanup-on-failure:
