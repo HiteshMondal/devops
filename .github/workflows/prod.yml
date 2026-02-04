@@ -212,6 +212,8 @@ jobs:
   build-docker-image:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
+    env:
+    DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
     needs: [validate-variables, validate-tools]
     if: vars.BUILD_PUSH == 'true' || vars.BUILD_PUSH == ''
     steps:
