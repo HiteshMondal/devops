@@ -5,41 +5,29 @@ IFS=$'\n\t'
 build_and_push_image() {
   echo "🚀 Build & Push Docker image"
 
-  IS_CI="${CI:-false}"
-
-  DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-}"
-  DOCKERHUB_PASSWORD="${DOCKERHUB_PASSWORD:-}"
-
-  # Username is always required
+  # Required
   : "${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}"
+  : "${APP_NAME:?APP_NAME is required}"
 
-  # Authentication handling
-  if [[ "$IS_CI" == "true" ]]; then
-    # CI mode: login with variables
-    echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-    echo "✅ Docker login successful (CI)"
-  else
-    # Local mode:
-    if ! docker info >/dev/null 2>&1; then
-      if [[ -z "$DOCKERHUB_PASSWORD" ]]; then
-        read -sp "Docker Hub password: " DOCKERHUB_PASSWORD
-        echo
-      fi
-
-      echo "$DOCKERHUB_PASSWORD" | docker login \
-        -u "$DOCKERHUB_USERNAME" \
-        --password-stdin
-    else
-      echo "✅ Docker already logged in (local)"
-    fi
-  fi
-
-  # Build & push
-  IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD)}"
+  # Optional
+  IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo latest)}"
   IMAGE_NAME="$DOCKERHUB_USERNAME/$APP_NAME:$IMAGE_TAG"
 
+  if [[ -n "${DOCKERHUB_PASSWORD:-}" ]]; then
+    echo "🔐 Logging into DockerHub as $DOCKERHUB_USERNAME"
+    echo "$DOCKERHUB_PASSWORD" | docker login \
+      -u "$DOCKERHUB_USERNAME" \
+      --password-stdin
+  else
+    echo "⚠️  DOCKERHUB_PASSWORD not set"
+    echo "   Assuming existing Docker login"
+  fi
+
+  echo "🏗️  Building image: $IMAGE_NAME"
   docker build -t "$IMAGE_NAME" ./app
+
+  echo "📤 Pushing image: $IMAGE_NAME"
   docker push "$IMAGE_NAME"
 
-  echo "✅ Image pushed: $IMAGE_NAME"
+  echo "✅ Image pushed successfully: $IMAGE_NAME"
 }
