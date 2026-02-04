@@ -555,18 +555,17 @@ jobs:
           kind create cluster --name devops-ci --wait 60s
           kubectl cluster-info
 
+      - name: Build Docker image locally for Kind
+        run: |
+          docker build -t "$APP_NAME:$IMAGE_TAG" ./app
+
       - name: Load Docker image into Kind
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
           APP_NAME: ${{ env.APP_NAME }}
         run: |
-          kind load docker-image "$DOCKERHUB_USERNAME/$APP_NAME:$IMAGE_TAG" --name devops-ci
-
-      - name: Deploy application to Kind
-        run: |
-          source ./kubernetes/deploy_kubernetes.sh
-          deploy_kubernetes local
+          kind load docker-image "$APP_NAME:$IMAGE_TAG" --name devops-ci
 
       - name: Configure kubectl
         run: |
@@ -586,6 +585,11 @@ jobs:
             chmod 600 $HOME/.kube/config
             kubectl config use-context "${{ vars.KUBE_CONTEXT }}" || true
           fi
+
+      - name: Deploy application to Kind
+        run: |
+          source ./kubernetes/deploy_kubernetes.sh
+          deploy_kubernetes local
 
       - name: Deploy monitoring stack
         env:
