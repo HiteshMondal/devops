@@ -3,35 +3,17 @@ kind: Application
 metadata:
   name: ${APP_NAME}
   namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
-  
   source:
     repoURL: ${GIT_REPO_URL}
     targetRevision: HEAD
     path: kubernetes/overlays/${DEPLOY_TARGET}
-    
     kustomize:
-      version: v5.3.0
       namespace: ${NAMESPACE}
-      images:
-      - name: ${DOCKERHUB_USERNAME}/${APP_NAME}
-        newName: ${DOCKERHUB_USERNAME}/${APP_NAME}
-        newTag: ${DOCKER_IMAGE_TAG}
-
-      replicas:
-      - name: ${APP_NAME}
-        count: ${REPLICAS}
-      
       commonLabels:
-        app: ${APP_NAME}
-        managed-by: argocd
-      
-      commonAnnotations:
-        argocd.argoproj.io/manifest-generation: standard-kustomize
-        app-version: ${DOCKER_IMAGE_TAG}
+        app: devops-app
+        namespace: devops-app
   
   destination:
     server: https://kubernetes.default.svc
