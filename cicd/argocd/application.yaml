@@ -12,21 +12,26 @@ spec:
     repoURL: ${GIT_REPO_URL}
     targetRevision: HEAD
     path: kubernetes/overlays/${DEPLOY_TARGET}
-    plugin:
-      name: envsubst-kustomize
-      env:
-        - name: NAMESPACE
-          value: "${NAMESPACE}"
-        - name: APP_NAME
-          value: "${APP_NAME}"
-        - name: DOCKERHUB_USERNAME
-          value: "${DOCKERHUB_USERNAME}"
-        - name: DOCKER_IMAGE_TAG
-          value: "${DOCKER_IMAGE_TAG}"
-        - name: REPLICAS
-          value: "${REPLICAS}"
-        - name: APP_PORT
-          value: "${APP_PORT}"
+    
+    kustomize:
+      version: v5.3.0
+      namespace: ${NAMESPACE}
+      images:
+      - name: ${DOCKERHUB_USERNAME}/${APP_NAME}
+        newName: ${DOCKERHUB_USERNAME}/${APP_NAME}
+        newTag: ${DOCKER_IMAGE_TAG}
+
+      replicas:
+      - name: ${APP_NAME}
+        count: ${REPLICAS}
+      
+      commonLabels:
+        app: ${APP_NAME}
+        managed-by: argocd
+      
+      commonAnnotations:
+        argocd.argoproj.io/manifest-generation: standard-kustomize
+        app-version: ${DOCKER_IMAGE_TAG}
   
   destination:
     server: https://kubernetes.default.svc

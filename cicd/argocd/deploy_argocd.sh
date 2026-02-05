@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# ArgoCD Deployment Script
+# ArgoCD Deployment Script (No Custom Plugin Version)
 # Can be run standalone or called as a function from run.sh
 # Usage: 
 #   Standalone: ./deploy_argocd.sh
@@ -61,17 +61,6 @@ deploy_argocd() {
         kubectl create namespace "$ARGOCD_NAMESPACE"
     fi
 
-    echo "$DOCKERHUB_PASSWORD" | docker login \
-      --username "$DOCKERHUB_USERNAME" \
-      --password-stdin
-
-    docker build \
-      -t "$DOCKERHUB_USERNAME/argocd-envsubst-kustomize:1.0" \
-      "$SCRIPT_DIR/plugin-image"
-
-    docker push \
-      "$DOCKERHUB_USERNAME/argocd-envsubst-kustomize:1.0"
-
     # Install ArgoCD
     if kubectl get deployment argocd-server -n "$ARGOCD_NAMESPACE" >/dev/null 2>&1; then
         echo "✅ ArgoCD is already installed"
@@ -97,63 +86,6 @@ deploy_argocd() {
             echo "⚠️  ArgoCD deployment timeout - checking status..."
             kubectl get pods -n "$ARGOCD_NAMESPACE"
         }
-    fi
-    
-    # Patch ArgoCD repo-server to use the plugin
-    echo ""
-    echo "🔧 Patching argocd-repo-server with plugin sidecar..."
-    
-    if [[ -f "$SCRIPT_DIR/argocd-cmp-config.yaml" ]]; then
-        # Use strategic merge patch for proper sidecar injection
-        kubectl apply -f "$SCRIPT_DIR/argocd-cmp-config.yaml" || {
-            echo "⚠️  Strategic patch failed, trying json patch..."
-            
-            # Alternative: Direct JSON patch
-            kubectl patch deployment argocd-repo-server -n "$ARGOCD_NAMESPACE" --type=json -p='[
-              {
-                "op": "add",
-                "path": "/spec/template/spec/volumes/-",
-                "value": {"name": "cmp-plugin", "configMap": {"name": "cmp-plugin"}}
-              },
-              {
-                "op": "add",
-                "path": "/spec/template/spec/volumes/-",
-                "value": {"name": "cmp-tmp", "emptyDir": {}}
-              },
-              {
-                "op": "add",
-                "path": "/spec/template/spec/containers/-",
-                "value": {
-                  "name": "envsubst-kustomize-plugin",
-                  "image": "'$DOCKERHUB_USERNAME'/argocd-envsubst-kustomize:1.0",
-                  "command": ["/var/run/argocd/argocd-cmp-server"],
-                  "securityContext": {"runAsNonRoot": true, "runAsUser": 999},
-                  "volumeMounts": [
-                    {"mountPath": "/var/run/argocd", "name": "var-files"},
-                    {"mountPath": "/home/argocd/cmp-server/plugins", "name": "plugins"},
-                    {"mountPath": "/tmp", "name": "cmp-tmp"},
-                    {"mountPath: /home/argocd/cmp-server/config/plugins/plugin.yaml", "subPath": "plugin.yaml", "name": "cmp-plugin"}
-                  ],
-                  "env": [{"name": "KUSTOMIZE_PLUGIN_HOME", "value": "/home/argocd/.config/kustomize/plugin"}]
-                }
-              }
-            ]' || echo "⚠️  Both patch methods failed - manual intervention required"
-        }
-        
-        echo "🔄 Restarting repo-server to apply changes..."
-        kubectl rollout restart deployment argocd-repo-server -n "$ARGOCD_NAMESPACE"
-        
-        echo "⏳ Waiting for repo-server to be ready..."
-        kubectl rollout status deployment argocd-repo-server -n "$ARGOCD_NAMESPACE" --timeout=120s || {
-            echo "⚠️  Repo-server restart timeout"
-            kubectl get pods -n "$ARGOCD_NAMESPACE" -l app.kubernetes.io/name=argocd-repo-server
-        }
-        
-        echo "✅ Plugin sidecar configured"
-    else
-        echo "⚠️  argocd-repo-server-patch.yaml not found"
-        echo "   Plugin sidecar configuration skipped"
-        echo "   The custom plugin will not be available"
     fi
 
     # Patch ArgoCD server service for easier access
@@ -253,23 +185,6 @@ deploy_argocd() {
         sleep 5
     done
     
-    # Verify plugin is loaded
-    echo ""
-    echo "🔍 Verifying plugin configuration..."
-    PLUGIN_POD=$(kubectl get pods -n "$ARGOCD_NAMESPACE" -l app.kubernetes.io/name=argocd-repo-server -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-    
-    if [[ -n "$PLUGIN_POD" ]]; then
-        echo "   Checking plugin sidecar in pod: $PLUGIN_POD"
-        if kubectl get pod "$PLUGIN_POD" -n "$ARGOCD_NAMESPACE" -o jsonpath='{.spec.containers[*].name}' 2>/dev/null | grep -q "envsubst-kustomize-plugin"; then
-            echo "   ✅ Plugin sidecar container is running"
-        else
-            echo "   ⚠️  Plugin sidecar container not found"
-            echo "   Available containers:"
-            kubectl get pod "$PLUGIN_POD" -n "$ARGOCD_NAMESPACE" -o jsonpath='{.spec.containers[*].name}'
-            echo ""
-        fi
-    fi
-    
     # Show ArgoCD access information
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -313,7 +228,6 @@ deploy_argocd() {
     echo "  📱 CLI Login:     argocd login <ARGOCD_SERVER>"
     echo "  📊 App Status:    kubectl get applications -n $ARGOCD_NAMESPACE"
     echo "  🔍 App Details:   kubectl describe application $APP_NAME -n $ARGOCD_NAMESPACE"
-    echo "  🔧 Plugin Check:  kubectl logs -n $ARGOCD_NAMESPACE deployment/argocd-repo-server -c envsubst-kustomize-plugin"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
@@ -323,8 +237,10 @@ deploy_argocd() {
     echo "💡 Next Steps:"
     echo "   1. Access ArgoCD UI using credentials above"
     echo "   2. Verify application sync status"
-    echo "   3. Check plugin logs if sync fails"
-    echo "   4. Self-healing is already enabled in application.yaml"
+    echo "   3. Monitor sync progress: watch kubectl get application $APP_NAME -n $ARGOCD_NAMESPACE"
+    echo "   4. Self-healing is enabled - ArgoCD will auto-sync changes from Git"
+    echo ""
+    echo "ℹ️  Note: This version uses standard ArgoCD/Kustomize (no custom plugins)"
 }
 
 # If script is executed directly (not sourced)
