@@ -32,7 +32,10 @@ deploy_argocd() {
         : "${NAMESPACE:=devops-app}"
         : "${APP_NAME:=devops-app}"
         : "${DEPLOY_TARGET:=local}"
-        : "${GITHUB_USERNAME:=yourgithubusername}"
+        : "${DOCKERHUB_USERNAME:=yourdockerhubusername}"
+        : "${DOCKER_IMAGE_TAG:=latest}"
+        : "${REPLICAS:=2}"
+        : "${APP_PORT:=3000}"
     fi
     
     # ArgoCD Configuration with defaults
@@ -40,10 +43,14 @@ deploy_argocd() {
     ARGOCD_VERSION="${ARGOCD_VERSION:-stable}"
     ARGOCD_ADMIN_PASSWORD="${ARGOCD_ADMIN_PASSWORD:-admin123}"
     
+    # Ensure critical variables are set
+    : "${GIT_REPO_URL:?GIT_REPO_URL must be set}"
+    
     echo "📋 ArgoCD Configuration:"
     echo "   Namespace: $ARGOCD_NAMESPACE"
     echo "   Version: $ARGOCD_VERSION"
     echo "   Target App Namespace: $NAMESPACE"
+    echo "   Git Repository: $GIT_REPO_URL"
     echo ""
     
     # Check if ArgoCD is already installed
@@ -61,10 +68,17 @@ deploy_argocd() {
         echo "📥 Installing ArgoCD..."
         kubectl apply -n "$ARGOCD_NAMESPACE" -f "https://raw.githubusercontent.com/argoproj/argo-cd/$ARGOCD_VERSION/manifests/install.yaml"
         
-        echo "⏳ Waiting for ArgoCD CRDs to be ready..."
-        kubectl wait --for=condition=Established \
-          --timeout=120s \
-          crd/applications.argoproj.io
+        echo "⏳ Waiting for ArgoCD CRDs to be established..."
+        # Wait with proper error handling
+        for i in {1..12}; do
+            if kubectl get crd applications.argoproj.io >/dev/null 2>&1; then
+                kubectl wait --for=condition=Established \
+                  --timeout=10s \
+                  crd/applications.argoproj.io 2>/dev/null && break || true
+            fi
+            echo "   Attempt $i/12: CRD not ready yet..."
+            sleep 10
+        done
 
         echo "⏳ Waiting for ArgoCD to be ready..."
         kubectl wait --for=condition=available --timeout=300s \
@@ -74,6 +88,35 @@ deploy_argocd() {
         }
     fi
     
+    # Apply custom plugin configuration
+    echo "🔧 Configuring custom envsubst-kustomize plugin..."
+    
+    if [[ -f "$SCRIPT_DIR/cmp-plugin.yaml" ]]; then
+        kubectl apply -f "$SCRIPT_DIR/cmp-plugin.yaml"
+        echo "✅ Custom plugin ConfigMap applied"
+    else
+        echo "⚠️  cmp-plugin.yaml not found at $SCRIPT_DIR/cmp-plugin.yaml"
+        echo "   Plugin configuration skipped"
+    fi
+    
+    # Patch ArgoCD repo-server to use the plugin
+    if [[ -f "$SCRIPT_DIR/argocd-repo-server-patch.yaml" ]]; then
+        echo "🔧 Patching argocd-repo-server with plugin sidecar..."
+        kubectl patch deployment argocd-repo-server -n "$ARGOCD_NAMESPACE" --patch-file "$SCRIPT_DIR/argocd-repo-server-patch.yaml" || {
+            echo "⚠️  Patch failed, trying alternative method..."
+            kubectl apply -f "$SCRIPT_DIR/argocd-repo-server-patch.yaml" || true
+        }
+        
+        echo "🔄 Restarting repo-server to apply changes..."
+        kubectl rollout restart deployment argocd-repo-server -n "$ARGOCD_NAMESPACE"
+        
+        echo "⏳ Waiting for repo-server to be ready..."
+        kubectl rollout status deployment argocd-repo-server -n "$ARGOCD_NAMESPACE" --timeout=120s || {
+            echo "⚠️  Repo-server restart timeout"
+            kubectl get pods -n "$ARGOCD_NAMESPACE" -l app.kubernetes.io/name=argocd-repo-server
+        }
+    fi
+
     # Patch ArgoCD server service for easier access
     echo "🔧 Configuring ArgoCD service..."
     
@@ -90,6 +133,16 @@ deploy_argocd() {
     # Get ArgoCD admin password
     echo ""
     echo "🔐 Retrieving ArgoCD credentials..."
+    
+    # Wait for secret to be created
+    for i in {1..30}; do
+        if kubectl get secret argocd-initial-admin-secret -n "$ARGOCD_NAMESPACE" >/dev/null 2>&1; then
+            break
+        fi
+        echo "   Waiting for admin secret... ($i/30)"
+        sleep 2
+    done
+    
     ARGOCD_PWD=$(kubectl -n "$ARGOCD_NAMESPACE" get secret argocd-initial-admin-secret \
         -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || echo "")
     
@@ -118,22 +171,47 @@ deploy_argocd() {
     TMP_MANIFEST=$(mktemp)
     trap "rm -f $TMP_MANIFEST" EXIT
     
-    # Substitute environment variables in the manifest
-    envsubst '${GIT_REPO_URL} ${DEPLOY_TARGET} ${NAMESPACE}' \
-      < "$APP_MANIFEST" > "$TMP_MANIFEST"
+    # Export all variables that need substitution
+    export GIT_REPO_URL
+    export DEPLOY_TARGET
+    export NAMESPACE
+    export APP_NAME
+    export DOCKERHUB_USERNAME
+    export DOCKER_IMAGE_TAG
+    export REPLICAS
+    export APP_PORT
     
-    echo "🔍 Generated manifest:"
-    cat "$TMP_MANIFEST"
+    # Substitute environment variables in the manifest
+    envsubst < "$APP_MANIFEST" > "$TMP_MANIFEST"
+    
+    echo "🔍 Generated Application manifest preview:"
+    echo "---"
+    head -n 20 "$TMP_MANIFEST"
+    echo "..."
+    echo "---"
+    echo ""
 
     # Apply the application manifest
-    kubectl apply -f "$TMP_MANIFEST"
+    kubectl apply -f "$TMP_MANIFEST" || {
+        echo "❌ Failed to apply ArgoCD application"
+        echo "Generated manifest content:"
+        cat "$TMP_MANIFEST"
+        return 1
+    }
     
     echo "✅ ArgoCD Application created"
     
-    # Wait for application to sync
+    # Wait for application to appear
     echo ""
-    echo "⏳ Waiting for initial sync..."
-    sleep 5
+    echo "⏳ Waiting for application to be registered..."
+    for i in {1..12}; do
+        if kubectl get application "$APP_NAME" -n "$ARGOCD_NAMESPACE" >/dev/null 2>&1; then
+            echo "✅ Application registered successfully"
+            break
+        fi
+        echo "   Checking... ($i/12)"
+        sleep 5
+    done
     
     # Show ArgoCD access information
     echo ""
@@ -177,11 +255,17 @@ deploy_argocd() {
     echo ""
     echo "  📱 CLI Login:     argocd login <ARGOCD_SERVER>"
     echo "  📊 App Status:    kubectl get applications -n $ARGOCD_NAMESPACE"
+    echo "  🔍 App Details:   kubectl describe application $APP_NAME -n $ARGOCD_NAMESPACE"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
     echo ""
     echo "✅ ArgoCD deployment completed!"
+    echo ""
+    echo "💡 Next Steps:"
+    echo "   1. Access ArgoCD UI using credentials above"
+    echo "   2. Verify application sync status"
+    echo "   3. Configure self-healing: ./cicd/argocd/self_heal_app.sh"
 }
 
 # If script is executed directly (not sourced)

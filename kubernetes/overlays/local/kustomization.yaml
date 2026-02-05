@@ -22,7 +22,6 @@ patchesStrategicMerge:
     kind: Deployment
     metadata:
       name: devops-app
-      namespace: devops-app
     spec:
       replicas: 1
       template:

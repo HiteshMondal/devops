@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cmp-plugin
+  namespace: argocd
+data:
+  plugin.yaml: |
+    apiVersion: argoproj.io/v1alpha1
+    kind: ConfigManagementPlugin
+    metadata:
+      name: envsubst-kustomize
+    spec:
+      version: v1.0
+      init:
+        command: [sh, -c]
+        args:
+          - |
+            echo "Initializing envsubst-kustomize plugin..."
+            echo "Available environment variables:"
+            env | grep -E '^(NAMESPACE|APP_NAME|DOCKERHUB_USERNAME|DOCKER_IMAGE_TAG|REPLICAS|APP_PORT)' || true
+      generate:
+        command: [sh, -c]
+        args:
+          - |
+            set -e
+            echo "==================== EnvSubst Kustomize Plugin ===================="
+            echo "Processing kustomization.yaml with environment variables..."
+            
+            # Show current directory and files
+            echo "Current directory: $(pwd)"
+            echo "Files present:"
+            ls -la
+            
+            # Process kustomization.yaml if it exists
+            if [ -f "kustomization.yaml" ]; then
+              echo "Original kustomization.yaml:"
+              cat kustomization.yaml
+              echo ""
+              
+              # Substitute environment variables
+              echo "Substituting environment variables..."
+              envsubst < kustomization.yaml > kustomization.tmp.yaml
+              mv kustomization.tmp.yaml kustomization.yaml
+              
+              echo "Processed kustomization.yaml:"
+              cat kustomization.yaml
+              echo ""
+            fi
+            
+            # Run kustomize build
+            echo "Running kustomize build..."
+            kustomize build .
+            
+            echo "==================== Plugin Execution Complete ===================="

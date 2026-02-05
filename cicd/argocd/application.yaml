@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: devops-app
+  name: ${APP_NAME}
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -12,10 +12,26 @@ spec:
     repoURL: ${GIT_REPO_URL}
     targetRevision: HEAD
     path: kubernetes/overlays/${DEPLOY_TARGET}
+    plugin:
+      name: envsubst-kustomize
+      env:
+        - name: NAMESPACE
+          value: "${NAMESPACE}"
+        - name: APP_NAME
+          value: "${APP_NAME}"
+        - name: DOCKERHUB_USERNAME
+          value: "${DOCKERHUB_USERNAME}"
+        - name: DOCKER_IMAGE_TAG
+          value: "${DOCKER_IMAGE_TAG}"
+        - name: REPLICAS
+          value: "${REPLICAS}"
+        - name: APP_PORT
+          value: "${APP_PORT}"
   
   destination:
     server: https://kubernetes.default.svc
-    namespace: devops-app  
+    namespace: ${NAMESPACE}
+  
   syncPolicy:
     automated:
       prune: true
