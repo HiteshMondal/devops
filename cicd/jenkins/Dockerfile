@@ -1,89 +1,50 @@
 FROM jenkins/jenkins:lts
 
-# Switch to root to install dependencies
 USER root
 
-# Set environment variables to avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Update package list and install prerequisites
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-      ca-certificates \
-      curl \
-      gnupg \
-      git \
-      apt-transport-https \
-      software-properties-common && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release \
+    git \
+    vim \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Docker CLI
-RUN mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://download.docker.com/linux/debian/gpg | \
-      gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
-    chmod a+r /etc/apt/keyrings/docker.gpg && \
-    echo \
-      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-      https://download.docker.com/linux/debian \
-      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-      tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | \
+    tee /etc/apt/sources.list.d/docker.list > /dev/null && \
     apt-get update && \
-    apt-get install -y --no-install-recommends \
-      docker-ce-cli \
-      docker-buildx-plugin \
-      docker-compose-plugin && \
-    apt-get clean && \
+    apt-get install -y docker-ce-cli && \
     rm -rf /var/lib/apt/lists/*
 
 # Install kubectl
-RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | \
-    gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg && \
-    chmod a+r /etc/apt/keyrings/kubernetes-apt-keyring.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] \
-    https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | \
-    tee /etc/apt/sources.list.d/kubernetes.list > /dev/null && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends kubectl && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && \
+    rm kubectl
 
-# Verify installations
-RUN docker --version && \
-    kubectl version --client && \
-    git --version
+# Install plugins
+RUN jenkins-plugin-cli --plugins \
+    kubernetes:4253.v7700d91739e5 \
+    workflow-aggregator:596.v8c21c963d92d \
+    git:5.2.2 \
+    docker-workflow:572.v950f58993843 \
+    pipeline-stage-view:2.34 \
+    blueocean:1.27.11 \
+    credentials-binding:681.vf91669a_32e45 \
+    docker-commons:439.va_3cb_0a_6a_fb_29 \
+    pipeline-utility-steps:2.16.2 \
+    configuration-as-code:1810.v9b_c30a_249a_4c
 
-# Add jenkins user to docker group (GID will be handled by runtime)
-RUN groupadd -f docker && \
+# Add docker group with GID that matches host
+RUN groupadd -g 999 docker || groupmod -g 999 docker || true && \
     usermod -aG docker jenkins
 
-# Create necessary directories with proper permissions
-RUN mkdir -p /var/jenkins_home && \
-    chown -R jenkins:jenkins /var/jenkins_home
-
-# Install commonly used Jenkins plugins (optional, can be removed if you prefer manual installation)
-# Uncomment the following lines if you want to pre-install plugins
-# RUN jenkins-plugin-cli --plugins \
-#   git \
-#   docker-workflow \
-#   kubernetes \
-#   blueocean \
-#   configuration-as-code
-
-# Switch back to jenkins user
 USER jenkins
 
-# Set working directory
-WORKDIR /var/jenkins_home
+# Skip initial setup wizard
+ENV JAVA_OPTS="-Djenkins.install.runSetupWizard=false"
 
-# Expose Jenkins ports
-# 8080: Web UI
-# 50000: Agent communication
-EXPOSE 8080 50000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
-  CMD curl -f http://localhost:8080/login || exit 1
-
-# The base image already has the correct entrypoint
-# ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/jenkins.sh"]

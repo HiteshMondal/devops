@@ -259,18 +259,12 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     deploy_kubernetes local
     deploy_monitoring
     configure_gitlab
-    
-    # Optional components
-    if [[ "${DEPLOY_JENKINS:-false}" == "true" ]]; then
-        echo "🔄 Deploying Jenkins..."
-        deploy_jenkins
-    fi
-    
-    if [[ "${DEPLOY_ARGOCD:-false}" == "true" ]]; then
-        echo "🔄 Deploying ArgoCD..."
-        deploy_argocd
-        self_heal_app
-    fi
+    echo "🔄 Deploying ArgoCD..."
+    deploy_argocd
+    self_heal_app
+    echo "🔄 Deploying Jenkins..."
+    deploy_jenkins
+
     
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
@@ -381,16 +375,11 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
     deploy_kubernetes prod
     deploy_monitoring
     configure_gitlab
-    
-    # Optional components
-    if [[ "${DEPLOY_JENKINS:-true}" == "true" ]]; then
-        deploy_jenkins
-    fi
-    
-    if [[ "${DEPLOY_ARGOCD:-true}" == "true" ]]; then
-        deploy_argocd
-        self_heal_app
-    fi
+    echo "🔄 Deploying ArgoCD..."
+    deploy_argocd
+    self_heal_app
+    echo "🔄 Deploying Jenkins..."
+    deploy_jenkins
     
     echo ""
     echo "  ✅ Application deployed to $K8S_DISTRIBUTION"

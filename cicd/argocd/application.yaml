@@ -3,25 +3,20 @@ kind: Application
 metadata:
   name: devops-app
   namespace: argocd
-  labels:
-    app.kubernetes.io/name: devops-app
-    app.kubernetes.io/part-of: devops-platform
-    app.kubernetes.io/managed-by: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
-
-  # Source of truth (GitOps)
+  
   source:
-    repoURL: https://github.com/HiteshMondal/Devops.git
-    targetRevision: main
-    path: kubernetes/overlays/prod
-
-  # Destination cluster
+    repoURL: ${GIT_REPO_URL}
+    targetRevision: HEAD
+    path: kubernetes/overlays/${DEPLOY_TARGET}
+  
   destination:
     server: https://kubernetes.default.svc
-    namespace: devops-app
-
-  # Sync behavior
+    namespace: ${NAMESPACE}
+  
   syncPolicy:
     automated:
       prune: true
@@ -29,17 +24,15 @@ spec:
       allowEmpty: false
     syncOptions:
       - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
       - PruneLast=true
-      - ApplyOutOfSyncOnly=true
-      - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:
-        duration: 10s
+        duration: 5s
         factor: 2
         maxDuration: 3m
-
-  # Drift management (ignore replicas, so Argo CD won't overwrite scaling)
+  
   ignoreDifferences:
     - group: apps
       kind: Deployment

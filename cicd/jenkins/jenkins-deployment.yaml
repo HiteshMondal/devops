@@ -2,66 +2,102 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ${NAMESPACE}
+  name: jenkins
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins
+  namespace: jenkins
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: jenkins
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec", "pods/log"]
+    verbs: ["*"]
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["get", "list", "create", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: jenkins
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: jenkins
+subjects:
+  - kind: ServiceAccount
+    name: jenkins
+    namespace: jenkins
+
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: jenkins-pvc
-  namespace: ${NAMESPACE}
+  namespace: jenkins
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
       storage: 10Gi
-  # Uncomment and modify for specific storage class
-  # storageClassName: standard
+
 ---
 apiVersion: v1
-kind: ServiceAccount
+kind: ConfigMap
 metadata:
-  name: jenkins
-  namespace: ${NAMESPACE}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: jenkins
-  namespace: ${NAMESPACE}
-rules:
-  - apiGroups: [""]
-    resources: ["pods", "pods/log", "services", "configmaps", "secrets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["apps"]
-    resources: ["deployments", "replicasets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: jenkins
-  namespace: ${NAMESPACE}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: jenkins
-subjects:
-  - kind: ServiceAccount
-    name: jenkins
-    namespace: ${NAMESPACE}
+  name: jenkins-config
+  namespace: jenkins
+data:
+  apply_config.yaml: |
+    jenkins:
+      securityRealm:
+        local:
+          allowsSignup: false
+          users:
+            - id: ${JENKINS_ADMIN_ID:-admin}
+              password: ${JENKINS_ADMIN_PASSWORD:-admin123}
+      authorizationStrategy:
+        globalMatrix:
+          permissions:
+            - "Overall/Administer:${JENKINS_ADMIN_ID:-admin}"
+            - "Overall/Read:authenticated"
+      remotingSecurity:
+        enabled: true
+    security:
+      queueItemAuthenticator:
+        authenticators:
+          - global:
+              strategy: triggeringUsersAuthorizationStrategy
+    unclassified:
+      location:
+        url: http://jenkins.jenkins.svc.cluster.local:8080/
+
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: jenkins
-  namespace: ${NAMESPACE}
+  namespace: jenkins
   labels:
     app: jenkins
 spec:
   replicas: 1
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       app: jenkins
@@ -72,41 +108,48 @@ spec:
     spec:
       serviceAccountName: jenkins
       securityContext:
-        runAsUser: 0
-        fsGroup: 0
+        fsGroup: 1000
+        runAsUser: 1000
       containers:
         - name: jenkins
-          image: ${JENKINS_IMAGE}
-          imagePullPolicy: IfNotPresent
+          image: ${DOCKERHUB_USERNAME}/jenkins-custom:${JENKINS_IMAGE_TAG:-latest}
+          imagePullPolicy: Always
+          env:
+            - name: JAVA_OPTS
+              value: "-Djenkins.install.runSetupWizard=false -Dorg.apache.commons.jelly.tags.fmt.timeZone=America/New_York"
+            - name: JENKINS_ADMIN_ID
+              valueFrom:
+                secretKeyRef:
+                  name: jenkins-secrets
+                  key: admin-user
+            - name: JENKINS_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: jenkins-secrets
+                  key: admin-password
+            - name: DOCKER_HOST
+              value: "unix:///var/run/docker.sock"
+            - name: CASC_JENKINS_CONFIG
+              value: "/var/jenkins_home/casc_configs/apply_config.yaml"
           ports:
-            - name: http
+            - name: http-port
               containerPort: 8080
-              protocol: TCP
-            - name: jnlp
+            - name: jnlp-port
               containerPort: 50000
-              protocol: TCP
-          securityContext:
-            privileged: true
-            runAsUser: 0
           volumeMounts:
             - name: jenkins-home
               mountPath: /var/jenkins_home
             - name: docker-sock
               mountPath: /var/run/docker.sock
-          env:
-            - name: DOCKER_HOST
-              value: unix:///var/run/docker.sock
-            - name: JAVA_OPTS
-              value: "-Djenkins.install.runSetupWizard=true"
-            - name: JENKINS_OPTS
-              value: "--httpPort=8080"
+            - name: jenkins-config
+              mountPath: /var/jenkins_home/casc_configs
           resources:
             requests:
-              memory: "512Mi"
-              cpu: "500m"
+              cpu: ${JENKINS_CPU_REQUEST:-500m}
+              memory: ${JENKINS_MEMORY_REQUEST:-1Gi}
             limits:
-              memory: "2Gi"
-              cpu: "2000m"
+              cpu: ${JENKINS_CPU_LIMIT:-2000m}
+              memory: ${JENKINS_MEMORY_LIMIT:-2Gi}
           livenessProbe:
             httpGet:
               path: /login
@@ -131,26 +174,27 @@ spec:
           hostPath:
             path: /var/run/docker.sock
             type: Socket
+        - name: jenkins-config
+          configMap:
+            name: jenkins-config
+
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: jenkins
-  namespace: ${NAMESPACE}
+  namespace: jenkins
   labels:
     app: jenkins
 spec:
   type: NodePort
-  selector:
-    app: jenkins
   ports:
     - name: http
       port: 8080
       targetPort: 8080
-      nodePort: 30080
-      protocol: TCP
+      nodePort: 32000
     - name: jnlp
       port: 50000
       targetPort: 50000
-      protocol: TCP
-  sessionAffinity: ClientIP
+  selector:
+    app: jenkins

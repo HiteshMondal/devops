@@ -1,125 +1,125 @@
 #!/bin/bash
+
+# ArgoCD Self-Heal Application Script
+# Ensures ArgoCD application is configured with self-healing enabled
+# Can be run standalone or called as a function from run.sh
+
 set -euo pipefail
 
 self_heal_app() {
-  echo "🛠️  ArgoCD Self-Healing for Application"
-  
-  # Validate required variables - works in both .env and CI/CD contexts
-  : "${APP_NAME:?Missing APP_NAME - set in .env or GitLab variables}"
-  : "${NAMESPACE:?Missing NAMESPACE - set in .env or GitLab variables}"
-  
-  # Set ArgoCD application name (default to APP_NAME if not specified)
-  ARGO_APP="${ARGO_APP:-$APP_NAME}"
-  
-  echo "📋 Configuration:"
-  echo "   Application: $ARGO_APP"
-  echo "   Namespace: $NAMESPACE"
-  echo ""
-  
-  # Check if ArgoCD is installed
-  if ! kubectl get namespace argocd >/dev/null 2>&1; then
-    echo "⚠️  ArgoCD namespace not found"
-    echo "   Self-healing requires ArgoCD to be installed"
-    echo "   Skipping self-healing configuration"
-    return 0
-  fi
-  
-  # Check if the application exists in ArgoCD
-  if ! kubectl get application "$ARGO_APP" -n argocd >/dev/null 2>&1; then
-    echo "⚠️  ArgoCD application '$ARGO_APP' not found"
-    echo "   Available applications:"
-    kubectl get applications -n argocd 2>/dev/null || echo "   None"
     echo ""
-    echo "   Skipping self-healing for non-existent application"
-    return 0
-  fi
-  
-  echo "🔄 Triggering hard refresh for ArgoCD application..."
-  
-  # Annotate application to trigger hard refresh
-  kubectl annotate application "$ARGO_APP" \
-    -n argocd \
-    argocd.argoproj.io/refresh=hard \
-    --overwrite || {
-    echo "⚠️  Failed to annotate application for refresh"
-    echo "   Continuing with pod cleanup..."
-  }
-  
-  # Give ArgoCD time to process the refresh
-  echo "⏳ Waiting for refresh to be processed (5 seconds)..."
-  sleep 5
-  
-  # Check for problematic pods in the application namespace
-  echo "🔍 Checking for problematic pods in namespace: $NAMESPACE"
-  
-  if ! kubectl get namespace "$NAMESPACE" >/dev/null 2>&1; then
-    echo "ℹ️  Namespace '$NAMESPACE' does not exist yet"
-    echo "   No pods to heal"
-    return 0
-  fi
-  
-  # Find pods in bad states
-  BAD_PODS=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null \
-    | grep -E "CrashLoopBackOff|ImagePullBackOff|ErrImagePull|CreateContainerConfigError|OOMKilled|Error" \
-    | awk '{print $1}' || echo "")
-  
-  if [[ -z "$BAD_PODS" ]]; then
-    echo "✅ No problematic pods found"
-  else
-    echo "⚠️  Found problematic pods:"
-    echo "$BAD_PODS" | while read -r pod; do
-      echo "   • $pod"
-    done
+    echo "🔧 Configuring ArgoCD Self-Healing..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    # Determine script directory
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    
+    # Load environment variables from different sources
+    if [[ -f "${PROJECT_ROOT:-}/.env" ]]; then
+        source "${PROJECT_ROOT}/.env"
+    elif [[ -f "$SCRIPT_DIR/../../.env" ]]; then
+        PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+        source "$PROJECT_ROOT/.env"
+    else
+        : "${APP_NAME:=devops-app}"
+        : "${NAMESPACE:=devops-app}"
+    fi
+    
+    ARGOCD_NAMESPACE="${ARGOCD_NAMESPACE:-argocd}"
+    
+    # Check if ArgoCD is installed
+    if ! kubectl get namespace "$ARGOCD_NAMESPACE" >/dev/null 2>&1; then
+        echo "❌ ArgoCD namespace not found. Please deploy ArgoCD first."
+        return 1
+    fi
+    
+    # Check if application exists
+    if ! kubectl get application "$APP_NAME" -n "$ARGOCD_NAMESPACE" >/dev/null 2>&1; then
+        echo "⚠️  ArgoCD application '$APP_NAME' not found in namespace '$ARGOCD_NAMESPACE'"
+        echo "   It will be created when you deploy the application.yaml"
+        return 0
+    fi
+    
+    echo "📋 Configuring self-healing for application: $APP_NAME"
+    
+    # Patch the application to enable self-healing
+    cat <<EOF | kubectl apply -f -
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: $APP_NAME
+  namespace: $ARGOCD_NAMESPACE
+spec:
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+EOF
+    
+    echo "✅ Self-healing configuration applied"
+    echo ""
+    echo "📊 Self-Healing Features Enabled:"
+    echo "   ✓ Auto-sync: Automatically syncs when Git changes detected"
+    echo "   ✓ Self-heal: Reverts manual changes to match Git state"
+    echo "   ✓ Prune: Removes resources deleted from Git"
+    echo "   ✓ Retry: Up to 5 retries with exponential backoff"
     echo ""
     
-    # Delete each problematic pod
-    echo "$BAD_PODS" | while read -r pod; do
-      if [[ -n "$pod" ]]; then
-        echo "🗑️  Deleting pod: $pod"
-        kubectl delete pod "$pod" -n "$NAMESPACE" --grace-period=0 --force 2>/dev/null || {
-          kubectl delete pod "$pod" -n "$NAMESPACE" 2>/dev/null || {
-            echo "   ⚠️  Failed to delete pod: $pod"
-          }
-        }
-      fi
-    done
+    # Verify sync policy
+    echo "🔍 Verifying sync policy..."
+    SELF_HEAL=$(kubectl get application "$APP_NAME" -n "$ARGOCD_NAMESPACE" \
+        -o jsonpath='{.spec.syncPolicy.automated.selfHeal}' 2>/dev/null || echo "false")
+    AUTO_SYNC=$(kubectl get application "$APP_NAME" -n "$ARGOCD_NAMESPACE" \
+        -o jsonpath='{.spec.syncPolicy.automated}' 2>/dev/null || echo "")
+    
+    if [[ "$SELF_HEAL" == "true" ]]; then
+        echo "✅ Self-healing is ENABLED"
+    else
+        echo "⚠️  Self-healing status: $SELF_HEAL"
+    fi
+    
+    # Show application health
+    echo ""
+    echo "🏥 Application Health Status:"
+    kubectl get application "$APP_NAME" -n "$ARGOCD_NAMESPACE" \
+        -o jsonpath='{.status.health.status}' 2>/dev/null && echo "" || echo "Unknown"
     
     echo ""
-    echo "✅ Problematic pods deleted"
-  fi
-  
-  # Wait for deployment to stabilize
-  echo ""
-  echo "⏳ Waiting for deployment rollout to complete..."
-  
-  # Check if deployment exists
-  if kubectl get deployment "$APP_NAME" -n "$NAMESPACE" >/dev/null 2>&1; then
-    kubectl rollout status deployment/"$APP_NAME" -n "$NAMESPACE" --timeout=300s || {
-      echo "⚠️  Deployment rollout did not complete within 5 minutes"
-      echo "   Check status manually: kubectl get pods -n $NAMESPACE"
-    }
-  else
-    echo "ℹ️  Deployment '$APP_NAME' not found in namespace '$NAMESPACE'"
-    echo "   Skipping rollout status check"
-  fi
-  
-  # Display final pod status
-  echo ""
-  echo "📊 Current pod status in namespace '$NAMESPACE':"
-  kubectl get pods -n "$NAMESPACE" 2>/dev/null || echo "   No pods found"
-  
-  echo ""
-  echo "✅ Self-Healing Process Complete"
-  echo ""
-  echo "🔍 Verify application health:"
-  echo "   • ArgoCD UI: kubectl port-forward svc/argocd-server -n argocd 8080:443"
-  echo "   • Application status: kubectl get application $ARGO_APP -n argocd"
-  echo "   • Pod status: kubectl get pods -n $NAMESPACE"
-  echo "   • Pod logs: kubectl logs -n $NAMESPACE -l app=$APP_NAME"
-  echo ""
+    echo "📈 Sync Status:"
+    kubectl get application "$APP_NAME" -n "$ARGOCD_NAMESPACE" \
+        -o jsonpath='{.status.sync.status}' 2>/dev/null && echo "" || echo "Unknown"
+    
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  💡 Testing Self-Healing"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "  To test self-healing, try making a manual change:"
+    echo "  1. kubectl scale deployment/$APP_NAME --replicas=5 -n $NAMESPACE"
+    echo "  2. Watch ArgoCD automatically revert it:"
+    echo "     kubectl get deployment/$APP_NAME -n $NAMESPACE -w"
+    echo ""
+    echo "  Monitor ArgoCD sync:"
+    echo "     watch kubectl get application $APP_NAME -n $ARGOCD_NAMESPACE"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    echo ""
+    echo "✅ Self-healing configuration completed!"
 }
 
-# Only run if executed directly (not sourced)
+# If script is executed directly (not sourced)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  self_heal_app
+    self_heal_app
 fi

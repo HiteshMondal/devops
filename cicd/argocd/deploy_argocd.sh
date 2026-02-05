@@ -1,200 +1,190 @@
 #!/bin/bash
+
+# ArgoCD Deployment Script
+# Can be run standalone or called as a function from run.sh
+# Usage: 
+#   Standalone: ./deploy_argocd.sh
+#   From run.sh: deploy_argocd (function call)
+
 set -euo pipefail
 
 deploy_argocd() {
-  echo "🔧 Deploying ArgoCD for GitOps"
-  
-  # Validate required variables - works in both .env and CI/CD contexts
-  : "${GITHUB_USERNAME:?Missing GITHUB_USERNAME - set in .env or GitLab variables}"
-  : "${GIT_AUTHOR_NAME:?Missing GIT_AUTHOR_NAME - set in .env or GitLab variables}"
-  : "${GIT_AUTHOR_EMAIL:?Missing GIT_AUTHOR_EMAIL - set in .env or GitLab variables}"
-  
-  # Configure Git identity
-  echo "👤 Setting Git identity..."
-  git config --global user.name "$GIT_AUTHOR_NAME" || git config user.name "$GIT_AUTHOR_NAME"
-  git config --global user.email "$GIT_AUTHOR_EMAIL" || git config user.email "$GIT_AUTHOR_EMAIL"
-  
-  # Determine project root - works in both local and CI environments
-  if [[ -n "${PROJECT_ROOT:-}" ]]; then
-    # PROJECT_ROOT is set (run.sh)
-    ARGOCD_APP_PATH="${PROJECT_ROOT}/cicd/argocd/application.yaml"
-  elif [[ -n "${CI_PROJECT_DIR:-}" ]]; then
-    # GitLab CI environment
-    ARGOCD_APP_PATH="${CI_PROJECT_DIR}/cicd/argocd/application.yaml"
-  else
-    # Fallback: search from current directory
-    if [[ -f "cicd/argocd/application.yaml" ]]; then
-      ARGOCD_APP_PATH="cicd/argocd/application.yaml"
-    elif [[ -f "argocd/application.yaml" ]]; then
-      ARGOCD_APP_PATH="argocd/application.yaml"
+    echo ""
+    echo "🔄 Deploying ArgoCD..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    # Determine script directory
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    
+    # Load environment variables from different sources
+    if [[ -f "${PROJECT_ROOT:-}/.env" ]]; then
+        # Called from run.sh - use PROJECT_ROOT .env
+        source "${PROJECT_ROOT}/.env"
+        echo "✅ Loaded configuration from PROJECT_ROOT/.env"
+    elif [[ -f "$SCRIPT_DIR/../../.env" ]]; then
+        # Standalone execution - find .env relative to script
+        PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+        source "$PROJECT_ROOT/.env"
+        echo "✅ Loaded configuration from $PROJECT_ROOT/.env"
     else
-      echo "❌ Could not locate argocd/application.yaml"
-      exit 1
+        echo "⚠️  No .env file found. Using environment variables or defaults."
+        # Set defaults for required variables
+        : "${NAMESPACE:=devops-app}"
+        : "${APP_NAME:=devops-app}"
+        : "${DEPLOY_TARGET:=local}"
+        : "${GITHUB_USERNAME:=yourgithubusername}"
     fi
-  fi
-  
-  echo "📝 Resolving GitOps placeholders in: $ARGOCD_APP_PATH"
-  
-  # Check if file exists
-  if [[ ! -f "$ARGOCD_APP_PATH" ]]; then
-    echo "❌ ArgoCD application file not found at: $ARGOCD_APP_PATH"
-    exit 1
-  fi
-  
-  # Replace placeholder ONLY if still present
-  if grep -q "<GITHUB_USERNAME>\|GITHUB_USERNAME" "$ARGOCD_APP_PATH"; then
-    echo "🔄 Replacing GitHub username placeholder..."
     
-    # Create backup
-    cp "$ARGOCD_APP_PATH" "${ARGOCD_APP_PATH}.bak"
+    # ArgoCD Configuration with defaults
+    ARGOCD_NAMESPACE="${ARGOCD_NAMESPACE:-argocd}"
+    ARGOCD_VERSION="${ARGOCD_VERSION:-stable}"
+    ARGOCD_ADMIN_PASSWORD="${ARGOCD_ADMIN_PASSWORD:-admin123}"
     
-    # Replace all variations of placeholder
-    sed -i.tmp \
-      -e "s|<GITHUB_USERNAME>|${GITHUB_USERNAME}|g" \
-      -e "s|GITHUB_USERNAME|${GITHUB_USERNAME}|g" \
-      "$ARGOCD_APP_PATH"
+    echo "📋 ArgoCD Configuration:"
+    echo "   Namespace: $ARGOCD_NAMESPACE"
+    echo "   Version: $ARGOCD_VERSION"
+    echo "   Target App Namespace: $NAMESPACE"
+    echo ""
     
-    # Remove temporary file
-    rm -f "${ARGOCD_APP_PATH}.tmp"
+    # Check if ArgoCD is already installed
+    if kubectl get namespace "$ARGOCD_NAMESPACE" >/dev/null 2>&1; then
+        echo "✅ ArgoCD namespace already exists"
+    else
+        echo "📦 Creating ArgoCD namespace..."
+        kubectl create namespace "$ARGOCD_NAMESPACE"
+    fi
     
-    echo "✅ Placeholder resolved: GITHUB_USERNAME → ${GITHUB_USERNAME}"
-  else
-    echo "ℹ️  Placeholder already resolved"
-  fi
-  
-  # Commit and push changes if we're in a git repository and changes were made
-  if git rev-parse --git-dir > /dev/null 2>&1; then
-    if ! git diff --quiet "$ARGOCD_APP_PATH" 2>/dev/null; then
-      echo "📝 Committing GitOps configuration changes..."
-      
-      git add "$ARGOCD_APP_PATH"
-      git commit -m "chore(gitops): resolve repository placeholders" || {
-        echo "ℹ️  Nothing to commit (changes may already be committed)"
-      }
-      
-      # Only push if we're not in CI or if explicitly allowed
-      if [[ "${CI:-false}" != "true" ]] || [[ "${GITOPS_AUTO_PUSH:-false}" == "true" ]]; then
-        echo "🚀 Pushing GitOps configuration..."
+    # Install ArgoCD
+    if kubectl get deployment argocd-server -n "$ARGOCD_NAMESPACE" >/dev/null 2>&1; then
+        echo "✅ ArgoCD is already installed"
+    else
+        echo "📥 Installing ArgoCD..."
+        kubectl apply -n "$ARGOCD_NAMESPACE" -f "https://raw.githubusercontent.com/argoproj/argo-cd/$ARGOCD_VERSION/manifests/install.yaml"
         
-        # Determine branch to push
-        CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-        
-        git push origin "$CURRENT_BRANCH" || {
-          echo "⚠️  Failed to push changes (may need to configure git credentials)"
-          echo "   Changes are committed locally but not pushed"
+        echo "⏳ Waiting for ArgoCD CRDs to be ready..."
+        kubectl wait --for=condition=Established \
+          --timeout=120s \
+          crd/applications.argoproj.io
+
+        echo "⏳ Waiting for ArgoCD to be ready..."
+        kubectl wait --for=condition=available --timeout=300s \
+            deployment/argocd-server -n "$ARGOCD_NAMESPACE" || {
+            echo "⚠️  ArgoCD deployment timeout - checking status..."
+            kubectl get pods -n "$ARGOCD_NAMESPACE"
         }
-      else
-        echo "ℹ️  Skipping git push in CI environment (set GITOPS_AUTO_PUSH=true to enable)"
-      fi
+    fi
+    
+    # Patch ArgoCD server service for easier access
+    echo "🔧 Configuring ArgoCD service..."
+    
+    # Determine service type based on K8s distribution
+    SERVICE_TYPE="NodePort"
+    if [[ "${K8S_DISTRIBUTION:-}" == "minikube" ]] || [[ "${K8S_DISTRIBUTION:-}" == "kind" ]]; then
+        SERVICE_TYPE="NodePort"
+    elif [[ "${K8S_DISTRIBUTION:-}" == "eks" ]] || [[ "${K8S_DISTRIBUTION:-}" == "gke" ]] || [[ "${K8S_DISTRIBUTION:-}" == "aks" ]]; then
+        SERVICE_TYPE="LoadBalancer"
+    fi
+    
+    kubectl patch svc argocd-server -n "$ARGOCD_NAMESPACE" -p "{\"spec\":{\"type\":\"$SERVICE_TYPE\"}}" || true
+    
+    # Get ArgoCD admin password
+    echo ""
+    echo "🔐 Retrieving ArgoCD credentials..."
+    ARGOCD_PWD=$(kubectl -n "$ARGOCD_NAMESPACE" get secret argocd-initial-admin-secret \
+        -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || echo "")
+    
+    if [[ -z "$ARGOCD_PWD" ]]; then
+        echo "⚠️  Could not retrieve ArgoCD password automatically"
+        echo "   Run: kubectl -n $ARGOCD_NAMESPACE get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
     else
-      echo "ℹ️  No GitOps changes to commit"
-    fi
-  else
-    echo "ℹ️  Not in a git repository, skipping commit/push"
-  fi
-  
-  echo ""
-  echo "🚀 Installing ArgoCD..."
-  
-  # Verify kubectl is configured
-  kubectl cluster-info >/dev/null 2>&1 || {
-    echo "❌ kubectl not configured or cluster not accessible"
-    exit 1
-  }
-  
-  # Create ArgoCD namespace
-  echo "📁 Creating ArgoCD namespace..."
-  kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-  
-  # Install ArgoCD
-  ARGO_CD_VERSION=${ARGO_CD_VERSION:-v2.9.3}
-  echo "📦 Installing ArgoCD ${ARGO_CD_VERSION}..."
-  
-  kubectl apply -n argocd \
-    -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGO_CD_VERSION}/manifests/install.yaml" || {
-    echo "❌ Failed to install ArgoCD"
-    exit 1
-  }
-  
-  # Wait for ArgoCD components
-  echo "⏳ Waiting for ArgoCD components to be ready..."
-  kubectl wait --for=condition=available --timeout=300s \
-    deployment/argocd-server -n argocd || {
-    echo "⚠️  ArgoCD server deployment timed out, but continuing..."
-  }
-  
-  echo "✅ ArgoCD installed successfully"
-  echo ""
-  
-  # Get ArgoCD admin password
-  echo "🔐 Retrieving ArgoCD admin credentials..."
-  
-  ADMIN_PASSWORD=""
-  for i in {1..12}; do
-    ADMIN_PASSWORD=$(kubectl get secret argocd-initial-admin-secret \
-      -n argocd -o jsonpath="{.data.password}" 2>/dev/null | base64 -d 2>/dev/null || echo "")
-    
-    if [[ -n "$ADMIN_PASSWORD" ]]; then
-      break
+        echo "✅ ArgoCD Admin Credentials:"
+        echo "   Username: admin"
+        echo "   Password: $ARGOCD_PWD"
     fi
     
-    echo -n "."
+    # Deploy ArgoCD Application manifest
+    echo ""
+    echo "📝 Creating ArgoCD Application..."
+    
+    # Process application.yaml with environment variable substitution
+    APP_MANIFEST="$SCRIPT_DIR/application.yaml"
+    
+    if [[ ! -f "$APP_MANIFEST" ]]; then
+        echo "❌ Application manifest not found: $APP_MANIFEST"
+        return 1
+    fi
+    
+    # Create temporary file with substituted values
+    TMP_MANIFEST=$(mktemp)
+    trap "rm -f $TMP_MANIFEST" EXIT
+    
+    # Substitute environment variables in the manifest
+    envsubst '${GIT_REPO_URL} ${DEPLOY_TARGET} ${NAMESPACE}' \
+      < "$APP_MANIFEST" > "$TMP_MANIFEST"
+    
+    echo "🔍 Generated manifest:"
+    cat "$TMP_MANIFEST"
+
+    # Apply the application manifest
+    kubectl apply -f "$TMP_MANIFEST"
+    
+    echo "✅ ArgoCD Application created"
+    
+    # Wait for application to sync
+    echo ""
+    echo "⏳ Waiting for initial sync..."
     sleep 5
-  done
-  echo ""
-  
-  if [[ -n "$ADMIN_PASSWORD" ]]; then
+    
+    # Show ArgoCD access information
     echo ""
-    echo "═════════════════════════════════════════════════════"
-    echo "🔐 ArgoCD Admin Credentials"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  🎯 ArgoCD Access Information"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    case "${K8S_DISTRIBUTION:-unknown}" in
+        minikube)
+            MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "localhost")
+            ARGOCD_PORT=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+            if [[ -n "$ARGOCD_PORT" ]]; then
+                echo "  🌐 ArgoCD UI:     https://$MINIKUBE_IP:$ARGOCD_PORT"
+            fi
+            ;;
+        kind)
+            ARGOCD_PORT=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+            if [[ -n "$ARGOCD_PORT" ]]; then
+                echo "  🌐 ArgoCD UI:     https://localhost:$ARGOCD_PORT"
+            fi
+            ;;
+        eks|gke|aks)
+            ARGOCD_LB=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || \
+                        kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            if [[ -n "$ARGOCD_LB" ]]; then
+                echo "  🌐 ArgoCD UI:     https://$ARGOCD_LB"
+            else
+                echo "  ⏳ LoadBalancer provisioning... Check: kubectl get svc -n $ARGOCD_NAMESPACE"
+            fi
+            ;;
+        *)
+            echo "  💡 Port-forward:  kubectl port-forward svc/argocd-server -n $ARGOCD_NAMESPACE 8080:443"
+            echo "     Then access:   https://localhost:8080"
+            ;;
+    esac
+    
+    echo "  👤 Username:      admin"
+    if [[ -n "$ARGOCD_PWD" ]]; then
+        echo "  🔑 Password:      $ARGOCD_PWD"
+    fi
     echo ""
-    echo "👤 Username: admin"
-    echo "🔐 Password: $ADMIN_PASSWORD"
+    echo "  📱 CLI Login:     argocd login <ARGOCD_SERVER>"
+    echo "  📊 App Status:    kubectl get applications -n $ARGOCD_NAMESPACE"
     echo ""
-    echo "💡 Save this password for accessing ArgoCD UI"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
     echo ""
-  else
-    echo "⚠️  Could not retrieve ArgoCD admin password"
-    echo "   Try manually: kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d"
-  fi
-  
-  # Display access information
-  echo ""
-  echo "🌐 ArgoCD UI Access:"
-  echo "   Port-forward: kubectl port-forward svc/argocd-server -n argocd 8080:443"
-  echo "   URL: https://localhost:8080"
-  echo "═════════════════════════════════════════════════════"
-  echo ""
-  
-  # Apply ArgoCD Application
-  if [[ -f "$ARGOCD_APP_PATH" ]]; then
-    echo "📋 Applying ArgoCD Application manifest..."
-    kubectl apply -f "$ARGOCD_APP_PATH" || {
-      echo "⚠️  Failed to apply ArgoCD Application"
-      echo "   You can apply it manually: kubectl apply -f $ARGOCD_APP_PATH"
-    }
-    echo "✅ ArgoCD Application applied"
-  else
-    echo "⚠️  ArgoCD Application file not found, skipping application"
-  fi
-  
-  echo ""
-  echo "✅ ArgoCD Deployment Complete"
-  echo ""
-  echo "📚 Next Steps:"
-  echo "1. Access ArgoCD UI using port-forward"
-  echo "2. Login with admin credentials"
-  echo "3. Verify application sync status"
-  echo ""
-  echo "🔍 Useful Commands:"
-  echo "   • List applications: kubectl get applications -n argocd"
-  echo "   • Sync application: kubectl patch application <app-name> -n argocd -p '{\"spec\":{\"syncPolicy\":{\"automated\":{}}}}' --type merge"
-  echo "   • View ArgoCD logs: kubectl logs -n argocd -l app.kubernetes.io/name=argocd-server"
-  echo "═══════════════════════════════════════════"
-  echo ""
+    echo "✅ ArgoCD deployment completed!"
 }
 
-# Only run if executed directly (not sourced)
+# If script is executed directly (not sourced)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  deploy_argocd
+    deploy_argocd
 fi

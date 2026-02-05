@@ -93,6 +93,8 @@ GRAFANA_MEMORY_LIMIT=1Gi
 AWS_REGION=us-east-1
 AWS_ACCOUNT_ID=123456789012
 EKS_CLUSTER_NAME=devops-cluster
+AWS_ACCESS_KEY_ID=ACCESSKEYEXAMPLE
+AWS_SECRET_ACCESS_KEY=avErySampLEEXAMPLEKEY
 
 # Git Configuration
 GIT_AUTHOR_NAME=Your Name
@@ -102,6 +104,7 @@ GIT_AUTHOR_EMAIL=you@example.com
 GITHUB_USERNAME=yourgithubusername
 GITHUB_EMAIL=yourmail@example.com
 GITHUB_TOKEN=your-github-personal-access-token
+GIT_REPO_URL=https://github.com/User_Name/Project_Name.git
 
 # Deployment Configuration
 # Deployment target: 'local' for Minikube, 'prod' for AWS EKS
@@ -123,10 +126,3 @@ MINIKUBE_INGRESS=true
 # Minikube resources
 MINIKUBE_MEMORY=4096
 MINIKUBE_CPUS=2
-
-# AWS Configuration (for prod deployment)
-AWS_REGION=us-east-1
-AWS_ACCOUNT_ID=123456789012
-EKS_CLUSTER_NAME=devops-cluster
-AWS_ACCESS_KEY_ID=ACCESSKEYEXAMPLE
-AWS_SECRET_ACCESS_KEY=avErySampLEEXAMPLEKEY
