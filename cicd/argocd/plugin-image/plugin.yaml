@@ -1,3 +1,5 @@
+---
+# /cicd/argocd/plugin-image/plugin.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -52,3 +54,43 @@ data:
             kustomize build .
             
             echo "==================== Plugin Execution Complete ===================="
+
+---
+# Then patch the argocd-repo-server deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-repo-server
+  namespace: argocd
+spec:
+  template:
+    spec:
+      # Add volumes for the plugin
+      volumes:
+      - name: cmp-plugin
+        configMap:
+          name: cmp-plugin
+      - name: cmp-tmp
+        emptyDir: {}
+      
+      # Add the plugin sidecar container
+      containers:
+      - name: envsubst-kustomize-plugin
+        image: ${DOCKERHUB_USERNAME}/argocd-envsubst-kustomize:1.0
+        command: [/var/run/argocd/argocd-cmp-server]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 999
+        volumeMounts:
+        - mountPath: /var/run/argocd
+          name: var-files
+        - mountPath: /home/argocd/cmp-server/plugins
+          name: plugins
+        - mountPath: /tmp
+          name: cmp-tmp
+        - mountPath: /home/argocd/cmp-server/config/plugin.yaml
+          subPath: plugin.yaml
+          name: cmp-plugin
+        env:
+        - name: KUSTOMIZE_PLUGIN_HOME
+          value: /home/argocd/.config/kustomize/plugin

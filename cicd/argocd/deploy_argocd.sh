@@ -132,7 +132,7 @@ deploy_argocd() {
                     {"mountPath": "/var/run/argocd", "name": "var-files"},
                     {"mountPath": "/home/argocd/cmp-server/plugins", "name": "plugins"},
                     {"mountPath": "/tmp", "name": "cmp-tmp"},
-                    {"mountPath": "/home/argocd/cmp-server/config/plugin.yaml", "subPath": "plugin.yaml", "name": "cmp-plugin"}
+                    {"mountPath: /home/argocd/cmp-server/config/plugins/plugin.yaml", "subPath": "plugin.yaml", "name": "cmp-plugin"}
                   ],
                   "env": [{"name": "KUSTOMIZE_PLUGIN_HOME", "value": "/home/argocd/.config/kustomize/plugin"}]
                 }
