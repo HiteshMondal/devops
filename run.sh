@@ -263,7 +263,7 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     deploy_argocd
     self_heal_app
     echo "🔄 Deploying Jenkins..."
-    deploy_jenkins
+    #deploy_jenkins
 
     
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

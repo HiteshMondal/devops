@@ -60,7 +60,18 @@ deploy_argocd() {
         echo "📦 Creating ArgoCD namespace..."
         kubectl create namespace "$ARGOCD_NAMESPACE"
     fi
-    
+
+    echo "$DOCKERHUB_PASSWORD" | docker login \
+      --username "$DOCKERHUB_USERNAME" \
+      --password-stdin
+
+    docker build \
+      -t "$DOCKERHUB_USERNAME/argocd-envsubst-kustomize:1.0" \
+      "$SCRIPT_DIR/plugin-image"
+
+    docker push \
+      "$DOCKERHUB_USERNAME/argocd-envsubst-kustomize:1.0"
+
     # Install ArgoCD
     if kubectl get deployment argocd-server -n "$ARGOCD_NAMESPACE" >/dev/null 2>&1; then
         echo "✅ ArgoCD is already installed"
@@ -88,26 +99,13 @@ deploy_argocd() {
         }
     fi
     
-    # Apply custom plugin configuration
-    echo ""
-    echo "🔧 Configuring custom envsubst-kustomize plugin..."
-    
-    if [[ -f "$SCRIPT_DIR/cmp-plugin.yaml" ]]; then
-        kubectl apply -f "$SCRIPT_DIR/cmp-plugin.yaml"
-        echo "✅ Custom plugin ConfigMap applied"
-    else
-        echo "⚠️  cmp-plugin.yaml not found at $SCRIPT_DIR/cmp-plugin.yaml"
-        echo "   Plugin configuration skipped"
-    fi
-    
     # Patch ArgoCD repo-server to use the plugin
     echo ""
     echo "🔧 Patching argocd-repo-server with plugin sidecar..."
     
-    if [[ -f "$SCRIPT_DIR/argocd-repo-server-patch.yaml" ]]; then
+    if [[ -f "$SCRIPT_DIR/argocd-cmp-config.yaml" ]]; then
         # Use strategic merge patch for proper sidecar injection
-        kubectl patch deployment argocd-repo-server -n "$ARGOCD_NAMESPACE" \
-            --type='strategic' --patch-file="$SCRIPT_DIR/argocd-repo-server-patch.yaml" || {
+        kubectl apply -f "$SCRIPT_DIR/argocd-cmp-config.yaml" || {
             echo "⚠️  Strategic patch failed, trying json patch..."
             
             # Alternative: Direct JSON patch
@@ -127,7 +125,7 @@ deploy_argocd() {
                 "path": "/spec/template/spec/containers/-",
                 "value": {
                   "name": "envsubst-kustomize-plugin",
-                  "image": "alpine/kustomize:v5.3.0",
+                  "image": "'$DOCKERHUB_USERNAME'/argocd-envsubst-kustomize:1.0",
                   "command": ["/var/run/argocd/argocd-cmp-server"],
                   "securityContext": {"runAsNonRoot": true, "runAsUser": 999},
                   "volumeMounts": [
