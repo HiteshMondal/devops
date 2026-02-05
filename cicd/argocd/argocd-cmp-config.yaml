@@ -6,17 +6,25 @@ metadata:
 spec:
   template:
     spec:
+      # Add volume for plugin configuration
+      volumes:
+      - name: cmp-plugin
+        configMap:
+          name: cmp-plugin
+      - name: cmp-tmp
+        emptyDir: {}
+      
       containers:
+      # Main repo-server container - add volume mount
       - name: argocd-repo-server
         volumeMounts:
         - name: cmp-plugin
-          mountPath: /home/argocd/cmp-server/plugins
-        - name: cmp-tmp
-          mountPath: /tmp
+          mountPath: /home/argocd/cmp-server/config/plugin.yaml
+          subPath: plugin.yaml
       
-      # Sidecar container for the custom plugin
+      # Sidecar container for custom plugin
       - name: envsubst-kustomize-plugin
-        image: alpine/kustomize:latest
+        image: alpine/kustomize:v5.3.0
         command: [/var/run/argocd/argocd-cmp-server]
         securityContext:
           runAsNonRoot: true
@@ -34,14 +42,3 @@ spec:
         env:
           - name: KUSTOMIZE_PLUGIN_HOME
             value: /home/argocd/.config/kustomize/plugin
-      
-      volumes:
-      - name: cmp-plugin
-        configMap:
-          name: cmp-plugin
-      - name: cmp-tmp
-        emptyDir: {}
-      - name: var-files
-        emptyDir: {}
-      - name: plugins
-        emptyDir: {}

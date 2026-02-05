@@ -42,30 +42,32 @@ self_heal_app() {
     
     echo "📋 Configuring self-healing for application: $APP_NAME"
     
-    # Patch the application to enable self-healing
-    cat <<EOF | kubectl apply -f -
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: $APP_NAME
-  namespace: $ARGOCD_NAMESPACE
-spec:
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-      allowEmpty: false
-    syncOptions:
-      - CreateNamespace=true
-      - PrunePropagationPolicy=foreground
-      - PruneLast=true
-    retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
-EOF
+    # Patch the application to enable self-healing (using patch instead of apply)
+    kubectl patch application "$APP_NAME" -n "$ARGOCD_NAMESPACE" --type=merge -p '
+{
+  "spec": {
+    "syncPolicy": {
+      "automated": {
+        "prune": true,
+        "selfHeal": true,
+        "allowEmpty": false
+      },
+      "syncOptions": [
+        "CreateNamespace=true",
+        "PrunePropagationPolicy=foreground",
+        "PruneLast=true"
+      ],
+      "retry": {
+        "limit": 5,
+        "backoff": {
+          "duration": "5s",
+          "factor": 2,
+          "maxDuration": "3m"
+        }
+      }
+    }
+  }
+}'
     
     echo "✅ Self-healing configuration applied"
     echo ""
