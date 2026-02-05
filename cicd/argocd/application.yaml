@@ -15,8 +15,7 @@ spec:
   
   destination:
     server: https://kubernetes.default.svc
-    namespace: ${NAMESPACE}
-  
+    namespace: devops-app  
   syncPolicy:
     automated:
       prune: true

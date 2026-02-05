@@ -7,7 +7,7 @@ kind: Kustomization
 bases:
   - ../../base
 
-namespace: ${NAMESPACE}
+namespace: devops-app
 
 namePrefix: local-
 
@@ -21,8 +21,8 @@ patchesStrategicMerge:
     apiVersion: apps/v1
     kind: Deployment
     metadata:
-      name: ${APP_NAME}
-      namespace: ${NAMESPACE}
+      name: devops-app
+      namespace: devops-app
     spec:
       replicas: 1
       template:
@@ -31,7 +31,7 @@ patchesStrategicMerge:
             environment: local
         spec:
           containers:
-          - name: ${APP_NAME}
+          - name: devops-app
             resources:
               requests:
                 cpu: 50m
@@ -45,8 +45,8 @@ patchesStrategicMerge:
     apiVersion: autoscaling/v2
     kind: HorizontalPodAutoscaler
     metadata:
-      name: ${APP_NAME}-hpa
-      namespace: ${NAMESPACE}
+      name: devops-app-hpa
+      namespace: devops-app
     spec:
       minReplicas: 1
       maxReplicas: 3
@@ -64,8 +64,8 @@ patchesStrategicMerge:
     apiVersion: v1
     kind: Service
     metadata:
-      name: ${APP_NAME}-service
-      namespace: ${NAMESPACE}
+      name: devops-app-service
+      namespace: devops-app
       annotations:
         # K3s LoadBalancer support (optional, falls back to NodePort)
         servicelb.k3s.cattle.io/enable: "true"
@@ -73,7 +73,7 @@ patchesStrategicMerge:
       type: NodePort
       ports:
       - port: 80
-        targetPort: ${APP_PORT}
+        targetPort: 3000
         nodePort: 30080
         protocol: TCP
         name: http
@@ -84,8 +84,8 @@ patchesStrategicMerge:
     apiVersion: networking.k8s.io/v1
     kind: Ingress
     metadata:
-      name: ${APP_NAME}-ingress
-      namespace: ${NAMESPACE}
+      name: devops-app-ingress
+      namespace: devops-app
       annotations:
         # Universal annotations that work across different ingress controllers
         
@@ -107,6 +107,6 @@ patchesStrategicMerge:
             pathType: Prefix
             backend:
               service:
-                name: ${APP_NAME}-service
+                name: devops-app-service
                 port:
                   number: 80
