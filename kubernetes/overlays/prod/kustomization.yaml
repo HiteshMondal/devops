@@ -7,7 +7,7 @@ kind: Kustomization
 bases:
   - ../../base
 
-namespace: ${NAMESPACE}
+namespace: devops-app
 
 namePrefix: prod-
 
@@ -21,8 +21,8 @@ patchesStrategicMerge:
     apiVersion: apps/v1
     kind: Deployment
     metadata:
-      name: ${APP_NAME}
-      namespace: ${NAMESPACE}
+      name: devops-app
+      namespace: devops-app
     spec:
       replicas: 3
       strategy:
@@ -45,10 +45,10 @@ patchesStrategicMerge:
                     - key: app
                       operator: In
                       values:
-                      - ${APP_NAME}
+                      - devops-app
                   topologyKey: kubernetes.io/hostname
           containers:
-          - name: ${APP_NAME}
+          - name: devops-app
             resources:
               requests:
                 cpu: ${APP_CPU_REQUEST}
@@ -59,7 +59,7 @@ patchesStrategicMerge:
             livenessProbe:
               httpGet:
                 path: /health
-                port: ${APP_PORT}
+                port: 3000
               initialDelaySeconds: 30
               periodSeconds: 10
               timeoutSeconds: 5
@@ -67,7 +67,7 @@ patchesStrategicMerge:
             readinessProbe:
               httpGet:
                 path: /ready
-                port: ${APP_PORT}
+                port: 3000
               initialDelaySeconds: 10
               periodSeconds: 5
               timeoutSeconds: 3
@@ -78,8 +78,8 @@ patchesStrategicMerge:
     apiVersion: autoscaling/v2
     kind: HorizontalPodAutoscaler
     metadata:
-      name: ${APP_NAME}-hpa
-      namespace: ${NAMESPACE}
+      name: devops-app-hpa
+      namespace: devops-app
     spec:
       minReplicas: ${MIN_REPLICAS}
       maxReplicas: ${MAX_REPLICAS}
@@ -120,8 +120,8 @@ patchesStrategicMerge:
     apiVersion: v1
     kind: Service
     metadata:
-      name: ${APP_NAME}-service
-      namespace: ${NAMESPACE}
+      name: devops-app-service
+      namespace: devops-app
       annotations:
         # AWS EKS annotations
         service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
@@ -142,11 +142,11 @@ patchesStrategicMerge:
           timeoutSeconds: 10800
       ports:
       - port: 80
-        targetPort: ${APP_PORT}
+        targetPort: 3000
         protocol: TCP
         name: http
       - port: 443
-        targetPort: ${APP_PORT}
+        targetPort: 3000
         protocol: TCP
         name: https
   
@@ -155,8 +155,8 @@ patchesStrategicMerge:
     apiVersion: networking.k8s.io/v1
     kind: Ingress
     metadata:
-      name: ${APP_NAME}-ingress
-      namespace: ${NAMESPACE}
+      name: devops-app-ingress
+      namespace: devops-app
       annotations:
         # AWS ALB Ingress Controller annotations
         kubernetes.io/ingress.class: alb
@@ -173,8 +173,8 @@ patchesStrategicMerge:
         
         # GCP GKE Ingress annotations
         kubernetes.io/ingress.class: gce
-        kubernetes.io/ingress.global-static-ip-name: "${APP_NAME}-ip"
-        networking.gke.io/managed-certificates: "${APP_NAME}-cert"
+        kubernetes.io/ingress.global-static-ip-name: "devops-app-ip"
+        networking.gke.io/managed-certificates: "devops-app-cert"
         kubernetes.io/ingress.allow-http: "true"
         
         # Azure AKS Application Gateway Ingress Controller
@@ -192,7 +192,7 @@ patchesStrategicMerge:
         cert-manager.io/cluster-issuer: letsencrypt-prod
         cert-manager.io/acme-challenge-type: http01
     spec:
-      ingressClassName: ${INGRESS_CLASS}
+      ingressClassName: nginx
       tls:
       - hosts:
         - ${INGRESS_HOST}
@@ -205,7 +205,7 @@ patchesStrategicMerge:
             pathType: Prefix
             backend:
               service:
-                name: ${APP_NAME}-service
+                name: devops-app-service
                 port:
                   number: 80
 
@@ -216,12 +216,12 @@ resources:
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
-      name: ${APP_NAME}-netpol
-      namespace: ${NAMESPACE}
+      name: devops-app-netpol
+      namespace: devops-app
     spec:
       podSelector:
         matchLabels:
-          app: ${APP_NAME}
+          app: devops-app
       policyTypes:
       - Ingress
       - Egress
@@ -230,7 +230,7 @@ resources:
         - namespaceSelector: {}
         ports:
         - protocol: TCP
-          port: ${APP_PORT}
+          port: 3000
       egress:
       - to:
         - namespaceSelector: {}
@@ -252,10 +252,10 @@ resources:
     apiVersion: policy/v1
     kind: PodDisruptionBudget
     metadata:
-      name: ${APP_NAME}-pdb
-      namespace: ${NAMESPACE}
+      name: devops-app-pdb
+      namespace: devops-app
     spec:
       minAvailable: 1
       selector:
         matchLabels:
-          app: ${APP_NAME}
+          app: devops-app

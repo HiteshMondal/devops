@@ -96,9 +96,9 @@ patchesStrategicMerge:
         traefik.ingress.kubernetes.io/router.entrypoints: web
         
         # MicroK8s NGINX
-        kubernetes.io/ingress.class: ${INGRESS_CLASS}
+        kubernetes.io/ingress.class: nginx
     spec:
-      ingressClassName: ${INGRESS_CLASS}
+      ingressClassName: nginx
       rules:
       - host: ${INGRESS_HOST}
         http:
