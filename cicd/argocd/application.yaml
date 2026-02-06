@@ -3,17 +3,14 @@ kind: Application
 metadata:
   name: ${APP_NAME}
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/compare-options: IgnoreExtraneous
 spec:
   project: default
   source:
     repoURL: ${GIT_REPO_URL}
     targetRevision: HEAD
-    path: kubernetes/overlays/${DEPLOY_TARGET}
-    kustomize:
-      namespace: ${NAMESPACE}
-      commonLabels:
-        app: devops-app
-        namespace: devops-app
+    path: kubernetes/rendered
   
   destination:
     server: https://kubernetes.default.svc
@@ -21,13 +18,13 @@ spec:
   
   syncPolicy:
     automated:
-      prune: true
+      prune: false
       selfHeal: true
-      allowEmpty: false
+      allowEmpty: true
     syncOptions:
       - CreateNamespace=true
-      - PrunePropagationPolicy=foreground
-      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:
@@ -39,4 +36,6 @@ spec:
     - group: apps
       kind: Deployment
       jsonPointers:
+        - /metadata/annotations
+        - /metadata/labels
         - /spec/replicas

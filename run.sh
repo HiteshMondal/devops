@@ -260,8 +260,8 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     deploy_monitoring
     configure_gitlab
     echo "🔄 Deploying ArgoCD..."
-    deploy_argocd
     self_heal_app
+    deploy_argocd
     echo "🔄 Deploying Jenkins..."
     #deploy_jenkins
 
@@ -376,8 +376,8 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
     deploy_monitoring
     configure_gitlab
     echo "🔄 Deploying ArgoCD..."
-    deploy_argocd
     self_heal_app
+    deploy_argocd
     echo "🔄 Deploying Jenkins..."
     deploy_jenkins
     

@@ -106,6 +106,18 @@ GITHUB_EMAIL=yourmail@example.com
 GITHUB_TOKEN=your-github-personal-access-token
 GIT_REPO_URL=https://github.com/User_Name/Project_Name.git
 
+# ArgoCD Sync Policy
+ARGOCD_AUTO_SYNC=true
+ARGOCD_SELF_HEAL=true
+ARGOCD_PRUNE=true                           # Delete resources removed from Git
+ARGOCD_SERVER_INSECURE=true                 # Disable TLS (set false for production)
+ARGOCD_SYNC_RETRY_LIMIT=5                   # Number of sync retries on failure
+ARGOCD_SYNC_TIMEOUT=300                     # Sync timeout in seconds
+# (Optional)
+ARGOCD_NOTIFICATIONS_ENABLED=false          # Enable Slack/email notifications
+ARGOCD_SLACK_TOKEN=                         # Slack bot token
+ARGOCD_SLACK_CHANNEL=                       # Slack channel for notifications
+
 # Deployment Configuration
 # Deployment target: 'local' for Minikube, 'prod' for AWS EKS
 DEPLOY_TARGET=local
@@ -122,7 +134,5 @@ DRY_RUN=false
 # Minikube Configuration
 # Enable Minikube ingress addon
 MINIKUBE_INGRESS=true
-
-# Minikube resources
 MINIKUBE_MEMORY=4096
 MINIKUBE_CPUS=2
