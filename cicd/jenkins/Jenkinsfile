@@ -307,13 +307,11 @@ pipeline {
         }
         
         always {
-            node {
-                echo '🧹 Cleaning up...'
-                sh '''
-                    # Clean up old images to save space
-                    docker image prune -f --filter "until=24h" || true
-                '''
-            }
+            echo '🧹 Cleaning up...'
+            sh '''
+                # Clean up old images to save space
+                docker image prune -f --filter "until=24h" || true
+            '''
         }
     }
 }
