@@ -5,255 +5,195 @@ kind: Kustomization
 # Universal Production Environment Overlay
 # Works with: AWS EKS, Google GKE, Azure AKS, and other cloud Kubernetes platforms
 
-bases:
+resources:
   - ../../base
 
 namespace: devops-app
 
-commonLabels:
-  environment: production
-  managed-by: kustomize
+# REMOVED namePrefix to avoid patch matching issues
 
-patchesStrategicMerge:
+labels:
+  - pairs:
+      environment: production
+      managed-by: kustomize
+
+patches:
   # Production-grade resource allocation
-  - |-
-    apiVersion: apps/v1
-    kind: Deployment
-    metadata:
+  - target:
+      kind: Deployment
       name: devops-app
-    spec:
-      replicas: 3
-      strategy:
-        type: RollingUpdate
-        rollingUpdate:
-          maxSurge: 1
-          maxUnavailable: 0
-      template:
-        metadata:
-          labels:
-            environment: production
-        spec:
-          affinity:
-            podAntiAffinity:
-              preferredDuringSchedulingIgnoredDuringExecution:
-              - weight: 100
-                podAffinityTerm:
-                  labelSelector:
-                    matchExpressions:
-                    - key: app
-                      operator: In
-                      values:
-                      - devops-app
-                  topologyKey: kubernetes.io/hostname
-          containers:
-          - name: devops-app
-            resources:
-              requests:
-                cpu: 100m
-                memory: 128Mi
-              limits:
-                cpu: 500m
-                memory: 512Mi
-            livenessProbe:
-              httpGet:
-                path: /health
-                port: 3000
-              initialDelaySeconds: 30
-              periodSeconds: 10
-              timeoutSeconds: 5
-              failureThreshold: 3
-            readinessProbe:
-              httpGet:
-                path: /ready
-                port: 3000
-              initialDelaySeconds: 10
-              periodSeconds: 5
-              timeoutSeconds: 3
-              failureThreshold: 3
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: devops-app
+      spec:
+        replicas: 3
+        strategy:
+          type: RollingUpdate
+          rollingUpdate:
+            maxSurge: 1
+            maxUnavailable: 0
+        template:
+          metadata:
+            labels:
+              environment: production
+          spec:
+            affinity:
+              podAntiAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  podAffinityTerm:
+                    labelSelector:
+                      matchExpressions:
+                      - key: app
+                        operator: In
+                        values:
+                        - devops-app
+                    topologyKey: kubernetes.io/hostname
+            containers:
+            - name: devops-app
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              livenessProbe:
+                httpGet:
+                  path: /health
+                  port: 3000
+                initialDelaySeconds: 30
+                periodSeconds: 10
+                timeoutSeconds: 5
+                failureThreshold: 3
+              readinessProbe:
+                httpGet:
+                  path: /ready
+                  port: 3000
+                initialDelaySeconds: 10
+                periodSeconds: 5
+                timeoutSeconds: 3
+                failureThreshold: 3
   
   # Production HPA configuration
-  - |-
-    apiVersion: autoscaling/v2
-    kind: HorizontalPodAutoscaler
-    metadata:
+  - target:
+      kind: HorizontalPodAutoscaler
       name: devops-app-hpa
-      namespace: devops-app
-    spec:
-      minReplicas: 2
-      maxReplicas: 10
-      metrics:
-      - type: Resource
-        resource:
-          name: cpu
-          target:
-            type: Utilization
-            averageUtilization: 70
-      - type: Resource
-        resource:
-          name: memory
-          target:
-            type: Utilization
-            averageUtilization: 80
-      behavior:
-        scaleDown:
-          stabilizationWindowSeconds: 300
-          policies:
-          - type: Percent
-            value: 50
-            periodSeconds: 60
-        scaleUp:
-          stabilizationWindowSeconds: 0
-          policies:
-          - type: Percent
-            value: 100
-            periodSeconds: 30
-          - type: Pods
-            value: 2
-            periodSeconds: 30
-          selectPolicy: Max
+    patch: |-
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: devops-app-hpa
+      spec:
+        minReplicas: 2
+        maxReplicas: 10
+        metrics:
+        - type: Resource
+          resource:
+            name: cpu
+            target:
+              type: Utilization
+              averageUtilization: 70
+        - type: Resource
+          resource:
+            name: memory
+            target:
+              type: Utilization
+              averageUtilization: 80
+        behavior:
+          scaleDown:
+            stabilizationWindowSeconds: 300
+            policies:
+            - type: Percent
+              value: 50
+              periodSeconds: 60
+          scaleUp:
+            stabilizationWindowSeconds: 0
+            policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 30
+            - type: Pods
+              value: 2
+              periodSeconds: 30
+            selectPolicy: Max
   
   # Universal LoadBalancer Service
-  # Works with: AWS ELB/NLB, GCP Load Balancer, Azure Load Balancer
-  - |-
-    apiVersion: v1
-    kind: Service
-    metadata:
+  - target:
+      kind: Service
       name: devops-app-service
-      namespace: devops-app
-      annotations:
-        # AWS EKS annotations
-        service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
-        service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
-        service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "http"
-        
-        # GCP GKE annotations
-        cloud.google.com/neg: '{"ingress": true}'
-        cloud.google.com/backend-config: '{"default": "backend-config"}'
-        
-        # Azure AKS annotations
-        service.beta.kubernetes.io/azure-load-balancer-internal: "false"
-    spec:
-      type: LoadBalancer
-      sessionAffinity: ClientIP
-      sessionAffinityConfig:
-        clientIP:
-          timeoutSeconds: 10800
-      ports:
-      - port: 80
-        targetPort: 3000
-        protocol: TCP
-        name: http
-      - port: 443
-        targetPort: 3000
-        protocol: TCP
-        name: https
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: devops-app-service
+        annotations:
+          service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+          service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+          service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "http"
+          cloud.google.com/neg: '{"ingress": true}'
+          cloud.google.com/backend-config: '{"default": "backend-config"}'
+          service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+      spec:
+        type: LoadBalancer
+        sessionAffinity: ClientIP
+        sessionAffinityConfig:
+          clientIP:
+            timeoutSeconds: 10800
+        ports:
+        - port: 80
+          targetPort: 3000
+          protocol: TCP
+          name: http
+        - port: 443
+          targetPort: 3000
+          protocol: TCP
+          name: https
   
-  # Universal Ingress configuration for cloud providers
-  - |-
-    apiVersion: networking.k8s.io/v1
-    kind: Ingress
-    metadata:
+  # Universal Ingress configuration
+  - target:
+      kind: Ingress
       name: devops-app-ingress
-      namespace: devops-app
-      annotations:
-        # AWS ALB Ingress Controller annotations
-        kubernetes.io/ingress.class: alb
-        alb.ingress.kubernetes.io/scheme: internet-facing
-        alb.ingress.kubernetes.io/target-type: ip
-        alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
-        alb.ingress.kubernetes.io/ssl-redirect: '443'
-        alb.ingress.kubernetes.io/healthcheck-path: /health
-        alb.ingress.kubernetes.io/healthcheck-interval-seconds: '15'
-        alb.ingress.kubernetes.io/healthcheck-timeout-seconds: '5'
-        alb.ingress.kubernetes.io/success-codes: '200'
-        alb.ingress.kubernetes.io/healthy-threshold-count: '2'
-        alb.ingress.kubernetes.io/unhealthy-threshold-count: '2'
-        
-        # GCP GKE Ingress annotations
-        kubernetes.io/ingress.class: gce
-        kubernetes.io/ingress.global-static-ip-name: "devops-app-ip"
-        networking.gke.io/managed-certificates: "devops-app-cert"
-        kubernetes.io/ingress.allow-http: "true"
-        
-        # Azure AKS Application Gateway Ingress Controller
-        kubernetes.io/ingress.class: azure/application-gateway
-        appgw.ingress.kubernetes.io/ssl-redirect: "true"
-        appgw.ingress.kubernetes.io/connection-draining: "true"
-        appgw.ingress.kubernetes.io/connection-draining-timeout: "30"
-        appgw.ingress.kubernetes.io/cookie-based-affinity: "true"
-        
-        # Generic NGINX Ingress (fallback)
-        nginx.ingress.kubernetes.io/ssl-redirect: "true"
-        nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-        
-        # Cert-manager annotations (works across all providers)
-        cert-manager.io/cluster-issuer: letsencrypt-prod
-        cert-manager.io/acme-challenge-type: http01
-    spec:
-      ingressClassName: nginx
-      tls:
-      - hosts:
-        - devops-app.local
-        secretName: devops-app-tls
-      rules:
-      - host: devops-app.local
-        http:
-          paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: devops-app-service
-                port:
-                  number: 80
+    patch: |-
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: devops-app-ingress
+        annotations:
+          kubernetes.io/ingress.class: alb
+          alb.ingress.kubernetes.io/scheme: internet-facing
+          alb.ingress.kubernetes.io/target-type: ip
+          alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+          alb.ingress.kubernetes.io/ssl-redirect: '443'
+          alb.ingress.kubernetes.io/healthcheck-path: /health
+          kubernetes.io/ingress.class: gce
+          kubernetes.io/ingress.global-static-ip-name: "devops-app-ip"
+          networking.gke.io/managed-certificates: "devops-app-cert"
+          kubernetes.io/ingress.class: azure/application-gateway
+          appgw.ingress.kubernetes.io/ssl-redirect: "true"
+          nginx.ingress.kubernetes.io/ssl-redirect: "true"
+          cert-manager.io/cluster-issuer: letsencrypt-prod
+      spec:
+        ingressClassName: nginx
+        tls:
+        - hosts:
+          - devops-app.local
+          secretName: devops-app-tls
+        rules:
+        - host: devops-app.local
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: devops-app-service
+                  port:
+                    number: 80
 
 # Additional production resources
 resources:
-  # Network Policy for security
-  - |-
-    apiVersion: networking.k8s.io/v1
-    kind: NetworkPolicy
-    metadata:
-      name: devops-app-netpol
-      namespace: devops-app
-    spec:
-      podSelector:
-        matchLabels:
-          app: devops-app
-      policyTypes:
-      - Ingress
-      - Egress
-      ingress:
-      - from:
-        - namespaceSelector: {}
-        ports:
-        - protocol: TCP
-          port: 3000
-      egress:
-      - to:
-        - namespaceSelector: {}
-        ports:
-        - protocol: TCP
-          port: 53
-        - protocol: UDP
-          port: 53
-      - to:
-        - namespaceSelector: {}
-        ports:
-        - protocol: TCP
-          port: 443
-        - protocol: TCP
-          port: 80
-  
-  # Pod Disruption Budget for high availability
-  - |-
-    apiVersion: policy/v1
-    kind: PodDisruptionBudget
-    metadata:
-      name: devops-app-pdb
-      namespace: devops-app
-    spec:
-      minAvailable: 1
-      selector:
-        matchLabels:
-          app: devops-app
+  - network-policy.yaml
+  - pod-disruption-budget.yaml
