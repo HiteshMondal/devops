@@ -21,9 +21,6 @@ pipeline {
     agent any
     
     environment {
-    DOCKERHUB_USERNAME = credentials('dockerhub-username')
-    DOCKERHUB_PASSWORD = credentials('dockerhub-password')
-    KUBECONFIG = credentials('kubeconfig')
     BUILD_NUMBER = "${env.BUILD_NUMBER}"
     }
 
@@ -310,11 +307,13 @@ pipeline {
         }
         
         always {
-            echo '🧹 Cleaning up...'
-            sh '''
-                # Clean up old images to save space
-                docker image prune -f --filter "until=24h" || true
-            '''
+            node {
+                echo '🧹 Cleaning up...'
+                sh '''
+                    # Clean up old images to save space
+                    docker image prune -f --filter "until=24h" || true
+                '''
+            }
         }
     }
 }
