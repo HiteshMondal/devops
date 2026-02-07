@@ -1,6 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+# /kubernetes/overlays/prod/kustomization.yaml
 # Universal Production Environment Overlay
 # Works with: AWS EKS, Google GKE, Azure AKS, and other cloud Kubernetes platforms
 
@@ -8,8 +9,6 @@ bases:
   - ../../base
 
 namespace: devops-app
-
-namePrefix: prod-
 
 commonLabels:
   environment: production

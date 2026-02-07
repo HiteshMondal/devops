@@ -1,6 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+# /kubernetes/overlays/local/kustomization.yaml
 # Universal Local Environment Overlay
 # Works with: Minikube, Kind, K3s, MicroK8s, and local Kubernetes clusters
 
@@ -8,9 +9,6 @@ bases:
   - ../../base
 
 namespace: devops-app
-
-namePrefix: local-
-
 
 commonLabels:
   environment: local

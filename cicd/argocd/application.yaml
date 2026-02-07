@@ -18,9 +18,6 @@ spec:
     path: $ARGOCD_MANIFEST_PATH
     
     kustomize:
-      commonLabels:
-        environment: $DEPLOY_TARGET
-        managed-by: argocd
       images:
         - $DOCKERHUB_USERNAME/$APP_NAME:$DOCKER_IMAGE_TAG
   
