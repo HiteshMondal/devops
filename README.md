@@ -44,84 +44,81 @@ The project is intentionally designed to reflect **real-world DevOps practices**
 ## 📂 Repository Structure
 
 ```
-├── app/                            # Application & Docker image management
-│   ├── Dockerfile                  # App container definition
-│   ├── package.json                # Node.js dependencies
-│   ├── src/
-│   │   └── index.js                # Application entry point
-│   ├── .env.example                # Example environment variables
-│   ├── build_and_push_image.sh     # Build & push Docker image to registry
-│   └── configure_dockerhub_username.sh
-│
-├── argocd/                         # GitOps (Argo CD)
-│   ├── application.yaml            # Argo CD Application definition
-│   ├── deploy_argocd.sh            # Install & configure Argo CD
-│   └── self_heal_app.sh             # Force GitOps sync & pod self-healing
-│
-├── cicd/                           # CI/CD configurations
-│   ├── github/
-│   │   └── configure_git_github.sh # Git & GitHub identity setup
-│   │
-│   ├── gitlab/
-│   │   ├── .gitlab-ci.yml          # GitLab CI pipeline
-│   │   └── configure_gitlab.sh     # GitLab CI & registry integration
-│   │
-│   └── jenkins/
-│       ├── Jenkinsfile             # Jenkins pipeline definition
-│       ├── jenkins-deployment.yaml # Jenkins Kubernetes deployment
-│       └── deploy_jenkins.sh       # Jenkins installation script
-│
-├── kubernetes/                     # Kubernetes manifests (Kustomize)
-│   ├── base/                       # Base manifests (shared across envs)
-│   │   ├── deployment.yaml
-│   │   ├── service.yaml
-│   │   ├── ingress.yaml
-│   │   ├── hpa.yaml
-│   │   ├── namespace.yaml
-│   │   ├── secrets.yaml
-│   │   ├── configmap.yaml
-│   │   └── monitoring/             # Monitoring manifests
-│   │       ├── prometheus.yaml
-│   │       ├── grafana.yaml
-│   │       └── dashboard-configmap.yaml
-│   │
-│   ├── overlays/                   # Environment-specific overlays
-│   │   ├── local/
-│   │   │   └── kustomization.yaml
-│   │   └── prod/
-│   │       └── kustomization.yaml
-│   │
-│   └── deploy_kubernetes.sh        # Kustomize-based deployment script
-│
-├── monitoring/                     # Observability configuration
-│   ├── deploy_monitoring.sh        # Prometheus & Grafana deployment
-│   └── prometheus/
-│       ├── prometheus.yml          # Prometheus scrape config
-│       └── alerts.yml              # Alerting rules
-│
-├── infra/                          # Infrastructure as Code (Terraform)
-│   └── terraform/
-│       ├── provider.tf             # Terraform provider configuration
-│       ├── main.tf                 # Root Terraform module
-│       ├── variables.tf            # Input variables
-│       ├── outputs.tf              # Exported outputs
-│       ├── vpc.tf                  # AWS VPC
-│       ├── eks.tf                  # AWS EKS cluster
-│       ├── rds.tf                  # AWS RDS database
-│       └── .terraform.lock.hcl     # Provider lock file
-│
-├── .github/workflows/              # GitHub Actions workflows
-│   ├── prod.yml                    # Production pipeline
-│   └── terraform.yml               # Terraform CI pipeline
-│
-├── docker-compose.yml              # Local Docker Compose setup
-├── .env                            # Environment variables (ignored)
+├── app
+│ ├── build_and_push_image.sh
+│ ├── configure_dockerhub_username.sh
+│ ├── Dockerfile
+│ ├── .dockerignore
+│ ├── package.json
+│ └── src
+│     └── index.js
+├── cicd
+│ ├── github
+│ │ └── configure_git_github.sh
+│ ├── gitlab
+│ │ ├── configure_gitlab.sh
+│ │ └── .gitlab-ci.yml
+│ └── jenkins
+│     ├── deploy_jenkins.sh
+│     ├── Dockerfile
+│     ├── jenkins-deployment.yaml
+│     └── Jenkinsfile
+├── clean_reset_all.sh
+├── config-demo
+├── docker-compose.yml
+├── dotenv_example
+├── .env
+├── .github
+│ └── workflows
+│     ├── prod.yml
+│     └── terraform.yml
 ├── .gitignore
-├── .gitlab-ci.yml                  # Root GitLab CI include
-├── kubeconfig.yaml                 # Kubernetes access config (local)
-├── run.sh                          # Main orchestration script
-├── reset_all.sh                    # Reset Everything
-└── README.md                       # Project documentation
+├── .gitlab-ci.yml
+├── infra
+│ └── terraform
+│     ├── eks.tf
+│     ├── main.tf
+│     ├── outputs.tf
+│     ├── provider.tf
+│     ├── rds.tf
+│     ├── .terraform.lock.hcl
+│     ├── variables.tf
+│     └── vpc.tf
+├── kubernetes
+│ ├── base
+│ │ ├── configmap.yaml
+│ │ ├── deployment.yaml
+│ │ ├── hpa.yaml
+│ │ ├── ingress.yaml
+│ │ ├── kustomization.yaml
+│ │ ├── namespace.yaml
+│ │ ├── secrets.yaml
+│ │ └── service.yaml
+│ ├── deploy_kubernetes.sh
+│ ├── k_troubleshoot.sh
+│ └── overlays
+│     ├── local
+│     │ └── kustomization.yaml
+│     └── prod
+│         ├── kustomization.yaml
+│         ├── network-policy.yaml
+│         └── pod-disruption-budget.yaml
+├── monitoring
+│ ├── deploy_monitoring.sh
+│ ├── kube-state-metrics
+│ │ ├── deployment.yaml
+│ │ ├── rbac.yaml
+│ │ └── service.yaml
+│ ├── node-exporter
+│ │ └── daemonset.yaml
+│ ├── prometheus
+│ │ ├── alerts.yml
+│ │ └── prometheus.yml
+│ └── prometheus_grafana
+│     ├── dashboard-configmap.yaml
+│     ├── grafana.yaml
+│     └── prometheus.yaml
+└── run.sh
 
 ```
 
@@ -237,12 +234,13 @@ CICD/jenkins/Jenkinsfile
 
 ---
 
-## 🧨 Disaster Recovery & Troubleshooting
+## 🧨 Disaster Recovery, Reset & Troubleshooting
 
 When the local environment becomes unstable:
 
 ```bash
-./troubleshoot.sh
+chmod +x clean_reset_all.sh
+./clean_reset_all.sh
 ```
 
 ⚠️ **WARNING**:

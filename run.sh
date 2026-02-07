@@ -152,7 +152,6 @@ load_scripts() {
     source "$PROJECT_ROOT/cicd/jenkins/deploy_jenkins.sh"
     source "$PROJECT_ROOT/cicd/github/configure_git_github.sh"
     source "$PROJECT_ROOT/cicd/gitlab/configure_gitlab.sh"
-    source "$PROJECT_ROOT/cicd/argocd/deploy_argocd.sh"
 }
 
 load_scripts
@@ -258,8 +257,6 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     deploy_kubernetes local
     deploy_monitoring
     configure_gitlab
-    echo "🔄 Deploying ArgoCD..."
-    deploy_argocd
     echo "🔄 Deploying Jenkins..."
     #deploy_jenkins
 
@@ -373,8 +370,6 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
     deploy_kubernetes prod
     deploy_monitoring
     configure_gitlab
-    echo "🔄 Deploying ArgoCD..."
-    deploy_argocd
     echo "🔄 Deploying Jenkins..."
     deploy_jenkins
     
