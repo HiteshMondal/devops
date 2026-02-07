@@ -38,7 +38,7 @@ pipeline {
                     env.NAMESPACE = env.NAMESPACE ?: "devops-app"
                     env.DOCKER_IMAGE_TAG = env.DOCKER_IMAGE_TAG ?: "latest"
                     env.DEPLOY_TARGET = env.DEPLOY_TARGET ?: "local"
-                    env.IMAGE_NAME = "${env.DOCKERHUB_USERNAME}/${env.APP_NAME}:${env.DOCKER_IMAGE_TAG}"
+                    env.IMAGE_NAME = "devops-app:${env.DOCKER_IMAGE_TAG}"
                     env.GIT_COMMIT_SHORT =
                         env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : "unknown"
                 }
@@ -172,14 +172,12 @@ pipeline {
                             echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
                             
                             # Push all tags
-                            docker push ${IMAGE_NAME}
-                            docker push ${DOCKERHUB_USERNAME}/${APP_NAME}:build-${BUILD_NUMBER}
-                            docker push ${DOCKERHUB_USERNAME}/${APP_NAME}:${GIT_COMMIT_SHORT}
-                            
-                            echo "✅ Images pushed:"
-                            echo "   - ${IMAGE_NAME}"
-                            echo "   - ${DOCKERHUB_USERNAME}/${APP_NAME}:build-${BUILD_NUMBER}"
-                            echo "   - ${DOCKERHUB_USERNAME}/${APP_NAME}:${GIT_COMMIT_SHORT}"
+                            docker tag ${IMAGE_NAME} ${DOCKER_USER}/${APP_NAME}:${DOCKER_IMAGE_TAG}
+                            docker tag ${APP_NAME}:build-${BUILD_NUMBER} ${DOCKER_USER}/${APP_NAME}:build-${BUILD_NUMBER}
+                            docker tag ${APP_NAME}:${GIT_COMMIT_SHORT} ${DOCKER_USER}/${APP_NAME}:${GIT_COMMIT_SHORT}
+                            docker push ${DOCKER_USER}/${APP_NAME}:${DOCKER_IMAGE_TAG}
+                            docker push ${DOCKER_USER}/${APP_NAME}:build-${BUILD_NUMBER}
+                            docker push ${DOCKER_USER}/${APP_NAME}:${GIT_COMMIT_SHORT}
                         '''
                     }
                 }
