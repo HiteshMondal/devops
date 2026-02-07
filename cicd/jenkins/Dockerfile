@@ -1,3 +1,5 @@
+# /cicd/jenkins/Dockerfile
+
 FROM jenkins/jenkins:lts
 
 USER root
@@ -28,16 +30,15 @@ RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/s
 
 # Install plugins
 RUN jenkins-plugin-cli --plugins \
-    kubernetes:4253.v7700d91739e5 \
-    workflow-aggregator:596.v8c21c963d92d \
-    git:5.2.2 \
-    docker-workflow:572.v950f58993843 \
-    pipeline-stage-view:2.34 \
-    blueocean:1.27.11 \
-    credentials-binding:681.vf91669a_32e45 \
-    docker-commons:439.va_3cb_0a_6a_fb_29 \
-    pipeline-utility-steps:2.16.2 \
-    configuration-as-code:1810.v9b_c30a_249a_4c
+    kubernetes \
+    workflow-aggregator \
+    git \
+    docker-workflow \
+    pipeline-stage-view \
+    blueocean \
+    pipeline-utility-steps \
+    configuration-as-code \
+    matrix-auth
 
 # Add docker group with GID that matches host
 RUN groupadd -g 999 docker || groupmod -g 999 docker || true && \

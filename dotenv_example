@@ -2,7 +2,14 @@
 # DevOps Project Environment Configuration
 # ========================================
 # Update the values according to your setup
+
+# ====================================================================================
+# CICD Variables
 # For Github Action: Navigate to your repository → Settings → Secrets and variables → Actions 
+# For Gitlab : Project Setting → CI/CD → Variables
+# For Jenkins: Manage Jenkins → Credentials → System → Global
+# ====================================================================================
+
 
 # Project Configuration
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -105,6 +112,11 @@ GITHUB_USERNAME=yourgithubusername
 GITHUB_EMAIL=yourmail@example.com
 GITHUB_TOKEN=your-github-personal-access-token
 GIT_REPO_URL=https://github.com/User_Name/Project_Name.git
+
+# Jenkins Credentials
+dockerhub-credentials=Usernamewithpassword
+kubeconfig=Secret file~/.kube/config
+github-credentials=For private repo
 
 # Deployment Configuration
 # Deployment target: 'local' for Minikube, 'prod' for AWS EKS

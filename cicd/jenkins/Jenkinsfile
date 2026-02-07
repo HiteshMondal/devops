@@ -21,21 +21,12 @@ pipeline {
     agent any
     
     environment {
-        // Load from Jenkins environment variables or credentials
-        DOCKERHUB_USERNAME = credentials('dockerhub-username') ?: env.DOCKERHUB_USERNAME ?: 'yourdockerhubusername'
-        DOCKERHUB_PASSWORD = credentials('dockerhub-password')
-        APP_NAME = env.APP_NAME ?: 'devops-app'
-        NAMESPACE = env.NAMESPACE ?: 'devops-app'
-        DOCKER_IMAGE_TAG = env.DOCKER_IMAGE_TAG ?: 'latest'
-        IMAGE_NAME = "${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}"
-        DEPLOY_TARGET = env.DEPLOY_TARGET ?: 'local'
-        KUBECONFIG = credentials('kubeconfig')
-        
-        // Build info
-        BUILD_NUMBER = "${env.BUILD_NUMBER}"
-        GIT_COMMIT_SHORT = "${env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'unknown'}"
+    DOCKERHUB_USERNAME = credentials('dockerhub-username')
+    DOCKERHUB_PASSWORD = credentials('dockerhub-password')
+    KUBECONFIG = credentials('kubeconfig')
+    BUILD_NUMBER = "${env.BUILD_NUMBER}"
     }
-    
+
     options {
         buildDiscarder(logRotator(numToKeepStr: '10'))
         timestamps()
@@ -43,6 +34,20 @@ pipeline {
     }
     
     stages {
+        stage('Init') {
+            steps {
+                script {
+                    env.APP_NAME = env.APP_NAME ?: "devops-app"
+                    env.NAMESPACE = env.NAMESPACE ?: "devops-app"
+                    env.DOCKER_IMAGE_TAG = env.DOCKER_IMAGE_TAG ?: "latest"
+                    env.DEPLOY_TARGET = env.DEPLOY_TARGET ?: "local"
+                    env.IMAGE_NAME = "${env.DOCKERHUB_USERNAME}/${env.APP_NAME}:${env.DOCKER_IMAGE_TAG}"
+                    env.GIT_COMMIT_SHORT =
+                        env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : "unknown"
+                }
+            }
+        }
+
         stage('Checkout') {
             steps {
                 echo '📥 Checking out source code...'

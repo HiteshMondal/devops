@@ -70,20 +70,15 @@ data:
         local:
           allowsSignup: false
           users:
-            - id: ${JENKINS_ADMIN_ID:-admin}
-              password: ${JENKINS_ADMIN_PASSWORD:-admin123}
+            - id: "${JENKINS_ADMIN_ID}"
+              password: "${JENKINS_ADMIN_PASSWORD}"
       authorizationStrategy:
         globalMatrix:
           permissions:
-            - "Overall/Administer:${JENKINS_ADMIN_ID:-admin}"
+            - "Overall/Administer:${JENKINS_ADMIN_ID}"
             - "Overall/Read:authenticated"
       remotingSecurity:
         enabled: true
-    security:
-      queueItemAuthenticator:
-        authenticators:
-          - global:
-              strategy: triggeringUsersAuthorizationStrategy
     unclassified:
       location:
         url: http://jenkins.jenkins.svc.cluster.local:8080/
@@ -112,8 +107,10 @@ spec:
         runAsUser: 1000
       containers:
         - name: jenkins
-          image: ${DOCKERHUB_USERNAME}/jenkins-custom:${JENKINS_IMAGE_TAG:-latest}
-          imagePullPolicy: Always
+          securityContext:
+            runAsUser: 0
+          image: ${DOCKERHUB_USERNAME}/jenkins-custom:${JENKINS_IMAGE_TAG}
+          imagePullPolicy: IfNotPresent
           env:
             - name: JAVA_OPTS
               value: "-Djenkins.install.runSetupWizard=false -Dorg.apache.commons.jelly.tags.fmt.timeZone=America/New_York"
@@ -145,11 +142,11 @@ spec:
               mountPath: /var/jenkins_home/casc_configs
           resources:
             requests:
-              cpu: ${JENKINS_CPU_REQUEST:-500m}
-              memory: ${JENKINS_MEMORY_REQUEST:-1Gi}
+              cpu: "${JENKINS_CPU_REQUEST}"
+              memory: "${JENKINS_MEMORY_REQUEST}"
             limits:
-              cpu: ${JENKINS_CPU_LIMIT:-2000m}
-              memory: ${JENKINS_MEMORY_LIMIT:-2Gi}
+              cpu: "${JENKINS_CPU_LIMIT}"
+              memory: "${JENKINS_MEMORY_LIMIT}"
           livenessProbe:
             httpGet:
               path: /login

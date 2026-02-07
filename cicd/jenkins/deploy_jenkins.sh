@@ -17,12 +17,16 @@ deploy_jenkins() {
     # Load environment variables from different sources
     if [[ -f "${PROJECT_ROOT:-}/.env" ]]; then
         # Called from run.sh - use PROJECT_ROOT .env
+        set -a
         source "${PROJECT_ROOT}/.env"
+        set +a
         echo "✅ Loaded configuration from PROJECT_ROOT/.env"
     elif [[ -f "$SCRIPT_DIR/../../.env" ]]; then
         # Standalone execution - find .env relative to script
         PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+        set -a
         source "$PROJECT_ROOT/.env"
+        set +a
         echo "✅ Loaded configuration from $PROJECT_ROOT/.env"
     else
         echo "⚠️  No .env file found. Using environment variables or defaults."
@@ -35,7 +39,7 @@ deploy_jenkins() {
     
     # Jenkins Configuration with defaults
     JENKINS_NAMESPACE="${JENKINS_NAMESPACE:-jenkins}"
-    JENKINS_ADMIN_USER="${JENKINS_ADMIN_USER:-admin}"
+    JENKINS_ADMIN_ID="${JENKINS_ADMIN_ID:-admin}"
     JENKINS_ADMIN_PASSWORD="${JENKINS_ADMIN_PASSWORD:-admin123}"
     JENKINS_IMAGE_TAG="${JENKINS_IMAGE_TAG:-latest}"
     JENKINS_CPU_REQUEST="${JENKINS_CPU_REQUEST:-500m}"
@@ -45,7 +49,7 @@ deploy_jenkins() {
     
     echo "📋 Jenkins Configuration:"
     echo "   Namespace: $JENKINS_NAMESPACE"
-    echo "   Admin User: $JENKINS_ADMIN_USER"
+    echo "   Admin User: $JENKINS_ADMIN_ID"
     echo "   Image Tag: $JENKINS_IMAGE_TAG"
     echo "   Resources: ${JENKINS_CPU_REQUEST}/${JENKINS_CPU_LIMIT} CPU, ${JENKINS_MEMORY_REQUEST}/${JENKINS_MEMORY_LIMIT} Memory"
     echo ""
@@ -112,7 +116,7 @@ deploy_jenkins() {
     # Create Jenkins secrets
     echo "🔐 Creating Jenkins secrets..."
     kubectl create secret generic jenkins-secrets \
-        --from-literal=admin-user="$JENKINS_ADMIN_USER" \
+        --from-literal=admin-user="$JENKINS_ADMIN_ID" \
         --from-literal=admin-password="$JENKINS_ADMIN_PASSWORD" \
         -n "$JENKINS_NAMESPACE" \
         --dry-run=client -o yaml | kubectl apply -f -
@@ -144,7 +148,16 @@ deploy_jenkins() {
     
     # Substitute environment variables in the manifest
     export DOCKERHUB_USERNAME JENKINS_IMAGE_TAG JENKINS_CPU_REQUEST JENKINS_CPU_LIMIT JENKINS_MEMORY_REQUEST JENKINS_MEMORY_LIMIT
-    envsubst < "$DEPLOYMENT_MANIFEST" > "$TMP_MANIFEST"
+    envsubst "$(printf '${%s} ' \
+    DOCKERHUB_USERNAME \
+    JENKINS_IMAGE_TAG \
+    JENKINS_CPU_REQUEST \
+    JENKINS_CPU_LIMIT \
+    JENKINS_MEMORY_REQUEST \
+    JENKINS_MEMORY_LIMIT \
+    JENKINS_ADMIN_ID \
+    JENKINS_ADMIN_PASSWORD)" \
+    < "$DEPLOYMENT_MANIFEST" > "$TMP_MANIFEST"
     
     # Apply the deployment
     kubectl apply -f "$TMP_MANIFEST" || {
@@ -206,7 +219,7 @@ deploy_jenkins() {
     esac
     
     echo ""
-    echo "  👤 Username:      $JENKINS_ADMIN_USER"
+    echo "  👤 Username:      $JENKINS_ADMIN_ID"
     echo "  🔑 Password:      $JENKINS_ADMIN_PASSWORD"
     echo ""
     echo "  📊 Pod Status:    kubectl get pods -n $JENKINS_NAMESPACE"
