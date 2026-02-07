@@ -50,11 +50,11 @@ patchesStrategicMerge:
           - name: devops-app
             resources:
               requests:
-                cpu: ${APP_CPU_REQUEST}
-                memory: ${APP_MEMORY_REQUEST}
+                cpu: 100m
+                memory: 128Mi
               limits:
-                cpu: ${APP_CPU_LIMIT}
-                memory: ${APP_MEMORY_LIMIT}
+                cpu: 500m
+                memory: 512Mi
             livenessProbe:
               httpGet:
                 path: /health
@@ -80,21 +80,21 @@ patchesStrategicMerge:
       name: devops-app-hpa
       namespace: devops-app
     spec:
-      minReplicas: ${MIN_REPLICAS}
-      maxReplicas: ${MAX_REPLICAS}
+      minReplicas: 2
+      maxReplicas: 10
       metrics:
       - type: Resource
         resource:
           name: cpu
           target:
             type: Utilization
-            averageUtilization: ${CPU_TARGET_UTILIZATION}
+            averageUtilization: 70
       - type: Resource
         resource:
           name: memory
           target:
             type: Utilization
-            averageUtilization: ${MEMORY_TARGET_UTILIZATION}
+            averageUtilization: 80
       behavior:
         scaleDown:
           stabilizationWindowSeconds: 300
@@ -194,10 +194,10 @@ patchesStrategicMerge:
       ingressClassName: nginx
       tls:
       - hosts:
-        - ${INGRESS_HOST}
-        secretName: ${TLS_SECRET_NAME}
+        - devops-app.local
+        secretName: devops-app-tls
       rules:
-      - host: ${INGRESS_HOST}
+      - host: devops-app.local
         http:
           paths:
           - path: /

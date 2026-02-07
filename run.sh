@@ -153,7 +153,6 @@ load_scripts() {
     source "$PROJECT_ROOT/cicd/github/configure_git_github.sh"
     source "$PROJECT_ROOT/cicd/gitlab/configure_gitlab.sh"
     source "$PROJECT_ROOT/cicd/argocd/deploy_argocd.sh"
-    source "$PROJECT_ROOT/cicd/argocd/self_heal_app.sh"
 }
 
 load_scripts
@@ -260,7 +259,6 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     deploy_monitoring
     configure_gitlab
     echo "🔄 Deploying ArgoCD..."
-    self_heal_app
     deploy_argocd
     echo "🔄 Deploying Jenkins..."
     #deploy_jenkins
@@ -376,7 +374,6 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
     deploy_monitoring
     configure_gitlab
     echo "🔄 Deploying ArgoCD..."
-    self_heal_app
     deploy_argocd
     echo "🔄 Deploying Jenkins..."
     deploy_jenkins

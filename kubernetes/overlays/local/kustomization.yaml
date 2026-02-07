@@ -11,6 +11,7 @@ namespace: devops-app
 
 namePrefix: local-
 
+
 commonLabels:
   environment: local
   managed-by: kustomize
@@ -99,7 +100,7 @@ patchesStrategicMerge:
     spec:
       ingressClassName: nginx
       rules:
-      - host: ${INGRESS_HOST}
+      - host: devops-app.local
         http:
           paths:
           - path: /
