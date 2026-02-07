@@ -1,10 +1,8 @@
 #!/bin/bash
 
 # Jenkins Deployment Script
-# Can be run standalone or called as a function from run.sh
-# Usage: 
-#   Standalone: ./deploy_jenkins.sh
-#   From run.sh: deploy_jenkins (function call)
+# /cicd/jenkins/deploy_jenkins.sh
+# From run.sh: deploy_jenkins (function call)
 
 set -euo pipefail
 
