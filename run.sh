@@ -166,7 +166,6 @@ load_scripts() {
     source "$PROJECT_ROOT/app/configure_dockerhub_username.sh"
     source "$PROJECT_ROOT/kubernetes/deploy_kubernetes.sh"
     source "$PROJECT_ROOT/monitoring/deploy_monitoring.sh"
-    source "$PROJECT_ROOT/cicd/jenkins/deploy_jenkins.sh"
     source "$PROJECT_ROOT/cicd/github/configure_git_github.sh"
     source "$PROJECT_ROOT/cicd/gitlab/configure_gitlab.sh"
 
