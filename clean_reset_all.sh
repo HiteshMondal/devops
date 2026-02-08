@@ -97,11 +97,10 @@ echo ""
 #-------------------------GitLab------------------------------
 sudo gitlab-runner unregister --all
 sudo gitlab-runner stop
-
 echo ""
 echo "=== Cleanup & Reset Complete ==="
 echo ""
 echo "⚠️Restarting system in few second seconds........."
 echo "❌ Press: CTRL+C to Cancel"
-sleep 12
-echo "sudo reboot"
+sleep 10
+sudo reboot

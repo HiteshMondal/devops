@@ -2,6 +2,8 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# /app/build_and_push_image.sh
+
 build_and_push_image() {
   echo "🚀 Build & Push Docker image"
 
@@ -24,7 +26,7 @@ build_and_push_image() {
   fi
 
   echo "🏗️  Building image: $IMAGE_NAME"
-  docker build -t "$IMAGE_NAME" ./app
+  docker build -t "$IMAGE_NAME" "$PROJECT_ROOT/app"
 
   echo "📤 Pushing image: $IMAGE_NAME"
   docker push "$IMAGE_NAME"

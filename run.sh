@@ -12,7 +12,8 @@ echo "==========================================================================
 set -euo pipefail
 IFS=$'\n\t'
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
 
 # CONFIGURATION & INITIALIZATION
 
@@ -168,23 +169,10 @@ load_scripts() {
     source "$PROJECT_ROOT/monitoring/deploy_monitoring.sh"
     source "$PROJECT_ROOT/cicd/github/configure_git_github.sh"
     source "$PROJECT_ROOT/cicd/gitlab/configure_gitlab.sh"
-
-    # New scripts for alternative tools
-    if [[ -f "$PROJECT_ROOT/app/build_and_push_image_podman.sh" ]]; then
-        source "$PROJECT_ROOT/app/build_and_push_image_podman.sh"
-    fi
-    
-    if [[ -f "$PROJECT_ROOT/monitoring/deploy_loki.sh" ]]; then
-        source "$PROJECT_ROOT/monitoring/deploy_loki.sh"
-    fi
-    
-    if [[ -f "$PROJECT_ROOT/infra/OpenTofu/deploy_opentofu.sh" ]]; then
-        source "$PROJECT_ROOT/infra/OpenTofu/deploy_opentofu.sh"
-    fi
-    
-    if [[ -f "$PROJECT_ROOT/Security/security.sh" ]]; then
-        source "$PROJECT_ROOT/Security/security.sh"
-    fi
+    source "$PROJECT_ROOT/app/build_and_push_image_podman.sh"
+    source "$PROJECT_ROOT/monitoring/deploy_loki.sh"
+    source "$PROJECT_ROOT/infra/deploy_infra.sh"
+    source "$PROJECT_ROOT/Security/security.sh"
 }
 
 load_scripts
@@ -202,10 +190,8 @@ echo ""
 # DEPLOYMENT: LOCAL ENVIRONMENTS (Minikube, Kind, K3s, MicroK8s)
 
 if [[ "$DEPLOY_TARGET" == "local" ]]; then
-    
     echo "  🚀 Deploying to Local Kubernetes Environment"
     echo ""
-    
     # Special handling for Minikube
     if [[ "$K8S_DISTRIBUTION" == "minikube" ]]; then
         command -v minikube >/dev/null 2>&1 || { 
@@ -289,9 +275,9 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     else
         echo "🔨 Building container image locally..."
         if [[ "$CONTAINER_RUNTIME" == "podman" ]]; then
-            podman build -t "$APP_NAME:latest" ./app
+            podman build -t "$APP_NAME:latest" "$PROJECT_ROOT/app"
         else
-            docker build -t "$APP_NAME:latest" ./app
+            docker build -t "$APP_NAME:latest" "$PROJECT_ROOT/app"
         fi
     fi
     
@@ -364,19 +350,7 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
     echo "  ☁️  Deploying to Cloud Kubernetes (Production)"
     echo ""
     
-    # Determine which IaC tool to use (OpenTofu or Terraform)
-    if [[ "${USE_OPENTOFU:-false}" == "true" ]] && command -v tofu >/dev/null 2>&1; then
-        IAC_TOOL="opentofu"
-        echo "🏗️  Using OpenTofu for infrastructure"
-    elif command -v terraform >/dev/null 2>&1; then
-        IAC_TOOL="terraform"
-        echo "🏗️  Using Terraform for infrastructure"
-    else
-        echo "❌ Neither OpenTofu nor Terraform found"
-        echo "   Install OpenTofu: https://opentofu.org/docs/intro/install/"
-        echo "   Or Terraform: https://www.terraform.io/downloads"
-        exit 1
-    fi
+    deploy_infra
     
     # Handle cloud-specific infrastructure provisioning
     case "$K8S_DISTRIBUTION" in
@@ -386,29 +360,6 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
                 echo "❌ AWS CLI not installed"
                 exit 1
             }
-            
-            echo "🏗️  Deploying infrastructure with $IAC_TOOL..."
-            
-            if [[ "$IAC_TOOL" == "opentofu" ]]; then
-                cd infra/OpenTofu || exit 1
-                tofu init -upgrade
-                tofu apply -auto-approve
-                
-                echo "⚙️  Configuring kubectl context..."
-                aws eks update-kubeconfig \
-                    --region "$(tofu output -raw region)" \
-                    --name "$(tofu output -raw cluster_name)"
-            else
-                cd infra/terraform || exit 1
-                terraform init -upgrade
-                terraform apply -auto-approve
-                
-                echo "⚙️  Configuring kubectl context..."
-                aws eks update-kubeconfig \
-                    --region "$(terraform output -raw region)" \
-                    --name "$(terraform output -raw cluster_name)"
-            fi
-            cd ../../
             ;;
         gke)
             echo "🏗️  GCP GKE Deployment"
