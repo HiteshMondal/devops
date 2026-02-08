@@ -78,23 +78,39 @@ echo "Tool versions:"
 docker --version || true
 kubectl version --client || true
 terraform --version | head -n 1 || true
+tofu version | head -n 1 || true
 aws --version || true
 echo ""
 
 # Validate required tools
-for cmd in docker kubectl; do
+for cmd in kubectl; do
     command -v "$cmd" >/dev/null || {
         echo "❌ Missing $cmd"
         exit 1
     }
 done
 
-# Verify Docker access
-if ! docker info >/dev/null 2>&1; then
-    echo "❌ Docker not accessible without sudo"
-    echo "   Run: sudo usermod -aG docker $USER && newgrp docker"
+# Check for either Docker or Podman
+if command -v docker >/dev/null 2>&1; then
+    CONTAINER_RUNTIME="docker"
+    echo "✅ Using Docker as container runtime"
+    # Verify Docker access
+    if ! docker info >/dev/null 2>&1; then
+        echo "❌ Docker not accessible without sudo"
+        echo "   Run: sudo usermod -aG docker $USER && newgrp docker"
+        exit 1
+    fi
+elif command -v podman >/dev/null 2>&1; then
+    CONTAINER_RUNTIME="podman"
+    echo "✅ Using Podman as container runtime"
+else
+    echo "❌ Neither Docker nor Podman found"
+    echo "   Install Docker: https://docs.docker.com/get-docker/"
+    echo "   Or Podman: https://podman.io/getting-started/installation"
     exit 1
 fi
+
+export CONTAINER_RUNTIME
 
 # KUBERNETES CLUSTER DETECTION
 
@@ -145,6 +161,7 @@ detect_k8s_cluster() {
 # LOAD DEPLOYMENT SCRIPTS
 
 load_scripts() {
+    # Original scripts
     source "$PROJECT_ROOT/app/build_and_push_image.sh"
     source "$PROJECT_ROOT/app/configure_dockerhub_username.sh"
     source "$PROJECT_ROOT/kubernetes/deploy_kubernetes.sh"
@@ -152,6 +169,23 @@ load_scripts() {
     source "$PROJECT_ROOT/cicd/jenkins/deploy_jenkins.sh"
     source "$PROJECT_ROOT/cicd/github/configure_git_github.sh"
     source "$PROJECT_ROOT/cicd/gitlab/configure_gitlab.sh"
+
+    # New scripts for alternative tools
+    if [[ -f "$PROJECT_ROOT/app/build_and_push_image_podman.sh" ]]; then
+        source "$PROJECT_ROOT/app/build_and_push_image_podman.sh"
+    fi
+    
+    if [[ -f "$PROJECT_ROOT/monitoring/deploy_loki.sh" ]]; then
+        source "$PROJECT_ROOT/monitoring/deploy_loki.sh"
+    fi
+    
+    if [[ -f "$PROJECT_ROOT/infra/OpenTofu/deploy_opentofu.sh" ]]; then
+        source "$PROJECT_ROOT/infra/OpenTofu/deploy_opentofu.sh"
+    fi
+    
+    if [[ -f "$PROJECT_ROOT/Security/security.sh" ]]; then
+        source "$PROJECT_ROOT/Security/security.sh"
+    fi
 }
 
 load_scripts
@@ -186,8 +220,10 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
             exit 1
         fi
         
-        echo "🐳 Configuring Docker environment for Minikube..."
-        eval "$(minikube docker-env)"
+        if [[ "$CONTAINER_RUNTIME" == "docker" ]]; then
+            echo "🐳 Configuring Docker environment for Minikube..."
+            eval "$(minikube docker-env)"
+        fi
         
         if [[ "${MINIKUBE_INGRESS:-false}" == "true" ]]; then
             echo "🌐 Enabling Ingress addon..."
@@ -243,23 +279,40 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     configure_git_github
     configure_dockerhub_username
     
+    # Build and push image based on container runtime
     if [[ "${BUILD_PUSH:-false}" == "true" ]]; then
-        echo "🔨 Building and pushing Docker image..."
-        build_and_push_image
+        echo "🔨 Building and pushing container image..."
+        if [[ "$CONTAINER_RUNTIME" == "podman" ]] && [[ -n "$(type -t build_and_push_image_podman)" ]]; then
+            build_and_push_image_podman
+        else
+            build_and_push_image
+        fi
     else
-        echo "🔨 Building Docker image locally..."
-        docker build -t "$APP_NAME:latest" ./app
+        echo "🔨 Building container image locally..."
+        if [[ "$CONTAINER_RUNTIME" == "podman" ]]; then
+            podman build -t "$APP_NAME:latest" ./app
+        else
+            docker build -t "$APP_NAME:latest" ./app
+        fi
     fi
     
     # Deploy Kubernetes resources
     echo ""
     echo "📦 Deploying Kubernetes resources..."
     deploy_kubernetes local
+    
+    # Deploy monitoring stack (Prometheus/Grafana)
     deploy_monitoring
-    configure_gitlab
-    echo "🔄 Deploying Jenkins..."
-    deploy_jenkins
+    
+    # Deploy Loki log aggregation
+    deploy_loki
+    
+    # Deploy security tools (Falco & Trivy)
+    security
 
+    
+    # Configure GitLab
+    configure_gitlab
     
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
@@ -312,28 +365,50 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
     echo "  ☁️  Deploying to Cloud Kubernetes (Production)"
     echo ""
     
+    # Determine which IaC tool to use (OpenTofu or Terraform)
+    if [[ "${USE_OPENTOFU:-false}" == "true" ]] && command -v tofu >/dev/null 2>&1; then
+        IAC_TOOL="opentofu"
+        echo "🏗️  Using OpenTofu for infrastructure"
+    elif command -v terraform >/dev/null 2>&1; then
+        IAC_TOOL="terraform"
+        echo "🏗️  Using Terraform for infrastructure"
+    else
+        echo "❌ Neither OpenTofu nor Terraform found"
+        echo "   Install OpenTofu: https://opentofu.org/docs/intro/install/"
+        echo "   Or Terraform: https://www.terraform.io/downloads"
+        exit 1
+    fi
+    
     # Handle cloud-specific infrastructure provisioning
     case "$K8S_DISTRIBUTION" in
         eks)
             echo "🏗️  AWS EKS Deployment"
-            command -v terraform >/dev/null 2>&1 || { 
-                echo "❌ Terraform not installed"
-                exit 1
-            }
             command -v aws >/dev/null 2>&1 || { 
                 echo "❌ AWS CLI not installed"
                 exit 1
             }
             
-            echo "🏗️  Deploying infrastructure with Terraform..."
-            cd infra/terraform || exit 1
-            terraform init -upgrade
-            terraform apply -auto-approve
+            echo "🏗️  Deploying infrastructure with $IAC_TOOL..."
             
-            echo "⚙️  Configuring kubectl context..."
-            aws eks update-kubeconfig \
-                --region "$(terraform output -raw region)" \
-                --name "$(terraform output -raw cluster_name)"
+            if [[ "$IAC_TOOL" == "opentofu" ]]; then
+                cd infra/OpenTofu || exit 1
+                tofu init -upgrade
+                tofu apply -auto-approve
+                
+                echo "⚙️  Configuring kubectl context..."
+                aws eks update-kubeconfig \
+                    --region "$(tofu output -raw region)" \
+                    --name "$(tofu output -raw cluster_name)"
+            else
+                cd infra/terraform || exit 1
+                terraform init -upgrade
+                terraform apply -auto-approve
+                
+                echo "⚙️  Configuring kubectl context..."
+                aws eks update-kubeconfig \
+                    --region "$(terraform output -raw region)" \
+                    --name "$(terraform output -raw cluster_name)"
+            fi
             cd ../../
             ;;
         gke)
@@ -361,17 +436,29 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
     configure_dockerhub_username
     
     if [[ "${BUILD_PUSH:-true}" == "true" ]]; then
-        echo "🔨 Building and pushing Docker image..."
-        build_and_push_image
+        echo "🔨 Building and pushing container image..."
+        if [[ "$CONTAINER_RUNTIME" == "podman" ]] && [[ -n "$(type -t build_and_push_image_podman)" ]]; then
+            build_and_push_image_podman
+        else
+            build_and_push_image
+        fi
     fi
     
     echo ""
     echo "📦 Deploying Kubernetes resources..."
     deploy_kubernetes prod
+    
+    # Deploy monitoring
     deploy_monitoring
+    
+    # Deploy Loki 
+    deploy_loki
+
+    # Deploy security tools 
+    security
+    
+    # Configure GitLab
     configure_gitlab
-    echo "🔄 Deploying Jenkins..."
-    deploy_jenkins
     
     echo ""
     echo "  ✅ Application deployed to $K8S_DISTRIBUTION"

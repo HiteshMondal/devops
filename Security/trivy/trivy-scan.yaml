@@ -1,0 +1,225 @@
+# Security/trivy/trivy-scan.yaml - Container vulnerability scanning
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${TRIVY_NAMESPACE:-trivy-system}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trivy-operator
+  namespace: ${TRIVY_NAMESPACE:-trivy-system}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: trivy-operator
+rules:
+- apiGroups: [""]
+  resources:
+  - pods
+  - pods/log
+  - replicationcontrollers
+  - services
+  - namespaces
+  - configmaps
+  - secrets
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources:
+  - deployments
+  - daemonsets
+  - replicasets
+  - statefulsets
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["batch"]
+  resources:
+  - jobs
+  - cronjobs
+  verbs: ["get", "list", "watch", "create", "delete"]
+- apiGroups: ["aquasecurity.github.io"]
+  resources:
+  - vulnerabilityreports
+  - configauditreports
+  - clusterconfigauditreports
+  verbs: ["get", "list", "watch", "create", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: trivy-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: trivy-operator
+subjects:
+- kind: ServiceAccount
+  name: trivy-operator
+  namespace: ${TRIVY_NAMESPACE:-trivy-system}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trivy-config
+  namespace: ${TRIVY_NAMESPACE:-trivy-system}
+data:
+  trivy.yaml: |
+    # Trivy scan configuration
+    scanners:
+      - vuln
+      - config
+      - secret
+    
+    vulnerability:
+      severities:
+        - CRITICAL
+        - HIGH
+        - MEDIUM
+      
+    report:
+      format: json
+      
+    cache:
+      dir: /tmp/trivy/.cache
+    
+    timeout: 5m
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trivy-scan-script
+  namespace: ${TRIVY_NAMESPACE:-trivy-system}
+data:
+  scan.sh: |
+    #!/bin/bash
+    set -e
+    
+    echo "Starting Trivy vulnerability scan..."
+    
+    # Scan Docker images in use
+    kubectl get pods --all-namespaces -o jsonpath="{.items[*].spec.containers[*].image}" | \
+    tr -s '[[:space:]]' '\n' | \
+    sort | \
+    uniq | \
+    while read image; do
+      echo "Scanning image: $image"
+      trivy image --severity ${TRIVY_SEVERITY:-HIGH,CRITICAL} \
+        --format json \
+        --output /reports/$(echo $image | tr '/:' '_').json \
+        $image || echo "Failed to scan $image"
+    done
+    
+    echo "Scan complete. Reports saved to /reports/"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: trivy-scan
+  namespace: ${TRIVY_NAMESPACE:-trivy-system}
+  labels:
+    app: trivy
+spec:
+  schedule: "${TRIVY_SCAN_SCHEDULE:-0 2 * * *}"  # Daily at 2 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: trivy
+        spec:
+          serviceAccountName: trivy-operator
+          restartPolicy: OnFailure
+          containers:
+          - name: trivy
+            image: aquasec/trivy:${TRIVY_VERSION:-0.48.0}
+            command: ["/scripts/scan.sh"]
+            env:
+            - name: TRIVY_SEVERITY
+              value: "${TRIVY_SEVERITY:-HIGH,CRITICAL}"
+            - name: TRIVY_NO_PROGRESS
+              value: "true"
+            - name: TRIVY_TIMEOUT
+              value: "5m"
+            resources:
+              requests:
+                cpu: ${TRIVY_CPU_REQUEST:-500m}
+                memory: ${TRIVY_MEMORY_REQUEST:-512Mi}
+              limits:
+                cpu: ${TRIVY_CPU_LIMIT:-2000m}
+                memory: ${TRIVY_MEMORY_LIMIT:-2Gi}
+            volumeMounts:
+            - name: scan-script
+              mountPath: /scripts
+            - name: trivy-cache
+              mountPath: /tmp/trivy/.cache
+            - name: scan-reports
+              mountPath: /reports
+          volumes:
+          - name: scan-script
+            configMap:
+              name: trivy-scan-script
+              defaultMode: 0755
+          - name: trivy-cache
+            emptyDir: {}
+          - name: scan-reports
+            emptyDir: {}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: trivy-initial-scan
+  namespace: ${TRIVY_NAMESPACE:-trivy-system}
+  labels:
+    app: trivy
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: trivy
+    spec:
+      serviceAccountName: trivy-operator
+      restartPolicy: Never
+      containers:
+      - name: trivy
+        image: aquasec/trivy:${TRIVY_VERSION:-0.48.0}
+        command:
+        - sh
+        - -c
+        - |
+          echo "Running initial Trivy scan..."
+          echo "Updating vulnerability database..."
+          trivy image --download-db-only
+          
+          echo "Scanning application image: ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}"
+          trivy image --severity HIGH,CRITICAL \
+            --format table \
+            ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG} || true
+          
+          echo "Initial scan complete"
+        env:
+        - name: TRIVY_NO_PROGRESS
+          value: "true"
+        - name: DOCKERHUB_USERNAME
+          value: "${DOCKERHUB_USERNAME}"
+        - name: APP_NAME
+          value: "${APP_NAME}"
+        - name: DOCKER_IMAGE_TAG
+          value: "${DOCKER_IMAGE_TAG}"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+        volumeMounts:
+        - name: trivy-cache
+          mountPath: /tmp/trivy/.cache
+      volumes:
+      - name: trivy-cache
+        emptyDir: {}

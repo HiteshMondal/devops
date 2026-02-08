@@ -1,0 +1,265 @@
+# Security/falco/falco-deployment.yaml - Runtime security monitoring
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${FALCO_NAMESPACE:-falco}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: falco
+  namespace: ${FALCO_NAMESPACE:-falco}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: falco
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - namespaces
+  - pods
+  - replicationcontrollers
+  - services
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources:
+  - daemonsets
+  - deployments
+  - replicasets
+  - statefulsets
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: falco
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: falco
+subjects:
+- kind: ServiceAccount
+  name: falco
+  namespace: ${FALCO_NAMESPACE:-falco}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-config
+  namespace: ${FALCO_NAMESPACE:-falco}
+data:
+  falco.yaml: |
+    rules_file:
+    - /etc/falco/falco_rules.yaml
+    - /etc/falco/falco_rules.local.yaml
+    - /etc/falco/k8s_audit_rules.yaml
+    
+    json_output: true
+    json_include_output_property: true
+    
+    log_stderr: true
+    log_syslog: true
+    log_level: info
+    
+    priority: debug
+    
+    buffered_outputs: false
+    
+    syscall_event_drops:
+      actions:
+        - log
+        - alert
+      rate: 0.03333
+      max_burst: 1
+    
+    file_output:
+      enabled: true
+      keep_alive: false
+      filename: /var/log/falco.log
+    
+    stdout_output:
+      enabled: true
+    
+    syslog_output:
+      enabled: true
+    
+    program_output:
+      enabled: false
+    
+    http_output:
+      enabled: false
+    
+    grpc:
+      enabled: false
+    
+    grpc_output:
+      enabled: false
+  
+  falco_rules.local.yaml: |
+    # Custom Falco rules for your environment
+    
+    - rule: Unauthorized Process in Container
+      desc: Detect processes running in containers that are not whitelisted
+      condition: >
+        spawned_process and container
+        and not proc.name in (node, nginx, app)
+      output: >
+        Unauthorized process started in container
+        (user=%user.name command=%proc.cmdline container_id=%container.id 
+        container_name=%container.name image=%container.image.repository)
+      priority: WARNING
+      tags: [container, process]
+    
+    - rule: Sensitive File Access
+      desc: Detect access to sensitive files
+      condition: >
+        open_read and container
+        and fd.name in (/etc/shadow, /etc/passwd, /etc/sudoers)
+      output: >
+        Sensitive file opened for reading
+        (user=%user.name command=%proc.cmdline file=%fd.name 
+        container_id=%container.id container_name=%container.name)
+      priority: WARNING
+      tags: [filesystem, security]
+    
+    - rule: Unexpected Network Connection
+      desc: Detect unexpected outbound connections
+      condition: >
+        outbound and container
+        and not fd.sip in (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+      output: >
+        Unexpected outbound network connection
+        (user=%user.name command=%proc.cmdline connection=%fd.name 
+        container_id=%container.id container_name=%container.name)
+      priority: NOTICE
+      tags: [network, container]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: falco
+  namespace: ${FALCO_NAMESPACE:-falco}
+  labels:
+    app: falco
+spec:
+  selector:
+    matchLabels:
+      app: falco
+  template:
+    metadata:
+      labels:
+        app: falco
+    spec:
+      serviceAccountName: falco
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+        operator: Exists
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      containers:
+      - name: falco
+        image: falcosecurity/falco-no-driver:${FALCO_VERSION:-0.36.2}
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+        args:
+        - /usr/bin/falco
+        - -c
+        - /etc/falco/falco.yaml
+        - -K
+        - /var/run/secrets/kubernetes.io/serviceaccount/token
+        - -k
+        - https://kubernetes.default
+        - -pk
+        resources:
+          requests:
+            cpu: ${FALCO_CPU_REQUEST:-100m}
+            memory: ${FALCO_MEMORY_REQUEST:-256Mi}
+          limits:
+            cpu: ${FALCO_CPU_LIMIT:-500m}
+            memory: ${FALCO_MEMORY_LIMIT:-512Mi}
+        volumeMounts:
+        - name: docker-socket
+          mountPath: /host/var/run/docker.sock
+        - name: dev-fs
+          mountPath: /host/dev
+        - name: proc-fs
+          mountPath: /host/proc
+          readOnly: true
+        - name: boot-fs
+          mountPath: /host/boot
+          readOnly: true
+        - name: lib-modules
+          mountPath: /host/lib/modules
+          readOnly: true
+        - name: usr-fs
+          mountPath: /host/usr
+          readOnly: true
+        - name: etc-fs
+          mountPath: /host/etc
+          readOnly: true
+        - name: config-volume
+          mountPath: /etc/falco
+        - name: falco-logs
+          mountPath: /var/log
+        env:
+        - name: FALCO_K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+      volumes:
+      - name: docker-socket
+        hostPath:
+          path: /var/run/docker.sock
+      - name: dev-fs
+        hostPath:
+          path: /dev
+      - name: proc-fs
+        hostPath:
+          path: /proc
+      - name: boot-fs
+        hostPath:
+          path: /boot
+      - name: lib-modules
+        hostPath:
+          path: /lib/modules
+      - name: usr-fs
+        hostPath:
+          path: /usr
+      - name: etc-fs
+        hostPath:
+          path: /etc
+      - name: config-volume
+        configMap:
+          name: falco-config
+          items:
+          - key: falco.yaml
+            path: falco.yaml
+          - key: falco_rules.local.yaml
+            path: falco_rules.local.yaml
+      - name: falco-logs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: falco
+  namespace: ${FALCO_NAMESPACE:-falco}
+  labels:
+    app: falco
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8765
+    targetPort: 8765
+    protocol: TCP
+    name: grpc
+  selector:
+    app: falco
