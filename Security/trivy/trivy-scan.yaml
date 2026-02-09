@@ -3,13 +3,13 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ${TRIVY_NAMESPACE:-trivy-system}
+  name: ${TRIVY_NAMESPACE}
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: trivy-operator
-  namespace: ${TRIVY_NAMESPACE:-trivy-system}
+  namespace: ${TRIVY_NAMESPACE}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -56,13 +56,13 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: trivy-operator
-  namespace: ${TRIVY_NAMESPACE:-trivy-system}
+  namespace: ${TRIVY_NAMESPACE}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: trivy-config
-  namespace: ${TRIVY_NAMESPACE:-trivy-system}
+  namespace: ${TRIVY_NAMESPACE}
 data:
   trivy.yaml: |
     # Trivy scan configuration
@@ -89,7 +89,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: trivy-scan-script
-  namespace: ${TRIVY_NAMESPACE:-trivy-system}
+  namespace: ${TRIVY_NAMESPACE}
 data:
   scan.sh: |
     #!/bin/bash
@@ -104,7 +104,7 @@ data:
     uniq | \
     while read image; do
       echo "Scanning image: $image"
-      trivy image --severity ${TRIVY_SEVERITY:-HIGH,CRITICAL} \
+      trivy image --severity ${TRIVY_SEVERITY} \
         --format json \
         --output /reports/$(echo $image | tr '/:' '_').json \
         $image || echo "Failed to scan $image"
@@ -116,11 +116,11 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: trivy-scan
-  namespace: ${TRIVY_NAMESPACE:-trivy-system}
+  namespace: ${TRIVY_NAMESPACE}
   labels:
     app: trivy
 spec:
-  schedule: "${TRIVY_SCAN_SCHEDULE:-0 2 * * *}"  # Daily at 2 AM
+  schedule: "${TRIVY_SCAN_SCHEDULE}"  # Daily at 2 AM
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -135,22 +135,22 @@ spec:
           restartPolicy: OnFailure
           containers:
           - name: trivy
-            image: aquasec/trivy:${TRIVY_VERSION:-0.48.0}
+            image: aquasec/trivy:${TRIVY_VERSION}
             command: ["/scripts/scan.sh"]
             env:
             - name: TRIVY_SEVERITY
-              value: "${TRIVY_SEVERITY:-HIGH,CRITICAL}"
+              value: "${TRIVY_SEVERITY}"
             - name: TRIVY_NO_PROGRESS
               value: "true"
             - name: TRIVY_TIMEOUT
               value: "5m"
             resources:
               requests:
-                cpu: ${TRIVY_CPU_REQUEST:-500m}
-                memory: ${TRIVY_MEMORY_REQUEST:-512Mi}
+                cpu: ${TRIVY_CPU_REQUEST}
+                memory: ${TRIVY_MEMORY_REQUEST}
               limits:
-                cpu: ${TRIVY_CPU_LIMIT:-2000m}
-                memory: ${TRIVY_MEMORY_LIMIT:-2Gi}
+                cpu: ${TRIVY_CPU_LIMIT}
+                memory: ${TRIVY_MEMORY_LIMIT}
             volumeMounts:
             - name: scan-script
               mountPath: /scripts
@@ -172,7 +172,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: trivy-initial-scan
-  namespace: ${TRIVY_NAMESPACE:-trivy-system}
+  namespace: ${TRIVY_NAMESPACE}
   labels:
     app: trivy
 spec:
@@ -186,7 +186,7 @@ spec:
       restartPolicy: Never
       containers:
       - name: trivy
-        image: aquasec/trivy:${TRIVY_VERSION:-0.48.0}
+        image: aquasec/trivy:${TRIVY_VERSION}
         command:
         - sh
         - -c

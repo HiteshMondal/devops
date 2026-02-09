@@ -20,6 +20,17 @@ configure_gitlab () {
   echo -e "${BOLD}🚀 GitLab CI/CD Setup Guide${RESET}"
   echo_separator
   echo ""
+
+  # Auto-detect project root (two levels up from this script)
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  cd "$PROJECT_ROOT" || { echo "❌ Cannot cd to project root: $PROJECT_ROOT"; return 1; }
+
+  if [ ! -d .git ]; then
+    echo "❌ Not a Git repository. Skipping GitLab CI/CD setup."
+    return 0
+  fi
+
   echo -e "${YELLOW}Step 1️⃣  Check your Git repository for changes${RESET}"
   git status
   echo -e "  - If changes exist, commit them:"

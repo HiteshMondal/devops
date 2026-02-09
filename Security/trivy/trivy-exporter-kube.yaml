@@ -1,0 +1,215 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trivy-system
+  labels:
+    name: trivy-system
+
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trivy-exporter
+  namespace: trivy-system
+
+---
+# ClusterRole - Read pods across all namespaces
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: trivy-exporter
+rules:
+- apiGroups: [""]
+  resources:
+  - pods
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: trivy-exporter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: trivy-exporter
+subjects:
+- kind: ServiceAccount
+  name: trivy-exporter
+  namespace: trivy-system
+
+---
+# ConfigMap with Python exporter script
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trivy-exporter-script
+  namespace: trivy-system
+data:
+  requirements.txt: |
+    prometheus-client==0.19.0
+    kubernetes==28.1.0
+
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trivy-exporter
+  namespace: trivy-system
+  labels:
+    app: trivy-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trivy-exporter
+  template:
+    metadata:
+      labels:
+        app: trivy-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: trivy-exporter
+      containers:
+      - name: trivy-exporter
+        image: aquasec/trivy:0.48.0
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # Install Python and dependencies
+          apk add --no-cache python3 py3-pip
+          pip3 install --break-system-packages prometheus-client kubernetes
+          
+          # Run the exporter
+          python3 /exporter/trivy-prometheus-exporter.py --port 8000 --interval 3600
+        ports:
+        - containerPort: 8000
+          name: metrics
+          protocol: TCP
+        env:
+        - name: TRIVY_TIMEOUT
+          value: "5m"
+        - name: TRIVY_NO_PROGRESS
+          value: "true"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+        volumeMounts:
+        - name: exporter-script
+          mountPath: /exporter
+        - name: trivy-cache
+          mountPath: /root/.cache
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: exporter-script
+        configMap:
+          name: trivy-exporter-files
+          defaultMode: 0755
+      - name: trivy-cache
+        emptyDir: {}
+
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: trivy-exporter
+  namespace: trivy-system
+  labels:
+    app: trivy-exporter
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: metrics
+  selector:
+    app: trivy-exporter
+
+---
+# ServiceMonitor for Prometheus Operator
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: trivy-exporter
+  namespace: trivy-system
+  labels:
+    app: trivy-exporter
+spec:
+  selector:
+    matchLabels:
+      app: trivy-exporter
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    scheme: http
+
+---
+# PodMonitor (alternative if ServiceMonitor doesn't work)
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: trivy-exporter
+  namespace: trivy-system
+  labels:
+    app: trivy-exporter
+spec:
+  selector:
+    matchLabels:
+      app: trivy-exporter
+  podMetricsEndpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+
+---
+# Optional: NetworkPolicy to allow Prometheus to scrape
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trivy-exporter-allow-prometheus
+  namespace: trivy-system
+spec:
+  podSelector:
+    matchLabels:
+      app: trivy-exporter
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8000
