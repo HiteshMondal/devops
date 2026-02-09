@@ -13,10 +13,12 @@ read -p "Type y to continue: " CONFIRM
   exit 1
 }
 
+#---------------Monitoring--------------------------
+kubectl delete configmap prometheus-config -n devops-app
+
 #---------------Trivy--------------------------
 kubectl delete namespace trivy-system --ignore-not-found=true
 kubectl delete namespace trivy --ignore-not-found=true
-kubectl delete -f monitoring/trivy_metrics/trivy.yaml --ignore-not-found=true
 kubectl delete deployment trivy -n devops-app --ignore-not-found
 kubectl delete svc trivy -n devops-app --ignore-not-found
 

@@ -112,6 +112,33 @@ data:
     
     echo "Scan complete. Reports saved to /reports/"
 ---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trivy-cache-pvc
+  namespace: ${TRIVY_NAMESPACE}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trivy-reports-pvc
+  namespace: ${TRIVY_NAMESPACE}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -164,9 +191,13 @@ spec:
               name: trivy-scan-script
               defaultMode: 0755
           - name: trivy-cache
-            emptyDir: {}
+            persistentVolumeClaim:
+              claimName: trivy-cache-pvc
+
           - name: scan-reports
-            emptyDir: {}
+            persistentVolumeClaim:
+              claimName: trivy-reports-pvc
+
 ---
 apiVersion: batch/v1
 kind: Job
@@ -193,7 +224,7 @@ spec:
         - |
           echo "Running initial Trivy scan..."
           echo "Updating vulnerability database..."
-          trivy image --download-db-only
+          trivy image --download-db-only --timeout 10m
           
           echo "Scanning application image: ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}"
           trivy image --severity HIGH,CRITICAL \
@@ -222,4 +253,5 @@ spec:
           mountPath: /tmp/trivy/.cache
       volumes:
       - name: trivy-cache
-        emptyDir: {}
+        persistentVolumeClaim:
+          claimName: trivy-cache-pvc
