@@ -1,0 +1,46 @@
+# /monitoring/trivy_metrics/trivy.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trivy
+  namespace: devops-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trivy
+  template:
+    metadata:
+      labels:
+        app: trivy
+    spec:
+      containers:
+      - name: trivy
+        image: aquasec/trivy:0.48.3
+        args:
+          - server
+          - --listen
+          - 0.0.0.0:4954
+        ports:
+          - name: http
+            containerPort: 4954
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trivy
+  namespace: devops-app
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "4954"
+    prometheus.io/path: "/metrics"
+spec:
+  selector:
+    app: trivy
+  ports:
+    - name: http
+      port: 4954
+      targetPort: 4954
+

@@ -68,7 +68,7 @@ deploy_trivy() {
     
     echo "🚀 Deploying Trivy scanner..."
     kubectl apply -f trivy-scan-processed.yaml
-    
+
     echo "⏳ Waiting for initial Trivy scan job..."
     kubectl wait --for=condition=complete --timeout=300s job/trivy-initial-scan -n "$TRIVY_NAMESPACE" || {
         echo "⚠️  Initial scan taking longer than expected, continuing..."
@@ -79,12 +79,6 @@ deploy_trivy() {
     echo ""
     echo "📊 Trivy Status:"
     kubectl get cronjob,job,pods -n "$TRIVY_NAMESPACE"
-    
-    echo ""
-    echo "💡 Useful commands:"
-    echo "   View scan logs:    kubectl logs -n $TRIVY_NAMESPACE -l app=trivy"
-    echo "   Trigger manual scan: kubectl create job --from=cronjob/trivy-scan manual-scan-\$(date +%s) -n $TRIVY_NAMESPACE"
-    echo "   Scan schedule:     $TRIVY_SCAN_SCHEDULE"
     
     # Cleanup
     rm -rf "$TRIVY_WORK_DIR"

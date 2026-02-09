@@ -568,25 +568,6 @@ deploy_kubernetes() {
     fi
     
     print_divider
-    
-    echo "💡 Useful Commands"
-    echo ""
-    echo -e "${BOLD}View logs:${RESET}"
-    echo -e "  ${DIM}\$${RESET} kubectl logs -f deployment/$APP_NAME -n $NAMESPACE"
-    echo ""
-    echo -e "${BOLD}Describe pods:${RESET}"
-    echo -e "  ${DIM}\$${RESET} kubectl describe pod -l app=$APP_NAME -n $NAMESPACE"
-    echo ""
-    echo -e "${BOLD}Get events:${RESET}"
-    echo -e "  ${DIM}\$${RESET} kubectl get events -n $NAMESPACE --sort-by='.lastTimestamp'"
-    echo ""
-    echo -e "${BOLD}Port forward:${RESET}"
-    echo -e "  ${DIM}\$${RESET} kubectl port-forward svc/${APP_NAME}-service $APP_PORT:80 -n $NAMESPACE"
-    echo ""
-    echo -e "${BOLD}Scale deployment:${RESET}"
-    echo -e "  ${DIM}\$${RESET} kubectl scale deployment/$APP_NAME --replicas=3 -n $NAMESPACE"
-    echo ""
-    print_divider
 }
 
 # SCRIPT EXECUTION

@@ -643,29 +643,6 @@ deploy_monitoring() {
     
     print_divider
     
-    echo "💡 Useful Commands"
-    echo ""
-    echo -e "${BOLD}View Prometheus logs:${RESET}"
-    echo -e "  ${DIM}\$${RESET} kubectl logs -f deployment/prometheus -n $PROMETHEUS_NAMESPACE"
-    echo ""
-    echo -e "${BOLD}Port forward Prometheus:${RESET}"
-    echo -e "  ${DIM}\$${RESET} kubectl port-forward svc/prometheus 9090:9090 -n $PROMETHEUS_NAMESPACE"
-    echo ""
-    echo -e "${BOLD}Check Prometheus config:${RESET}"
-    echo -e "  ${DIM}\$${RESET} kubectl get configmap prometheus-config -n $PROMETHEUS_NAMESPACE -o yaml"
-    echo ""
-    
-    if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
-        echo -e "${BOLD}View Grafana logs:${RESET}"
-        echo -e "  ${DIM}\$${RESET} kubectl logs -f deployment/grafana -n $PROMETHEUS_NAMESPACE"
-        echo ""
-        echo -e "${BOLD}Port forward Grafana:${RESET}"
-        echo -e "  ${DIM}\$${RESET} kubectl port-forward svc/grafana 3000:3000 -n $PROMETHEUS_NAMESPACE"
-        echo ""
-    fi
-    
-    print_divider
-    
     echo "🎯 Monitoring Targets"
     echo ""
     print_target "Kubernetes API Server"
