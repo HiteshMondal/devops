@@ -33,10 +33,18 @@ fi
 : "${TRIVY_MEMORY_REQUEST:=512Mi}"
 : "${TRIVY_MEMORY_LIMIT:=2Gi}"
 : "${TRIVY_METRICS_ENABLED:=true}"
+: "${TRIVY_IMAGE:=ghcr.io/devopsstack/trivy-kubectl:${TRIVY_VERSION}}"
+: "${APP_IMAGE:=nginx:latest}"
 
+export APP_IMAGE
+export TRIVY_IMAGE
 export TRIVY_ENABLED TRIVY_NAMESPACE TRIVY_VERSION TRIVY_SEVERITY TRIVY_SCAN_SCHEDULE
 export TRIVY_CPU_REQUEST TRIVY_CPU_LIMIT TRIVY_MEMORY_REQUEST TRIVY_MEMORY_LIMIT
 export TRIVY_METRICS_ENABLED
+
+TRIVY_WORK_DIR="/tmp/trivy-deployment-$$"
+trap 'rm -rf "$TRIVY_WORK_DIR"' EXIT
+mkdir -p "$TRIVY_WORK_DIR"
 
 # Function to deploy Trivy
 deploy_trivy() {
@@ -48,10 +56,6 @@ deploy_trivy() {
     echo ""
     echo "🔍 Deploying Trivy Vulnerability Scanner"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    
-    # Create temporary working directory
-    TRIVY_WORK_DIR="/tmp/trivy-deployment-$$"
-    mkdir -p "$TRIVY_WORK_DIR"
     
     # Copy Trivy manifests
     if [[ -f "$PROJECT_ROOT/Security/trivy/trivy-scan.yaml" ]]; then
@@ -127,6 +131,10 @@ EOF
     kubectl create namespace "$TRIVY_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
     
     echo "🚀 Deploying Trivy scanner..."
+    kubectl delete job trivy-initial-scan \
+      -n "$TRIVY_NAMESPACE" \
+      --ignore-not-found
+
     kubectl apply -f trivy-scan-envsubst.yaml
     kubectl apply -f trivy-scan-updated.yaml
 
@@ -137,6 +145,27 @@ EOF
     
     echo ""
     echo "✅ Trivy scanner deployed successfully!"
+}
+
+build_trivy_image() {
+
+    echo "🔐 Building Trivy + kubectl image..."
+
+    local IMAGE_NAME="${TRIVY_IMAGE}"
+
+    $CONTAINER_RUNTIME build \
+        --build-arg TRIVY_VERSION=${TRIVY_VERSION} \
+        -t "$IMAGE_NAME" \
+        "$PROJECT_ROOT/Security/trivy"
+
+    if [[ "${BUILD_PUSH:-false}" == "true" ]]; then
+        echo "📤 Pushing Trivy image..."
+        $CONTAINER_RUNTIME push "$IMAGE_NAME"
+    fi
+
+    export TRIVY_CUSTOM_IMAGE="$IMAGE_NAME"
+
+    echo "✅ Trivy image ready: $IMAGE_NAME"
 }
 
 # Function to deploy Trivy Metrics Exporter
@@ -352,7 +381,12 @@ spec:
 EOFEXPORTER
     
     # Replace namespace placeholder
-    sed -i "s/TRIVY_NAMESPACE_PLACEHOLDER/${TRIVY_NAMESPACE}/g" "$TRIVY_WORK_DIR/trivy-exporter.yaml"
+    sed "s/TRIVY_NAMESPACE_PLACEHOLDER/${TRIVY_NAMESPACE}/g" \
+      "$TRIVY_WORK_DIR/trivy-exporter.yaml" \
+      > "$TRIVY_WORK_DIR/trivy-exporter-final.yaml"
+
+    mv "$TRIVY_WORK_DIR/trivy-exporter-final.yaml" \
+       "$TRIVY_WORK_DIR/trivy-exporter.yaml"
     
     echo "🚀 Deploying metrics exporter..."
     kubectl apply -f "$TRIVY_WORK_DIR/trivy-exporter.yaml"
@@ -367,7 +401,7 @@ EOFEXPORTER
 }
 
 trivy-reports-pvc(){
-    kubectl run -n trivy-system trivy-manual-scan --rm -i --restart=Never \
+    kubectl run -n "$TRIVY_NAMESPACE" trivy-manual-scan --rm -i --restart=Never \
     --overrides='
     {
       "spec": {
@@ -397,7 +431,7 @@ trivy-reports-pvc(){
       }
     }'
 
-    kubectl rollout restart deployment trivy-exporter -n trivy-system
+    kubectl rollout restart deployment trivy-exporter -n "$TRIVY_NAMESPACE"
     curl http://localhost:8080/metrics | grep trivy
 
 }
@@ -411,9 +445,13 @@ security() {
     echo "  Trivy Metrics Export:  ${TRIVY_METRICS_ENABLED}"
     echo ""
 
+    if [[ "${BUILD_TRIVY_IMAGE:-false}" == "true" ]]; then
+        build_trivy_image
+    fi
+
     # Deploy Trivy scanner
     deploy_trivy
-    
+
     # Deploy metrics exporter
     deploy_trivy_exporter
     
@@ -422,9 +460,6 @@ security() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📊 Trivy Status:"
     kubectl get all -n "$TRIVY_NAMESPACE"
-    
-    # Cleanup
-    rm -rf "$TRIVY_WORK_DIR"
     
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

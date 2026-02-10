@@ -84,9 +84,10 @@ aws --version || true
 echo ""
 
 # Validate required tools
-for cmd in kubectl; do
+for cmd in kubectl envsubst ; do
     command -v "$cmd" >/dev/null || {
         echo "❌ Missing $cmd"
+        echo "$cmd not installed"
         exit 1
     }
 done

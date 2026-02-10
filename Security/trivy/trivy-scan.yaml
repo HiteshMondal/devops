@@ -92,7 +92,7 @@ metadata:
   namespace: ${TRIVY_NAMESPACE}
 data:
   scan.sh: |
-    #!/bin/bash
+    #!/bin/sh
     set -e
     
     echo "Starting Trivy vulnerability scan..."
@@ -162,7 +162,7 @@ spec:
           restartPolicy: OnFailure
           containers:
           - name: trivy
-            image: aquasec/trivy:${TRIVY_VERSION}
+            image: ${TRIVY_IMAGE}
             command: ["/scripts/scan.sh"]
             env:
             - name: TRIVY_SEVERITY
@@ -217,7 +217,7 @@ spec:
       restartPolicy: Never
       containers:
       - name: trivy
-        image: aquasec/trivy:${TRIVY_VERSION}
+        image: ${TRIVY_IMAGE}
         command:
         - sh
         - -c
@@ -226,21 +226,15 @@ spec:
           echo "Updating vulnerability database..."
           trivy image --download-db-only --timeout 10m
           
-          echo "Scanning application image: ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}"
+          echo "Scanning application image: ${APP_IMAGE}"
           trivy image --severity HIGH,CRITICAL \
             --format table \
-            ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG} || true
+            ${APP_IMAGE} || true
           
           echo "Initial scan complete"
         env:
         - name: TRIVY_NO_PROGRESS
           value: "true"
-        - name: DOCKERHUB_USERNAME
-          value: "${DOCKERHUB_USERNAME}"
-        - name: APP_NAME
-          value: "${APP_NAME}"
-        - name: DOCKER_IMAGE_TAG
-          value: "${DOCKER_IMAGE_TAG}"
         resources:
           requests:
             cpu: 500m
