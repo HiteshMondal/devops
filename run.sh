@@ -305,38 +305,87 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     echo ""
     
     # Show access information based on distribution
+    echo "╔════════════════════════════════════════════════════════════════════════════╗"
+    echo "║                          🌐  ACCESS INFORMATION                            ║"
+    echo "╚════════════════════════════════════════════════════════════════════════════╝"
+    echo ""
+    
     case "$K8S_DISTRIBUTION" in
         minikube)
             MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "localhost")
             NODE_PORT=$(kubectl get svc "$APP_NAME-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
             if [[ -n "$NODE_PORT" ]]; then
-                echo "  🌐 App URL:       http://$MINIKUBE_IP:$NODE_PORT"
+                echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+                echo "  │  🚀 APPLICATION URL                                                    │"
+                echo "  ├────────────────────────────────────────────────────────────────────────┤"
+                echo "  │                                                                        │"
+                echo "  │     👉  http://$MINIKUBE_IP:$NODE_PORT"
+                echo "  │                                                                        │"
+                echo "  └────────────────────────────────────────────────────────────────────────┘"
             fi
-            echo "  📊 Dashboard:     minikube dashboard"
+            echo ""
+            echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+            echo "  │  📊 DASHBOARD COMMAND                                                  │"
+            echo "  ├────────────────────────────────────────────────────────────────────────┤"
+            echo "  │                                                                        │"
+            echo "  │     \$ minikube dashboard                                              │"
+            echo "  │                                                                        │"
+            echo "  └────────────────────────────────────────────────────────────────────────┘"
             ;;
         kind)
             NODE_PORT=$(kubectl get svc "$APP_NAME-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
             if [[ -n "$NODE_PORT" ]]; then
-                echo "  🌐 App URL:       http://localhost:$NODE_PORT"
+                echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+                echo "  │  🚀 APPLICATION URL                                                    │"
+                echo "  ├────────────────────────────────────────────────────────────────────────┤"
+                echo "  │                                                                        │"
+                echo "  │     👉  http://localhost:$NODE_PORT"
+                echo "  │                                                                        │"
+                echo "  └────────────────────────────────────────────────────────────────────────┘"
             fi
             ;;
         k3s)
             NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "localhost")
             NODE_PORT=$(kubectl get svc "$APP_NAME-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
             if [[ -n "$NODE_PORT" ]]; then
-                echo "  🌐 App URL:       http://$NODE_IP:$NODE_PORT"
+                echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+                echo "  │  🚀 APPLICATION URL                                                    │"
+                echo "  ├────────────────────────────────────────────────────────────────────────┤"
+                echo "  │                                                                        │"
+                echo "  │     👉  http://$NODE_IP:$NODE_PORT"
+                echo "  │                                                                        │"
+                echo "  └────────────────────────────────────────────────────────────────────────┘"
             fi
             ;;
         microk8s)
             NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "localhost")
             NODE_PORT=$(kubectl get svc "$APP_NAME-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
             if [[ -n "$NODE_PORT" ]]; then
-                echo "  🌐 App URL:       http://$NODE_IP:$NODE_PORT"
+                echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+                echo "  │  🚀 APPLICATION URL                                                    │"
+                echo "  ├────────────────────────────────────────────────────────────────────────┤"
+                echo "  │                                                                        │"
+                echo "  │     👉  http://$NODE_IP:$NODE_PORT"
+                echo "  │                                                                        │"
+                echo "  └────────────────────────────────────────────────────────────────────────┘"
             fi
             ;;
         *)
-            echo "  💡 Use: kubectl port-forward svc/$APP_NAME-service $APP_PORT:80 -n $NAMESPACE"
-            echo "     Then access: http://localhost:$APP_PORT"
+            echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+            echo "  │  ⚡ REQUIRED COMMAND (Port Forward)                                     │"
+            echo "  ├────────────────────────────────────────────────────────────────────────┤"
+            echo "  │                                                                        │"
+            echo "  │     \$ kubectl port-forward svc/$APP_NAME-service $APP_PORT:80 -n $NAMESPACE"
+            echo "  │                                                                        │"
+            echo "  └────────────────────────────────────────────────────────────────────────┘"
+            echo ""
+            echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+            echo "  │  🚀 APPLICATION URL (After Port Forward)                               │"
+            echo "  ├────────────────────────────────────────────────────────────────────────┤"
+            echo "  │                                                                        │"
+            echo "  │     👉  http://localhost:$APP_PORT"
+            echo "  │                                                                        │"
+            echo "  └────────────────────────────────────────────────────────────────────────┘"
             ;;
     esac
     
@@ -411,10 +460,20 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
     configure_gitlab
     
     echo ""
-    echo "  ✅ Application deployed to $K8S_DISTRIBUTION"
-    echo "  ℹ️  Check LoadBalancer or Ingress for external access:"
-    echo "     kubectl get svc -n $NAMESPACE"
-    echo "     kubectl get ingress -n $NAMESPACE"
+    echo "╔════════════════════════════════════════════════════════════════════════════╗"
+    echo "║                     ✅ DEPLOYMENT SUCCESSFUL                               ║"
+    echo "╚════════════════════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "  Deployed to: $K8S_DISTRIBUTION"
+    echo ""
+    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+    echo "  │  ⚡ CHECK SERVICE ENDPOINTS                                             │"
+    echo "  ├────────────────────────────────────────────────────────────────────────┤"
+    echo "  │                                                                        │"
+    echo "  │     \$ kubectl get svc -n $NAMESPACE                                   │"
+    echo "  │     \$ kubectl get ingress -n $NAMESPACE                               │"
+    echo "  │                                                                        │"
+    echo "  └────────────────────────────────────────────────────────────────────────┘"
     echo ""
 
 else

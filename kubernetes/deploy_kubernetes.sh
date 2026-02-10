@@ -510,7 +510,10 @@ deploy_kubernetes() {
     print_divider
     
     # Show access information based on distribution
-    echo "🌐 Access Information"
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════════════════╗"
+    echo "║                      🌐  APPLICATION ACCESS INFORMATION                    ║"
+    echo "╚════════════════════════════════════════════════════════════════════════════╝"
     echo ""
     
     echo -e "${BOLD}${GREEN}Kubernetes Distribution: $K8S_DISTRIBUTION${RESET}"
@@ -521,47 +524,93 @@ deploy_kubernetes() {
     
     case "$app_url" in
         port-forward-required)
-            echo -e "${BOLD}📱 Application Access:${RESET}"
-            echo -e "  ${CYAN}Use port-forward:${RESET}"
-            echo -e "  ${DIM}\$${RESET} kubectl port-forward svc/${APP_NAME}-service $APP_PORT:80 -n $NAMESPACE"
-            echo -e "  ${CYAN}Then access:${RESET} ${LINK}http://localhost:$APP_PORT${RESET}"
+            echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+            echo "  │  ⚡ PORT FORWARD COMMAND                                                │"
+            echo "  ├────────────────────────────────────────────────────────────────────────┤"
+            echo "  │                                                                        │"
+            echo "  │     \$ kubectl port-forward svc/${APP_NAME}-service $APP_PORT:80 -n $NAMESPACE"
+            echo "  │                                                                        │"
+            echo "  └────────────────────────────────────────────────────────────────────────┘"
+            echo ""
+            echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+            echo "  │  🚀 APPLICATION URL (After Port Forward)                               │"
+            echo "  ├────────────────────────────────────────────────────────────────────────┤"
+            echo "  │                                                                        │"
+            echo "  │     👉  http://localhost:$APP_PORT"
+            echo "  │                                                                        │"
+            echo "  └────────────────────────────────────────────────────────────────────────┘"
             ;;
         pending-loadbalancer)
-            echo -e "${BOLD}📱 Application:${RESET} ${YELLOW}LoadBalancer IP pending${RESET}"
-            echo -e "  ${CYAN}Check status:${RESET}"
-            echo -e "  ${DIM}\$${RESET} kubectl get svc ${APP_NAME}-service -n $NAMESPACE"
+            echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+            echo "  │  ⏳ LoadBalancer IP Pending                                            │"
+            echo "  ├────────────────────────────────────────────────────────────────────────┤"
+            echo "  │                                                                        │"
+            echo "  │     \$ kubectl get svc ${APP_NAME}-service -n $NAMESPACE               │"
+            echo "  │                                                                        │"
+            echo "  └────────────────────────────────────────────────────────────────────────┘"
             ;;
         minikube-cli-missing)
             print_warning "Minikube CLI not found"
             echo -e "  ${CYAN}Install minikube to get access URL${RESET}"
             ;;
         *)
-            print_url "📱 Application URL:" "$app_url"
+            echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+            echo "  │  🚀 APPLICATION URL                                                    │"
+            echo "  ├────────────────────────────────────────────────────────────────────────┤"
+            echo "  │                                                                        │"
+            echo "  │     👉  $app_url"
+            echo "  │                                                                        │"
+            echo "  └────────────────────────────────────────────────────────────────────────┘"
             ;;
     esac
     
     if [[ "${INGRESS_ENABLED}" == "true" ]]; then
         echo ""
-        print_url "🌐 Ingress URL:" "http://${INGRESS_HOST}"
+        echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+        echo "  │  🌐 INGRESS URL                                                        │"
+        echo "  ├────────────────────────────────────────────────────────────────────────┤"
+        echo "  │                                                                        │"
+        echo "  │     👉  http://${INGRESS_HOST}"
+        echo "  │                                                                        │"
+        echo "  └────────────────────────────────────────────────────────────────────────┘"
         
         # Add /etc/hosts hint for local environments
         if [[ "$K8S_DISTRIBUTION" == "minikube" ]] || [[ "$K8S_DISTRIBUTION" == "kind" ]] || [[ "$K8S_DISTRIBUTION" == "k3s" ]]; then
+            echo ""
             case "$K8S_DISTRIBUTION" in
                 minikube)
                     if command -v minikube >/dev/null 2>&1; then
                         local cluster_ip=$(minikube ip 2>/dev/null || echo "127.0.0.1")
-                        echo ""
-                        print_info "Add to /etc/hosts: ${BOLD}$cluster_ip ${INGRESS_HOST}${RESET}"
+                        echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+                        echo "  │  ⚙️  HOSTS FILE CONFIGURATION                                          │"
+                        echo "  ├────────────────────────────────────────────────────────────────────────┤"
+                        echo "  │                                                                        │"
+                        echo "  │     Add to /etc/hosts:                                                │"
+                        echo "  │     $cluster_ip ${INGRESS_HOST}"
+                        echo "  │                                                                        │"
+                        echo "  └────────────────────────────────────────────────────────────────────────┘"
                     fi
                     ;;
                 kind)
-                    echo ""
-                    print_info "Add to /etc/hosts: ${BOLD}127.0.0.1 ${INGRESS_HOST}${RESET}"
+                    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+                    echo "  │  ⚙️  HOSTS FILE CONFIGURATION                                          │"
+                    echo "  ├────────────────────────────────────────────────────────────────────────┤"
+                    echo "  │                                                                        │"
+                    echo "  │     Add to /etc/hosts:                                                │"
+                    echo "  │     127.0.0.1 ${INGRESS_HOST}"
+                    echo "  │                                                                        │"
+                    echo "  └────────────────────────────────────────────────────────────────────────┘"
                     ;;
                 k3s)
                     local node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "127.0.0.1")
-                    echo ""
-                    print_info "Add to /etc/hosts: ${BOLD}$node_ip ${INGRESS_HOST}${RESET}"
+                    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+                    echo "  │  ⚙️  HOSTS FILE CONFIGURATION                                          │"
+                    echo "  ├────────────────────────────────────────────────────────────────────────┤"
+                    echo "  │                                                                        │"
+                    echo "  │     Add to /etc/hosts:                                                │"
+                    echo "  │     $node_ip ${INGRESS_HOST}"
+                    echo "  │                                                                        │"
+                    echo "  └────────────────────────────────────────────────────────────────────────┘"
                     ;;
             esac
         fi
