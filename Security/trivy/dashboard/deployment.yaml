@@ -210,7 +210,7 @@ spec:
       - name: exporter
         image: python:3.11-slim
         command:
-        - /bin/sh
+        - /bin/bash
         - -c
         - |
           pip install --no-cache-dir prometheus-client && \
