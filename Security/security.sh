@@ -366,6 +366,42 @@ EOFEXPORTER
     echo "✅ Trivy Metrics Exporter deployed successfully!"
 }
 
+trivy-reports-pvc(){
+    kubectl run -n trivy-system trivy-manual-scan --rm -i --restart=Never \
+    --overrides='
+    {
+      "spec": {
+        "volumes": [
+          {
+            "name": "reports",
+            "persistentVolumeClaim": { "claimName": "trivy-reports-pvc" }
+          }
+        ],
+        "containers": [
+          {
+            "name": "trivy",
+            "image": "aquasec/trivy:0.48.0",
+            "volumeMounts": [
+              { "name": "reports", "mountPath": "/reports" }
+            ],
+            "args": [
+              "image",
+              "--format",
+              "json",
+              "-o",
+              "/reports/devops-app.json",
+              "hiteshmondaldocker/devops-app:latest"
+            ]
+          }
+        ]
+      }
+    }'
+
+    kubectl rollout restart deployment trivy-exporter -n trivy-system
+    curl http://localhost:8080/metrics | grep trivy
+
+}
+
 # Main security deployment function
 security() {
     echo "🔐 Starting Security Tools Deployment"

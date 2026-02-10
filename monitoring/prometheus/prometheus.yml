@@ -232,3 +232,8 @@ scrape_configs:
       
       - source_labels: [__meta_kubernetes_pod_node_name]
         target_label: node
+
+
+  - job_name: 'trivy'
+    static_configs:
+      - targets: ['trivy-exporter.trivy-system.svc.cluster.local:8080']
