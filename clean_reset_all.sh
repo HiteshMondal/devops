@@ -1,42 +1,88 @@
 #!/bin/bash
 
+# clean_reset_all.sh
+#
+# Purpose:
+#   Perform a FULL cleanup and reset of local DevOps tooling.
+#   This includes Kubernetes, Minikube, Docker, monitoring, security tools,
+#   and GitLab runner state.
+#
+# WARNING:
+#   This script is DESTRUCTIVE.
+#   Use only when your environment is unrecoverable.
+#
+
+# Strict IFS for safer bash behavior
 IFS=$'\n\t'
 
-echo "=== DevOps Full Cleanup & Reset Script ==="
-echo "⚠️ WARNING: This will DESTROY Docker, Minikube, and Kubernetes state"
-echo "⚠️ Use ONLY when recovery is impossible"
+# Header
+echo "============================================================"
+echo "        DevOps Environment — FULL CLEANUP & RESET"
+echo "============================================================"
+echo ""
+echo "⚠️  WARNING:"
+echo "    • Kubernetes clusters will be destroyed"
+echo "    • Minikube state will be deleted"
+echo "    • Docker containers & networks may be removed"
+echo "    • Local DevOps services will be stopped"
+echo ""
+echo "❗ Use ONLY if recovery is impossible"
 echo ""
 
-read -p "Type y to continue: " CONFIRM
-[[ "$CONFIRM" == "y" ]] || {
-  echo "❌ Aborted."
+read -rp "Type 'y' to continue, anything else to abort: " CONFIRM
+if [[ "$CONFIRM" != "y" ]]; then
+  echo ""
+  echo "❌ Cleanup aborted by user."
   exit 1
-}
+fi
 
-#---------------Monitoring--------------------------
-kubectl delete configmap prometheus-config -n devops-app
+echo ""
+echo "▶ Starting cleanup process..."
+echo ""
 
-#---------------Trivy--------------------------
+# Monitoring Cleanup
+# Remove Prometheus configuration if present
+echo "🔍 Cleaning monitoring components..."
+kubectl delete configmap prometheus-config -n devops-app 2>/dev/null || true
+echo "✅ Monitoring cleanup complete"
+echo ""
+
+# Trivy Security Cleanup
+# Remove Trivy namespaces and resources
+echo "🛡 Cleaning security & Trivy components..."
 kubectl delete namespace trivy-system --ignore-not-found=true
 kubectl delete namespace trivy --ignore-not-found=true
 kubectl delete deployment trivy -n devops-app --ignore-not-found
 kubectl delete svc trivy -n devops-app --ignore-not-found
-
-# ---------------- Kubernetes cleanup ----------------
-kubectl delete deployments --all-namespaces --all || true
-minikube stop
-minikube delete || true
-rm -rf ~/.minikube
-rm -rf ~/.kube/cache
-echo "✅ Kubernetes & Minikube cleaned"
+echo "✅ Security components removed"
 echo ""
 
+# Kubernetes & Minikube Cleanup
+echo "☸ Cleaning Kubernetes & Minikube..."
+
+# Remove all deployments from all namespaces
+kubectl delete deployments --all-namespaces --all || true
+
+# Stop and delete Minikube cluster
+minikube stop
+minikube delete || true
+
+# Remove local Kubernetes state
+rm -rf ~/.minikube
+rm -rf ~/.kube/cache
+
+echo "✅ Kubernetes & Minikube fully cleaned"
+echo ""
+
+# Track if Docker was modified
 DOCKER_TOUCHED=false
 
-# ---------------- Docker cleanup ----------------
-read -p "Type y to remove ALL Docker containers & networks: " CONFIRM_DOCKER
+# Docker Container & Network Cleanup
+read -rp "Type 'y' to remove ALL Docker containers & networks: " CONFIRM_DOCKER
 if [[ "$CONFIRM_DOCKER" == "y" ]]; then
-  echo " Wiping Docker containers and networks..."
+  echo ""
+  echo "🐳 Removing Docker containers and networks..."
+
   sudo docker compose down --remove-orphans || true
   sudo docker rm -f $(sudo docker ps -aq) 2>/dev/null || true
   sudo docker network rm devops_default 2>/dev/null || true
@@ -46,15 +92,16 @@ if [[ "$CONFIRM_DOCKER" == "y" ]]; then
   DOCKER_TOUCHED=true
   echo "✅ Docker containers & networks removed"
 else
-  echo "⏭ Skipping Docker container wipe"
+  echo "⏭ Docker cleanup skipped"
 fi
 
 echo ""
 
-# ---------------- VERY DANGEROUS ----------------
-read -p "Type y to delete Docker internal state: " CONFIRM_INTERNAL
+# VERY DANGEROUS: Docker Internal State Cleanup
+read -rp "Type 'y' to DELETE Docker internal network state: " CONFIRM_INTERNAL
 if [[ "$CONFIRM_INTERNAL" == "y" ]]; then
-  echo " Deleting Docker internal network state..."
+  echo ""
+  echo "🔥 Deleting Docker internal network state..."
 
   sudo systemctl stop docker
   sudo systemctl stop docker.socket
@@ -64,37 +111,54 @@ if [[ "$CONFIRM_INTERNAL" == "y" ]]; then
   DOCKER_TOUCHED=true
   echo "✅ Docker internal state wiped"
 else
-  echo "⏭ Skipping Docker internal reset"
+  echo "⏭ Docker internal reset skipped"
 fi
 
-# Restart Docker only if touched
+# Restart Docker only if changes were made
 if [[ "$DOCKER_TOUCHED" == true ]]; then
+  echo ""
+  echo "🔄 Restarting Docker service..."
   sudo systemctl restart docker
-  echo "🔄 Docker restarted"
+  echo "✅ Docker restarted"
 fi
+
 echo ""
 
-# ---------------- Port cleanup ----------------
-read -p "Type y to kill processes on common DevOps ports: " CONFIRM_PORTS
+# Port Cleanup
+read -rp "Type 'y' to kill processes on common DevOps ports: " CONFIRM_PORTS
 if [[ "$CONFIRM_PORTS" == "y" ]]; then
+  echo ""
+  echo "🔌 Clearing common DevOps ports..."
+
   PORTS=(3000 3001 30001 30002 30003)
   for port in "${PORTS[@]}"; do
-    sudo fuser -k ${port}/tcp 2>/dev/null || true
+    sudo fuser -k "${port}/tcp" 2>/dev/null || true
   done
+
   echo "✅ Ports cleared"
 else
-  echo "⏭ Skipping port cleanup"
+  echo "⏭ Port cleanup skipped"
 fi
 
+# Verify ports
 ss -lntp | grep -E '3000|3001|30001|30002|30003' || echo "✅ All target ports are free"
+echo ""
 
-#-------------------------GitLab------------------------------
+# GitLab Runner Cleanup
+echo "🧹 Cleaning GitLab Runner..."
 sudo gitlab-runner unregister --all
 sudo gitlab-runner stop
+echo "✅ GitLab Runner cleaned"
 echo ""
-echo "=== Cleanup & Reset Complete ==="
+
+# Completion & Reboot
+echo "============================================================"
+echo "✅ Cleanup & Reset COMPLETE"
+echo "============================================================"
 echo ""
-echo "⚠️Restarting system in few second seconds........."
-echo "❌ Press: CTRL+C to Cancel"
+echo "⚠️  System will reboot in 10 seconds"
+echo "❌ Press CTRL+C to cancel"
+echo ""
+
 sleep 10
 sudo reboot
