@@ -14,7 +14,7 @@ RUN curl -LO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl" \
     && rm kubectl
 
 # Install Trivy
-ARG TRIVY_VERSION
+ARG TRIVY_VERSION=0.48.0
 
 RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
     | sh -s -- -b /usr/local/bin v${TRIVY_VERSION}

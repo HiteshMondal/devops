@@ -54,6 +54,7 @@ kubectl delete namespace trivy-system --ignore-not-found=true
 kubectl delete namespace trivy --ignore-not-found=true
 kubectl delete deployment trivy -n devops-app --ignore-not-found
 kubectl delete svc trivy -n devops-app --ignore-not-found
+kubectl delete pvc trivy-reports-pvc -n trivy-system --ignore-not-found
 echo "✅ Security components removed"
 echo ""
 

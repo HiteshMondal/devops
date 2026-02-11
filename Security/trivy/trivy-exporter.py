@@ -87,6 +87,9 @@ def parse_trivy_report(report_path):
 
 def update_metrics():
     """Scan reports directory and update Prometheus metrics"""
+    trivy_image_vulnerabilities.clear()
+    trivy_vulnerability_id.clear()
+    
     reports_path = Path(REPORTS_DIR)
     
     if not reports_path.exists():
@@ -165,12 +168,6 @@ def update_metrics():
         report_data = parse_trivy_report(report_file)
         if report_data:
             current_images.add(report_data['image'])
-    
-    # Remove metrics for images no longer scanned
-    for labels in list(trivy_image_vulnerabilities._metrics.keys()):
-        if labels[0] not in current_images:  # labels[0] is image
-            trivy_image_vulnerabilities.remove(*labels)
-
 
 def main():
     """Main loop to periodically update metrics"""

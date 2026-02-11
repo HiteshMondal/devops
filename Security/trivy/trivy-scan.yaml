@@ -140,7 +140,6 @@ spec:
             - name: trivy-cache
               persistentVolumeClaim:
                 claimName: trivy-cache-pvc
-
 ---
 apiVersion: batch/v1
 kind: Job
@@ -170,9 +169,12 @@ spec:
           trivy image --download-db-only --timeout 10m || true
           
           echo "Scanning application image: ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}"
-          trivy image --severity HIGH,CRITICAL \
-            --format table \
-            ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG} || true
+          trivy image \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --format json \
+            --output /reports/initial-${APP_NAME}.json \
+            ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}
           
           echo "Initial scan complete"
         env:
@@ -192,9 +194,14 @@ spec:
             cpu: 2000m
             memory: 2Gi
         volumeMounts:
+        - name: scan-reports
+          mountPath: /reports
         - name: trivy-cache
           mountPath: /tmp/trivy/.cache
       volumes:
+      - name: scan-reports
+        persistentVolumeClaim:
+          claimName: trivy-reports-pvc
       - name: trivy-cache
         persistentVolumeClaim:
           claimName: trivy-cache-pvc
