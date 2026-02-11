@@ -94,7 +94,9 @@ def update_metrics():
         return
     
     # Clear existing metrics
-    trivy_image_vulnerabilities._metrics.clear()
+    for labels in list(trivy_image_vulnerabilities._metrics.keys()):
+        trivy_image_vulnerabilities.remove(*labels)
+
     
     # Find all JSON report files
     report_files = list(reports_path.glob('*.json'))

@@ -34,9 +34,19 @@ fi
 : "${TRIVY_MEMORY_LIMIT:=2Gi}"
 : "${TRIVY_METRICS_ENABLED:=true}"
 
+TRIVY_WORK_DIR="/tmp/trivy-deployment-$$"
+mkdir -p "$TRIVY_WORK_DIR"
+trap 'rm -rf "$TRIVY_WORK_DIR"' EXIT
+
+export TRIVY_WORK_DIR
 export TRIVY_ENABLED TRIVY_NAMESPACE TRIVY_VERSION TRIVY_SEVERITY TRIVY_SCAN_SCHEDULE
 export TRIVY_CPU_REQUEST TRIVY_CPU_LIMIT TRIVY_MEMORY_REQUEST TRIVY_MEMORY_LIMIT
 export TRIVY_METRICS_ENABLED
+
+kubectl get pvc trivy-reports-pvc -n "$TRIVY_NAMESPACE" >/dev/null 2>&1 || {
+  echo "❌ PVC trivy-reports-pvc not found"
+  exit 1
+}
 
 # Function to deploy Trivy
 deploy_trivy() {
@@ -49,10 +59,6 @@ deploy_trivy() {
     echo "🔍 Deploying Trivy Vulnerability Scanner"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
-    # Create temporary working directory
-    TRIVY_WORK_DIR="/tmp/trivy-deployment-$$"
-    mkdir -p "$TRIVY_WORK_DIR"
-    
     # Copy Trivy manifests
     if [[ -f "$PROJECT_ROOT/Security/trivy/trivy-scan.yaml" ]]; then
         cp "$PROJECT_ROOT/Security/trivy/trivy-scan.yaml" "$TRIVY_WORK_DIR/"
@@ -62,9 +68,9 @@ deploy_trivy() {
     fi
     
     # Create updated scan script with JSON output
-    cat > "$TRIVY_WORK_DIR/scan-script-updated.sh" << 'EOFSCRIPT'
+    cat > "$TRIVY_WORK_DIR/scan-script-updated.sh" << EOFSCRIPT
 #!/bin/bash
-set -e
+set -euo pipefail
 
 echo "Starting Trivy vulnerability scan..."
 
@@ -119,10 +125,6 @@ data:
 $(sed 's/^/    /' scan-script-updated.sh)
 EOF
     
-    # Extract other resources (skip the old scan script ConfigMap)
-    kubectl create -f trivy-scan-envsubst.yaml --dry-run=client -o yaml | \
-        kubectl get -f - --ignore-not-found=true -o yaml > temp.yaml || true
-    
     echo "📦 Creating Trivy namespace: $TRIVY_NAMESPACE"
     kubectl create namespace "$TRIVY_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
     
@@ -131,10 +133,11 @@ EOF
     kubectl apply -f trivy-scan-updated.yaml
 
     echo "⏳ Waiting for initial Trivy scan job..."
-    kubectl wait --for=condition=complete --timeout=300s job/trivy-initial-scan -n "$TRIVY_NAMESPACE" || {
-        echo "⚠️  Initial scan taking longer than expected, continuing..."
-    }
-    
+    kubectl wait --for=condition=complete \
+      --timeout=300s \
+      -n "$TRIVY_NAMESPACE" \
+      job/trivy-initial-scan || true
+
     echo ""
     echo "✅ Trivy scanner deployed successfully!"
 }
@@ -205,7 +208,9 @@ data:
             logger.warning(f"No reports dir: {REPORTS_DIR}")
             return
         
-        trivy_image_vulnerabilities._metrics.clear()
+        for label in list(trivy_image_vulnerabilities._metrics.keys()):
+            trivy_image_vulnerabilities.remove(*label)
+
         files = list(reports.glob('*.json'))
         
         if not files:
@@ -366,40 +371,35 @@ EOFEXPORTER
     echo "✅ Trivy Metrics Exporter deployed successfully!"
 }
 
-trivy-reports-pvc(){
-    kubectl run -n trivy-system trivy-manual-scan --rm -i --restart=Never \
-    --overrides='
-    {
-      "spec": {
-        "volumes": [
+trivy_reports_pvc(){
+    kubectl run -n ${TRIVY_NAMESPACE} trivy-manual-scan --rm -i --restart=Never \
+    --overrides="{
+      \"spec\": {
+        \"volumes\": [
           {
-            "name": "reports",
-            "persistentVolumeClaim": { "claimName": "trivy-reports-pvc" }
+            \"name\": \"reports\",
+            \"persistentVolumeClaim\": { \"claimName\": \"trivy-reports-pvc\" }
           }
         ],
-        "containers": [
+        \"containers\": [
           {
-            "name": "trivy",
-            "image": "aquasec/trivy:0.48.0",
-            "volumeMounts": [
-              { "name": "reports", "mountPath": "/reports" }
+            \"name\": \"trivy\",
+            \"image\": \"aquasec/trivy:${TRIVY_VERSION}\",
+            \"volumeMounts\": [
+              { \"name\": \"reports\", \"mountPath\": \"/reports\" }
             ],
-            "args": [
-              "image",
-              "--format",
-              "json",
-              "-o",
-              "/reports/devops-app.json",
-              "hiteshmondaldocker/devops-app:latest"
+            \"args\": [
+              \"image\",
+              \"--format\",
+              \"json\",
+              \"-o\",
+              \"/reports/devops-app.json\",
+              \"hiteshmondaldocker/devops-app:latest\"
             ]
           }
         ]
       }
-    }'
-
-    kubectl rollout restart deployment trivy-exporter -n trivy-system
-    curl http://localhost:8080/metrics | grep trivy
-
+    }"
 }
 
 # Main security deployment function
@@ -422,9 +422,6 @@ security() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📊 Trivy Status:"
     kubectl get all -n "$TRIVY_NAMESPACE"
-    
-    # Cleanup
-    rm -rf "$TRIVY_WORK_DIR"
     
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

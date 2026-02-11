@@ -93,24 +93,31 @@ metadata:
 data:
   scan.sh: |
     #!/bin/bash
-    set -e
-    
+    set -euo pipefail
+
     echo "Starting Trivy vulnerability scan..."
-    
-    # Scan Docker images in use
-    kubectl get pods --all-namespaces -o jsonpath="{.items[*].spec.containers[*].image}" | \
-    tr -s '[[:space:]]' '\n' | \
-    sort | \
-    uniq | \
-    while read image; do
+
+    # Create /reports if it doesn't exist
+    mkdir -p /reports
+
+    # List images in cluster
+    images=$(kubectl get pods --all-namespaces -o jsonpath="{.items[*].spec.containers[*].image}" | tr -s ' ' '\n' | sort | uniq)
+
+    if [ -z "$images" ]; then
+      echo "No images found in cluster"
+      exit 0
+    fi
+
+    for image in $images; do
       echo "Scanning image: $image"
-      trivy image --severity ${TRIVY_SEVERITY} \
+      trivy image --severity "${TRIVY_SEVERITY}" \
         --format json \
-        --output /reports/$(echo $image | tr '/:' '_').json \
-        $image || echo "Failed to scan $image"
+        --output "/reports/$(echo $image | tr '/:' '_').json" \
+        "$image" || echo "Failed to scan $image"
     done
-    
+
     echo "Scan complete. Reports saved to /reports/"
+
 ---
 
 apiVersion: v1
@@ -144,19 +151,14 @@ kind: CronJob
 metadata:
   name: trivy-scan
   namespace: ${TRIVY_NAMESPACE}
-  labels:
-    app: trivy
 spec:
-  schedule: "${TRIVY_SCAN_SCHEDULE}"  # Daily at 2 AM
+  schedule: "0 2 * * *"  # Daily at 2 AM
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
       template:
-        metadata:
-          labels:
-            app: trivy
         spec:
           serviceAccountName: trivy-operator
           restartPolicy: OnFailure
@@ -165,38 +167,26 @@ spec:
             image: aquasec/trivy:${TRIVY_VERSION}
             command: ["/scripts/scan.sh"]
             env:
-            - name: TRIVY_SEVERITY
-              value: "${TRIVY_SEVERITY}"
-            - name: TRIVY_NO_PROGRESS
-              value: "true"
-            - name: TRIVY_TIMEOUT
-              value: "5m"
-            resources:
-              requests:
-                cpu: ${TRIVY_CPU_REQUEST}
-                memory: ${TRIVY_MEMORY_REQUEST}
-              limits:
-                cpu: ${TRIVY_CPU_LIMIT}
-                memory: ${TRIVY_MEMORY_LIMIT}
+              - name: TRIVY_SEVERITY
+                value: "HIGH,CRITICAL"
             volumeMounts:
-            - name: scan-script
-              mountPath: /scripts
-            - name: trivy-cache
-              mountPath: /tmp/trivy/.cache
-            - name: scan-reports
-              mountPath: /reports
-          volumes:
-          - name: scan-script
-            configMap:
-              name: trivy-scan-script
-              defaultMode: 0755
-          - name: trivy-cache
-            persistentVolumeClaim:
-              claimName: trivy-cache-pvc
-
-          - name: scan-reports
-            persistentVolumeClaim:
-              claimName: trivy-reports-pvc
+              - name: scan-script
+                mountPath: /scripts
+              - name: scan-reports
+                mountPath: /reports
+              - name: trivy-cache
+                mountPath: /tmp/trivy/.cache
+            volumes:
+              - name: scan-script
+                configMap:
+                  name: trivy-scan-script
+                  defaultMode: 0755
+              - name: scan-reports
+                persistentVolumeClaim:
+                  claimName: trivy-reports-pvc
+              - name: trivy-cache
+                persistentVolumeClaim:
+                  claimName: trivy-cache-pvc
 
 ---
 apiVersion: batch/v1
@@ -224,7 +214,7 @@ spec:
         - |
           echo "Running initial Trivy scan..."
           echo "Updating vulnerability database..."
-          trivy image --download-db-only --timeout 10m
+          trivy image --download-db-only --timeout 10m || true
           
           echo "Scanning application image: ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}"
           trivy image --severity HIGH,CRITICAL \

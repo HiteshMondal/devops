@@ -208,7 +208,8 @@ spec:
     spec:
       containers:
       - name: exporter
-        image: python:3.11-slim
+        image: yourdockerhub/trivy-exporter:1.0
+        command: ["python", "/scripts/trivy-exporter.py"]
         command:
         - /bin/bash
         - -c
