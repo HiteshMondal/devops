@@ -40,24 +40,31 @@ fi
 : "${TRIVY_MEMORY_REQUEST:=512Mi}"
 : "${TRIVY_MEMORY_LIMIT:=2Gi}"
 : "${TRIVY_METRICS_ENABLED:=true}"
+: "${TRIVY_BUILD_IMAGES:=true}"
+: "${TRIVY_IMAGE_TAG:=1.0}"
 
-TRIVY_WORK_DIR="/tmp/trivy-deployment-$$"
-mkdir -p "$TRIVY_WORK_DIR"
-trap 'rm -rf "$TRIVY_WORK_DIR"' EXIT
-
-export TRIVY_WORK_DIR
 export TRIVY_ENABLED TRIVY_NAMESPACE TRIVY_VERSION TRIVY_SEVERITY TRIVY_SCAN_SCHEDULE
+export TRIVY_IMAGE_TAG DOCKERHUB_USERNAME
 export TRIVY_CPU_REQUEST TRIVY_CPU_LIMIT TRIVY_MEMORY_REQUEST TRIVY_MEMORY_LIMIT
 export TRIVY_METRICS_ENABLED
 
 # Build & Push Steps
-echo "🔨 Building custom Trivy runner image..."
 
-docker build -t "${DOCKERHUB_USERNAME}/trivy-runner:1.0" "$PROJECT_ROOT/Security/trivy/trivy-runner"
-docker push "${DOCKERHUB_USERNAME}/trivy-runner:1.0"
+if [[ "${TRIVY_BUILD_IMAGES}" == "true" ]]; then
+    echo "🔨 Building Trivy images..."
+    docker build \
+        --build-arg TRIVY_VERSION="${TRIVY_VERSION}" \
+        -t "${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}" \
+        "$PROJECT_ROOT/Security/trivy/trivy-runner"
+    docker push "${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}"
 
-docker build -t "${DOCKERHUB_USERNAME}/trivy-exporter:1.0" "$PROJECT_ROOT/Security/trivy"
-docker push "${DOCKERHUB_USERNAME}/trivy-exporter:1.0"
+    docker build \
+        --build-arg TRIVY_VERSION="${TRIVY_VERSION}" \
+        -t "${DOCKERHUB_USERNAME}/trivy-exporter:${TRIVY_IMAGE_TAG}" \
+        "$PROJECT_ROOT/Security/trivy"
+    docker push "${DOCKERHUB_USERNAME}/trivy-exporter:${TRIVY_IMAGE_TAG}"
+fi
+
 
 # Function to deploy Trivy
 deploy_trivy() {
@@ -76,6 +83,12 @@ deploy_trivy() {
     echo "🚀 Applying Trivy manifests with env substitution..."
 
     envsubst < "$PROJECT_ROOT/Security/trivy/trivy-scan.yaml" | kubectl apply -f -
+    if [[ "${TRIVY_METRICS_ENABLED}" == "true" ]]; then
+        echo "🚀 Deploying Trivy Metrics Exporter..."
+        envsubst < "$PROJECT_ROOT/Security/trivy/deployment.yaml" | kubectl apply -f -
+    else
+        echo "⏭️  Skipping Trivy Metrics Exporter"
+    fi
 
     echo "⏳ Waiting for initial Trivy scan job..."
     kubectl wait --for=condition=complete \
@@ -87,263 +100,6 @@ deploy_trivy() {
     echo "✅ Trivy scanner deployed successfully!"
 }
 
-# Function to deploy Trivy Metrics Exporter
-deploy_trivy_exporter() {
-    if [[ "${TRIVY_METRICS_ENABLED}" != "true" ]]; then
-        echo "⏭️  Skipping Trivy Metrics Exporter (TRIVY_METRICS_ENABLED=false)"
-        return 0
-    fi
-    
-    echo ""
-    echo "📊 Deploying Trivy Metrics Exporter for Prometheus"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    
-    # Create exporter deployment
-    cat > "$TRIVY_WORK_DIR/trivy-exporter.yaml" << EOFEXPORTER
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: trivy-exporter-script
-  namespace: TRIVY_NAMESPACE_PLACEHOLDER
-data:
-  trivy-exporter.py: |
-    #!/usr/bin/env python3
-    import json, os, time
-    from pathlib import Path
-    from prometheus_client import start_http_server, Gauge, Info
-    import logging
-
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
-
-    trivy_image_vulnerabilities = Gauge('trivy_image_vulnerabilities', 'Vulnerabilities by image/severity/package', ['image', 'severity', 'package'])
-    trivy_last_scan_timestamp = Gauge('trivy_last_scan_timestamp', 'Last scan timestamp', ['image'])
-    trivy_vulnerability_id = Info('trivy_vulnerability_id', 'CVE details', ['vulnerability_id', 'image', 'package', 'severity'])
-    trivy_images_scanned = Gauge('trivy_images_scanned_total', 'Total images scanned')
-
-    REPORTS_DIR = os.getenv('TRIVY_REPORTS_DIR', '/reports')
-    SCAN_INTERVAL = int(os.getenv('SCAN_INTERVAL', '300'))
-    METRICS_PORT = int(os.getenv('METRICS_PORT', '8080'))
-
-    def parse_report(path):
-        try:
-            with open(path) as f:
-                data = json.load(f)
-            vulns = []
-            for r in data.get('Results', []):
-                for v in r.get('Vulnerabilities', []):
-                    vulns.append({
-                        'image': data.get('ArtifactName', 'unknown'),
-                        'vuln_id': v.get('VulnerabilityID', ''),
-                        'package': v.get('PkgName', ''),
-                        'installed': v.get('InstalledVersion', ''),
-                        'fixed': v.get('FixedVersion', ''),
-                        'severity': v.get('Severity', 'UNKNOWN'),
-                        'title': v.get('Title', '')
-                    })
-            return {'image': data.get('ArtifactName', 'unknown'), 'scan_time': data.get('CreatedAt', ''), 'vulns': vulns}
-        except Exception as e:
-            logger.error(f"Parse error {path}: {e}")
-            return None
-
-    def update_metrics():
-        reports = Path(REPORTS_DIR)
-        if not reports.exists():
-            logger.warning(f"No reports dir: {REPORTS_DIR}")
-            return
-        
-        for label in list(trivy_image_vulnerabilities._metrics.keys()):
-            trivy_image_vulnerabilities.remove(*label)
-
-        files = list(reports.glob('*.json'))
-        
-        if not files:
-            logger.info("No reports found")
-            return
-        
-        logger.info(f"Processing {len(files)} reports")
-        scanned = 0
-        
-        for f in files:
-            data = parse_report(f)
-            if not data:
-                continue
-            
-            scanned += 1
-            img = data['image']
-            
-            if data['scan_time']:
-                try:
-                    from datetime import datetime
-                    ts = datetime.fromisoformat(data['scan_time'].replace('Z', '+00:00')).timestamp()
-                    trivy_last_scan_timestamp.labels(image=img).set(ts)
-                except: pass
-            
-            counts = {}
-            for v in data['vulns']:
-                key = (img, v['severity'], v['package'])
-                counts[key] = counts.get(key, 0) + 1
-                try:
-                    trivy_vulnerability_id.labels(
-                        vulnerability_id=v['vuln_id'], image=img, package=v['package'], severity=v['severity']
-                    ).info({'installed_version': v['installed'], 'fixed_version': v['fixed'], 'title': v['title'][:100]})
-                except: pass
-            
-            for (i, s, p), c in counts.items():
-                trivy_image_vulnerabilities.labels(image=i, severity=s, package=p).set(c)
-        
-        trivy_images_scanned.set(scanned)
-        logger.info(f"Updated metrics: {scanned} images")
-
-    logger.info(f"Starting exporter on :{METRICS_PORT}")
-    start_http_server(METRICS_PORT)
-    
-    while True:
-        try:
-            update_metrics()
-        except Exception as e:
-            logger.error(f"Error: {e}")
-        time.sleep(SCAN_INTERVAL)
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: trivy-exporter
-  namespace: TRIVY_NAMESPACE_PLACEHOLDER
-  labels:
-    app: trivy-exporter
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: trivy-exporter
-  template:
-    metadata:
-      labels:
-        app: trivy-exporter
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
-        prometheus.io/path: "/metrics"
-    spec:
-      containers:
-      - name: exporter
-        image: ${DOCKERHUB_USERNAME}/trivy-exporter:1.0
-        command: ["/bin/bash", "-c"]
-        args:
-        - |
-          pip install --no-cache-dir prometheus-client && \
-          python /scripts/trivy-exporter.py
-        env:
-        - name: TRIVY_REPORTS_DIR
-          value: "/reports"
-        - name: SCAN_INTERVAL
-          value: "300"
-        - name: METRICS_PORT
-          value: "8080"
-        ports:
-        - name: metrics
-          containerPort: 8080
-        resources:
-          requests:
-            cpu: 100m
-            memory: 128Mi
-          limits:
-            cpu: 500m
-            memory: 256Mi
-        volumeMounts:
-        - name: script
-          mountPath: /scripts
-        - name: reports
-          mountPath: /reports
-          readOnly: true
-        livenessProbe:
-          httpGet:
-            path: /metrics
-            port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /metrics
-            port: 8080
-          initialDelaySeconds: 10
-          periodSeconds: 5
-      volumes:
-      - name: script
-        configMap:
-          name: trivy-exporter-script
-          defaultMode: 0755
-      - name: reports
-        persistentVolumeClaim:
-          claimName: trivy-reports-pvc
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: trivy-exporter
-  namespace: TRIVY_NAMESPACE_PLACEHOLDER
-  labels:
-    app: trivy-exporter
-  annotations:
-    prometheus.io/scrape: "true"
-    prometheus.io/port: "8080"
-spec:
-  type: ClusterIP
-  selector:
-    app: trivy-exporter
-  ports:
-  - name: metrics
-    port: 8080
-    targetPort: 8080
-EOFEXPORTER
-    
-    echo "🚀 Deploying metrics exporter..."
-    sed "s/TRIVY_NAMESPACE_PLACEHOLDER/${TRIVY_NAMESPACE}/g" \
-      "$TRIVY_WORK_DIR/trivy-exporter.yaml" | kubectl apply -f -
-    
-    echo "⏳ Waiting for exporter to be ready..."
-    kubectl wait --for=condition=available --timeout=120s deployment/trivy-exporter -n "$TRIVY_NAMESPACE" || {
-        echo "⚠️  Exporter deployment taking longer than expected"
-    }
-    
-    echo ""
-    echo "✅ Trivy Metrics Exporter deployed successfully!"
-}
-
-trivy_reports_pvc(){
-    kubectl run -n ${TRIVY_NAMESPACE} trivy-manual-scan --rm -i --restart=Never \
-    --overrides="{
-      \"spec\": {
-        \"volumes\": [
-          {
-            \"name\": \"reports\",
-            \"persistentVolumeClaim\": { \"claimName\": \"trivy-reports-pvc\" }
-          }
-        ],
-        \"containers\": [
-          {
-            \"name\": \"trivy\",
-            \"image\": \"aquasec/trivy:${TRIVY_VERSION}\",
-            \"volumeMounts\": [
-              { \"name\": \"reports\", \"mountPath\": \"/reports\" }
-            ],
-            \"args\": [
-              \"image\",
-              \"--format\",
-              \"json\",
-              \"-o\",
-              \"/reports/devops-app.json\",
-              \"hiteshmondaldocker/devops-app:latest\"
-            ]
-          }
-        ]
-      }
-    }"
-}
 
 # Main security deployment function
 security() {
@@ -356,9 +112,6 @@ security() {
 
     # Deploy Trivy scanner
     deploy_trivy
-    
-    # Deploy metrics exporter
-    deploy_trivy_exporter
     
     # Show status
     echo ""

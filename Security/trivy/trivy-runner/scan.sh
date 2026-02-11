@@ -19,6 +19,9 @@ if [ -z "$images" ]; then
     exit 0
 fi
 
+echo "Updating Trivy database..."
+trivy image --download-db-only --timeout 5m || true
+
 for image in $images; do
     echo "Scanning image: $image"
     trivy image --severity "${TRIVY_SEVERITY}" \

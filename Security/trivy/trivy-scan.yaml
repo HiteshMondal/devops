@@ -1,11 +1,6 @@
 # Security/trivy/trivy-scan.yaml - Container vulnerability scanning
 
 apiVersion: v1
-kind: Namespace
-metadata:
-  name: ${TRIVY_NAMESPACE}
----
-apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: trivy-operator
@@ -34,13 +29,8 @@ rules:
   resources:
   - jobs
   - cronjobs
-  verbs: ["get", "list", "watch", "create", "delete"]
-- apiGroups: ["aquasecurity.github.io"]
-  resources:
-  - vulnerabilityreports
-  - configauditreports
-  - clusterconfigauditreports
-  verbs: ["get", "list", "watch", "create", "update", "delete"]
+  verbs: ["get", "list", "watch"]
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -82,40 +72,6 @@ data:
     
     timeout: 5m
 ---
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: trivy-scan-script
-  namespace: ${TRIVY_NAMESPACE}
-data:
-  scan.sh: |
-    #!/bin/bash
-    set -euo pipefail
-
-    echo "Starting Trivy vulnerability scan..."
-
-    # Create /reports if it doesn't exist
-    mkdir -p /reports
-
-    # List images in cluster
-    images=$(kubectl get pods --all-namespaces -o jsonpath="{.items[*].spec.containers[*].image}" | tr -s ' ' '\n' | sort | uniq)
-
-    if [ -z "$images" ]; then
-      echo "No images found in cluster"
-      exit 0
-    fi
-
-    for image in $images; do
-      echo "Scanning image: $image"
-      trivy image --severity "${TRIVY_SEVERITY}" \
-        --format json \
-        --output "/reports/$(echo $image | tr '/:' '_').json" \
-        "$image" || echo "Failed to scan $image"
-    done
-
-    echo "Scan complete. Reports saved to /reports/"
-
----
 
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -128,7 +84,6 @@ spec:
   resources:
     requests:
       storage: 2Gi
-  storageClassName: standard
 
 ---
 apiVersion: v1
@@ -142,7 +97,6 @@ spec:
   resources:
     requests:
       storage: 1Gi
-  storageClassName: standard
 
 ---
 apiVersion: batch/v1
@@ -151,7 +105,7 @@ metadata:
   name: trivy-scan
   namespace: ${TRIVY_NAMESPACE}
 spec:
-  schedule: "0 2 * * *"  # Daily at 2 AM
+  schedule: "${TRIVY_SCAN_SCHEDULE}"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -163,10 +117,10 @@ spec:
           restartPolicy: OnFailure
           containers:
           - name: trivy
-            image: ${DOCKERHUB_USERNAME}/trivy-runner:1.0
+            image: ${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}
             env:
               - name: TRIVY_SEVERITY
-                value: "HIGH,CRITICAL"
+                value: "${TRIVY_SEVERITY}"
             resources:
               requests:
                 cpu: 500m
@@ -175,17 +129,11 @@ spec:
                 cpu: 2
                 memory: 2Gi
             volumeMounts:
-              - name: scan-script
-                mountPath: /scripts
               - name: scan-reports
                 mountPath: /reports
               - name: trivy-cache
                 mountPath: /tmp/trivy/.cache
           volumes:
-            - name: scan-script
-              configMap:
-                name: trivy-scan-script
-                defaultMode: 0755
             - name: scan-reports
               persistentVolumeClaim:
                 claimName: trivy-reports-pvc
@@ -212,7 +160,7 @@ spec:
       restartPolicy: Never
       containers:
       - name: trivy
-        image: ${DOCKERHUB_USERNAME}/trivy-runner:1.0
+        image: ${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}
         command:
         - sh
         - -c

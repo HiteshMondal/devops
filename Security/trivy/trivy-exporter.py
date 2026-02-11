@@ -36,7 +36,7 @@ trivy_vulnerability_id = Info(
     ['vulnerability_id', 'image', 'package', 'severity']
 )
 
-trivy_images_scanned = Counter(
+trivy_images_scanned = Gauge(
     'trivy_images_scanned_total',
     'Total number of images scanned'
 )
@@ -159,6 +159,17 @@ def update_metrics():
             ).set(count)
     
     logger.info(f"Metrics updated successfully. {images_scanned} images scanned")
+    # Track current images
+    current_images = set()
+    for report_file in report_files:
+        report_data = parse_trivy_report(report_file)
+        if report_data:
+            current_images.add(report_data['image'])
+    
+    # Remove metrics for images no longer scanned
+    for labels in list(trivy_image_vulnerabilities._metrics.keys()):
+        if labels[0] not in current_images:  # labels[0] is image
+            trivy_image_vulnerabilities.remove(*labels)
 
 
 def main():
