@@ -1,4 +1,4 @@
-# /Security/trivy/dashboard/deployment.yaml
+# /Security/trivy/deployment.yaml
 
 ---
 apiVersion: v1
@@ -208,14 +208,12 @@ spec:
     spec:
       containers:
       - name: exporter
-        image: yourdockerhub/trivy-exporter:1.0
+        image: ${DOCKERHUB_USERNAME}/trivy-exporter:1.0
         command: ["python", "/scripts/trivy-exporter.py"]
-        command:
-        - /bin/bash
-        - -c
-        - |
-          pip install --no-cache-dir prometheus-client && \
-          python /scripts/trivy-exporter.py
+        args:
+          - |
+            pip install --no-cache-dir prometheus-client && \
+            python /scripts/trivy-exporter.py
         env:
         - name: TRIVY_REPORTS_DIR
           value: "/reports"

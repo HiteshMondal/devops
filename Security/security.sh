@@ -48,6 +48,9 @@ kubectl get pvc trivy-reports-pvc -n "$TRIVY_NAMESPACE" >/dev/null 2>&1 || {
   exit 1
 }
 
+# Build & Push Steps
+docker build -t ... "$PROJECT_ROOT/Security/trivy"
+
 # Function to deploy Trivy
 deploy_trivy() {
     if [[ "${TRIVY_ENABLED}" != "true" ]]; then
@@ -285,7 +288,7 @@ spec:
     spec:
       containers:
       - name: exporter
-        image: python:3.11-slim
+        image: hiteshmondaldocker/trivy-exporter:1.0
         command: ["/bin/bash", "-c"]
         args:
         - |

@@ -4,7 +4,7 @@ Trivy Metrics Exporter for Prometheus
 Reads Trivy JSON scan reports and exposes metrics
 """
 
-# /Security/trivy/dashboard/trivy_exporter.py
+# /Security/trivy/trivy_exporter.py
 
 import json
 import os
