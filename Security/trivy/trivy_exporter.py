@@ -36,7 +36,7 @@ trivy_vulnerability_id = Info(
     ['vulnerability_id', 'image', 'package', 'severity']
 )
 
-trivy_images_scanned = Gauge(
+trivy_images_scanned = Counter(
     'trivy_images_scanned_total',
     'Total number of images scanned'
 )
@@ -93,10 +93,7 @@ def update_metrics():
         logger.warning(f"Reports directory {REPORTS_DIR} does not exist")
         return
     
-    # Clear existing metrics
-    for labels in list(trivy_image_vulnerabilities._metrics.keys()):
-        trivy_image_vulnerabilities.remove(*labels)
-
+    current_labels = set()
     
     # Find all JSON report files
     report_files = list(reports_path.glob('*.json'))

@@ -128,7 +128,7 @@ spec:
   resources:
     requests:
       storage: 2Gi
-        storageClassName: standard
+  storageClassName: standard
 
 ---
 apiVersion: v1
@@ -142,7 +142,7 @@ spec:
   resources:
     requests:
       storage: 1Gi
-        storageClassName: standard
+  storageClassName: standard
 
 ---
 apiVersion: batch/v1
@@ -163,11 +163,18 @@ spec:
           restartPolicy: OnFailure
           containers:
           - name: trivy
-            image: aquasec/trivy:${TRIVY_VERSION}
-            command: ["/scripts/scan.sh"]
+            image: ${DOCKERHUB_USERNAME}/trivy-runner:1.0
+            command: []
             env:
               - name: TRIVY_SEVERITY
                 value: "HIGH,CRITICAL"
+            resources:
+              requests:
+                cpu: 500m
+                memory: 512Mi
+              limits:
+                cpu: 2
+                memory: 2Gi
             volumeMounts:
               - name: scan-script
                 mountPath: /scripts
@@ -175,17 +182,17 @@ spec:
                 mountPath: /reports
               - name: trivy-cache
                 mountPath: /tmp/trivy/.cache
-            volumes:
-              - name: scan-script
-                configMap:
-                  name: trivy-scan-script
-                  defaultMode: 0755
-              - name: scan-reports
-                persistentVolumeClaim:
-                  claimName: trivy-reports-pvc
-              - name: trivy-cache
-                persistentVolumeClaim:
-                  claimName: trivy-cache-pvc
+          volumes:
+            - name: scan-script
+              configMap:
+                name: trivy-scan-script
+                defaultMode: 0755
+            - name: scan-reports
+              persistentVolumeClaim:
+                claimName: trivy-reports-pvc
+            - name: trivy-cache
+              persistentVolumeClaim:
+                claimName: trivy-cache-pvc
 
 ---
 apiVersion: batch/v1
@@ -206,7 +213,7 @@ spec:
       restartPolicy: Never
       containers:
       - name: trivy
-        image: aquasec/trivy:${TRIVY_VERSION}
+        image: ${DOCKERHUB_USERNAME}/trivy-runner:1.0
         command:
         - sh
         - -c

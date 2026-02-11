@@ -38,15 +38,21 @@ data:
         ['image']
     )
 
-    trivy_vulnerability_id = Info(
-        'trivy_vulnerability_id',
-        'Detailed vulnerability information',
-        ['vulnerability_id', 'image', 'package', 'severity']
+    trivy_vulnerabilities_total = Gauge(
+        'trivy_vulnerabilities_total',
+        'Total vulnerabilities by image and severity',
+        ['image', 'severity']
     )
 
     trivy_images_scanned = Gauge(
         'trivy_images_scanned_total',
         'Total number of images scanned'
+    )
+
+    trivy_vulnerability_id = Info(
+        'trivy_vulnerability_id',
+        'Detailed vulnerability information',
+        ['vulnerability_id', 'image', 'package', 'severity']
     )
 
     # Configuration
@@ -100,7 +106,9 @@ data:
             logger.warning(f"Reports directory {REPORTS_DIR} does not exist")
             return
         
-        trivy_image_vulnerabilities._metrics.clear()
+        for labels in list(trivy_image_vulnerabilities._metrics.keys()):
+            trivy_image_vulnerabilities.remove(*labels)
+
         
         report_files = list(reports_path.glob('*.json'))
         
@@ -159,8 +167,6 @@ data:
                     package=pkg
                 ).set(count)
         
-        trivy_images_scanned.set(images_scanned)
-        
         logger.info(f"Metrics updated successfully. {images_scanned} images scanned")
 
 
@@ -209,11 +215,6 @@ spec:
       containers:
       - name: exporter
         image: ${DOCKERHUB_USERNAME}/trivy-exporter:1.0
-        command: ["python", "/scripts/trivy-exporter.py"]
-        args:
-          - |
-            pip install --no-cache-dir prometheus-client && \
-            python /scripts/trivy-exporter.py
         env:
         - name: TRIVY_REPORTS_DIR
           value: "/reports"

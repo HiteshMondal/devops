@@ -1,0 +1,25 @@
+# /Security/trivy/trivy-runner/Dockerfile
+
+FROM alpine:3.19
+
+# Install dependencies
+RUN apk add --no-cache \
+    curl \
+    bash \
+    jq
+
+# Install kubectl
+RUN curl -LO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl" \
+    && install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl \
+    && rm kubectl
+
+# Install Trivy
+RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+    | sh -s -- -b /usr/local/bin
+
+WORKDIR /app
+
+COPY scan.sh /app/scan.sh
+RUN chmod +x /app/scan.sh
+
+ENTRYPOINT ["/app/scan.sh"]

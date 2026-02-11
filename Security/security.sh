@@ -23,6 +23,12 @@ if [[ -z "${APP_NAME:-}" ]]; then
     fi
 fi
 
+# Check if envsubst exists
+if ! command -v envsubst >/dev/null 2>&1; then
+  echo "❌ envsubst not found. Install gettext package."
+  exit 1
+fi
+
 : "${TRIVY_ENABLED:=true}"
 : "${TRIVY_NAMESPACE:=trivy-system}"
 : "${TRIVY_VERSION:=0.48.0}"
@@ -43,13 +49,14 @@ export TRIVY_ENABLED TRIVY_NAMESPACE TRIVY_VERSION TRIVY_SEVERITY TRIVY_SCAN_SCH
 export TRIVY_CPU_REQUEST TRIVY_CPU_LIMIT TRIVY_MEMORY_REQUEST TRIVY_MEMORY_LIMIT
 export TRIVY_METRICS_ENABLED
 
-kubectl get pvc trivy-reports-pvc -n "$TRIVY_NAMESPACE" >/dev/null 2>&1 || {
-  echo "❌ PVC trivy-reports-pvc not found"
-  exit 1
-}
-
 # Build & Push Steps
-docker build -t ... "$PROJECT_ROOT/Security/trivy"
+echo "🔨 Building custom Trivy runner image..."
+
+docker build -t "${DOCKERHUB_USERNAME}/trivy-runner:1.0" "$PROJECT_ROOT/Security/trivy-runner"
+docker push "${DOCKERHUB_USERNAME}/trivy-runner:1.0"
+
+docker build -t "${DOCKERHUB_USERNAME}/trivy-exporter:1.0" "$PROJECT_ROOT/Security/trivy"
+docker push "${DOCKERHUB_USERNAME}/trivy-exporter:1.0"
 
 # Function to deploy Trivy
 deploy_trivy() {
@@ -57,89 +64,23 @@ deploy_trivy() {
         echo "⏭️  Skipping Trivy deployment (TRIVY_ENABLED=false)"
         return 0
     fi
-    
+
     echo ""
     echo "🔍 Deploying Trivy Vulnerability Scanner"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    
-    # Copy Trivy manifests
-    if [[ -f "$PROJECT_ROOT/Security/trivy/trivy-scan.yaml" ]]; then
-        cp "$PROJECT_ROOT/Security/trivy/trivy-scan.yaml" "$TRIVY_WORK_DIR/"
-    else
-        echo "❌ Trivy deployment manifest not found"
-        return 1
-    fi
-    
-    # Create updated scan script with JSON output
-    cat > "$TRIVY_WORK_DIR/scan-script-updated.sh" << EOFSCRIPT
-#!/bin/bash
-set -euo pipefail
 
-echo "Starting Trivy vulnerability scan..."
-
-# Create reports directory
-mkdir -p /reports
-
-# Scan Docker images in use
-kubectl get pods --all-namespaces -o jsonpath="{.items[*].spec.containers[*].image}" | \
-tr -s '[[:space:]]' '\n' | \
-sort | \
-uniq | \
-while read image; do
-  echo "Scanning image: $image"
-  
-  # Generate safe filename
-  filename=$(echo "$image" | tr '/:' '_')
-  
-  # Scan and save JSON report
-  trivy image --severity ${TRIVY_SEVERITY} \
-    --format json \
-    --output "/reports/${filename}.json" \
-    "$image" || echo "Failed to scan $image"
-  
-  # Also print table format for logs
-  echo "Summary for $image:"
-  trivy image --severity ${TRIVY_SEVERITY} \
-    --format table \
-    "$image" || true
-  echo ""
-done
-
-echo "Scan complete. Reports saved to /reports/"
-ls -lh /reports/
-EOFSCRIPT
-    
-    # Update trivy-scan.yaml with new script
-    cd "$TRIVY_WORK_DIR"
-    
-    # First, substitute environment variables
-    envsubst < trivy-scan.yaml > trivy-scan-envsubst.yaml
-    
-    # Then update the scan script ConfigMap
-    cat > trivy-scan-updated.yaml << EOF
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: trivy-scan-script
-  namespace: ${TRIVY_NAMESPACE}
-data:
-  scan.sh: |
-$(sed 's/^/    /' scan-script-updated.sh)
-EOF
-    
-    echo "📦 Creating Trivy namespace: $TRIVY_NAMESPACE"
+    echo "📦 Creating namespace if not exists..."
     kubectl create namespace "$TRIVY_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-    
-    echo "🚀 Deploying Trivy scanner..."
-    kubectl apply -f trivy-scan-envsubst.yaml
-    kubectl apply -f trivy-scan-updated.yaml
+
+    echo "🚀 Applying Trivy manifests with env substitution..."
+
+    envsubst < "$PROJECT_ROOT/Security/trivy/trivy-scan.yaml" | kubectl apply -f -
 
     echo "⏳ Waiting for initial Trivy scan job..."
     kubectl wait --for=condition=complete \
-      --timeout=300s \
-      -n "$TRIVY_NAMESPACE" \
-      job/trivy-initial-scan || true
+        --timeout=300s \
+        -n "$TRIVY_NAMESPACE" \
+        job/trivy-initial-scan || true
 
     echo ""
     echo "✅ Trivy scanner deployed successfully!"
@@ -157,7 +98,7 @@ deploy_trivy_exporter() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
     # Create exporter deployment
-    cat > "$TRIVY_WORK_DIR/trivy-exporter.yaml" << 'EOFEXPORTER'
+    cat > "$TRIVY_WORK_DIR/trivy-exporter.yaml" << EOFEXPORTER
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -288,7 +229,7 @@ spec:
     spec:
       containers:
       - name: exporter
-        image: hiteshmondaldocker/trivy-exporter:1.0
+        image: ${DOCKERHUB_USERNAME}/trivy-exporter:1.0
         command: ["/bin/bash", "-c"]
         args:
         - |
@@ -359,11 +300,9 @@ spec:
     targetPort: 8080
 EOFEXPORTER
     
-    # Replace namespace placeholder
-    sed -i "s/TRIVY_NAMESPACE_PLACEHOLDER/${TRIVY_NAMESPACE}/g" "$TRIVY_WORK_DIR/trivy-exporter.yaml"
-    
     echo "🚀 Deploying metrics exporter..."
-    kubectl apply -f "$TRIVY_WORK_DIR/trivy-exporter.yaml"
+    sed "s/TRIVY_NAMESPACE_PLACEHOLDER/${TRIVY_NAMESPACE}/g" \
+      "$TRIVY_WORK_DIR/trivy-exporter.yaml" | kubectl apply -f -
     
     echo "⏳ Waiting for exporter to be ready..."
     kubectl wait --for=condition=available --timeout=120s deployment/trivy-exporter -n "$TRIVY_NAMESPACE" || {
