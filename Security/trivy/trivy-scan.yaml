@@ -106,6 +106,7 @@ metadata:
   namespace: ${TRIVY_NAMESPACE}
 spec:
   schedule: "${TRIVY_SCAN_SCHEDULE}"
+  timeZone: "Asia/Kolkata"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
