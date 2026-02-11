@@ -4,7 +4,7 @@ Trivy Metrics Exporter for Prometheus
 Reads Trivy JSON scan reports and exposes metrics
 """
 
-# /Security/trivy/trivy_exporter.py
+# /Security/trivy/trivy-exporter.py
 
 import json
 import os
@@ -157,9 +157,6 @@ def update_metrics():
                 severity=sev,
                 package=pkg
             ).set(count)
-    
-    # Update total images scanned
-    trivy_images_scanned.set(images_scanned)
     
     logger.info(f"Metrics updated successfully. {images_scanned} images scanned")
 

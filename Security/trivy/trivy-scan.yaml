@@ -164,7 +164,6 @@ spec:
           containers:
           - name: trivy
             image: ${DOCKERHUB_USERNAME}/trivy-runner:1.0
-            command: []
             env:
               - name: TRIVY_SEVERITY
                 value: "HIGH,CRITICAL"

@@ -29,6 +29,7 @@ if ! command -v envsubst >/dev/null 2>&1; then
   exit 1
 fi
 
+: "${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}"
 : "${TRIVY_ENABLED:=true}"
 : "${TRIVY_NAMESPACE:=trivy-system}"
 : "${TRIVY_VERSION:=0.48.0}"
@@ -52,7 +53,7 @@ export TRIVY_METRICS_ENABLED
 # Build & Push Steps
 echo "🔨 Building custom Trivy runner image..."
 
-docker build -t "${DOCKERHUB_USERNAME}/trivy-runner:1.0" "$PROJECT_ROOT/Security/trivy-runner"
+docker build -t "${DOCKERHUB_USERNAME}/trivy-runner:1.0" "$PROJECT_ROOT/Security/trivy/trivy-runner"
 docker push "${DOCKERHUB_USERNAME}/trivy-runner:1.0"
 
 docker build -t "${DOCKERHUB_USERNAME}/trivy-exporter:1.0" "$PROJECT_ROOT/Security/trivy"
