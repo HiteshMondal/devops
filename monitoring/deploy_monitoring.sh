@@ -286,6 +286,81 @@ substitute_env_vars() {
     mv "$temp_file" "$file"
 }
 
+# Checks if Helm exists, installs if missing, and configures repositories
+setup_helm() {
+    echo "⎈ Checking Helm installation..."
+
+    if ! command -v helm >/dev/null 2>&1; then
+        echo "⚠️  Helm not found. Installing Helm..."
+
+        # Detect OS
+        OS="$(uname | tr '[:upper:]' '[:lower:]')"
+        ARCH="$(uname -m)"
+
+        case "$ARCH" in
+            x86_64) ARCH="amd64" ;;
+            aarch64|arm64) ARCH="arm64" ;;
+        esac
+
+        HELM_VERSION="v3.14.4"
+
+        curl -fsSL -o /tmp/helm.tar.gz \
+            "https://get.helm.sh/helm-${HELM_VERSION}-${OS}-${ARCH}.tar.gz"
+
+        tar -xzf /tmp/helm.tar.gz -C /tmp
+        sudo mv "/tmp/${OS}-${ARCH}/helm" /usr/local/bin/helm
+
+        rm -rf /tmp/helm.tar.gz "/tmp/${OS}-${ARCH}"
+
+        echo "✅ Helm installed successfully"
+    else
+        echo "✅ Helm already installed"
+    fi
+
+    echo ""
+    echo "📦 Configuring Helm repositories..."
+
+    # Add Prometheus community repo if not exists
+    if ! helm repo list | grep -q "prometheus-community"; then
+        helm repo add prometheus-community \
+            https://prometheus-community.github.io/helm-charts
+        echo "✅ Added prometheus-community repo"
+    else
+        echo "✔ prometheus-community repo already exists"
+    fi
+
+    echo "🔄 Updating Helm repositories..."
+    helm repo update
+
+    echo "✅ Helm setup complete"
+    echo ""
+}
+
+deploy_node_exporter() {
+    print_subsection "Deploying Node Exporter (Helm)"
+
+    if helm list -n "$PROMETHEUS_NAMESPACE" | grep -q node-exporter; then
+        print_info "node-exporter already installed"
+        return
+    fi
+
+    helm upgrade --install node-exporter \
+        prometheus-community/prometheus-node-exporter \
+        --namespace "$PROMETHEUS_NAMESPACE" \
+        --create-namespace \
+        --set service.type=ClusterIP \
+        --set tolerations[0].operator=Exists \
+        --set hostNetwork=true
+
+    print_success "node-exporter deployed"
+
+    echo ""
+    print_info "Waiting for node-exporter pods..."
+    kubectl rollout status daemonset/node-exporter \
+        -n "$PROMETHEUS_NAMESPACE" \
+        --timeout=120s || true
+}
+
 create_prometheus_configmap() {
     local prometheus_yml="$1"
     local namespace="$2"
@@ -293,7 +368,7 @@ create_prometheus_configmap() {
     print_step "Creating Prometheus ConfigMap from prometheus.yml"
     
     # Export variables for substitution
-    export APP_NAME NAMESPACE PROMETHEUS_NAMESPACE
+    export APP_NAME NAMESPACE PROMETHEUS_NAMESPACE TRIVY_NAMESPACE
     export PROMETHEUS_SCRAPE_INTERVAL PROMETHEUS_SCRAPE_TIMEOUT
     export DEPLOY_TARGET K8S_DISTRIBUTION
     
@@ -424,6 +499,10 @@ deploy_monitoring() {
     export PROMETHEUS_CPU_REQUEST PROMETHEUS_CPU_LIMIT PROMETHEUS_MEMORY_REQUEST PROMETHEUS_MEMORY_LIMIT
     export GRAFANA_CPU_REQUEST GRAFANA_CPU_LIMIT GRAFANA_MEMORY_REQUEST GRAFANA_MEMORY_LIMIT
     
+    setup_helm
+
+    deploy_node_exporter
+
     # Create temporary working directory
     WORK_DIR="/tmp/monitoring-deployment-$$"
     mkdir -p "$WORK_DIR/monitoring"

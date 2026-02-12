@@ -84,7 +84,6 @@ def parse_trivy_report(report_path):
         logger.error(f"Error parsing report {report_path}: {e}")
         return None
 
-
 def update_metrics():
     """Scan reports directory and update Prometheus metrics"""
     trivy_image_vulnerabilities.clear()
@@ -94,15 +93,15 @@ def update_metrics():
     
     if not reports_path.exists():
         logger.warning(f"Reports directory {REPORTS_DIR} does not exist")
+        trivy_images_scanned.set(0)  # Set to 0 when no reports dir
         return
-    
-    current_labels = set()
     
     # Find all JSON report files
     report_files = list(reports_path.glob('*.json'))
     
     if not report_files:
         logger.info("No Trivy reports found")
+        trivy_images_scanned.set(0)  # Set to 0 when no reports
         return
     
     logger.info(f"Processing {len(report_files)} Trivy reports")
@@ -161,13 +160,18 @@ def update_metrics():
                 package=pkg
             ).set(count)
     
+    # Actually set the gauge value
+    trivy_images_scanned.set(images_scanned)
+
     logger.info(f"Metrics updated successfully. {images_scanned} images scanned")
-    # Track current images
+    
+    """# Track current images
     current_images = set()
     for report_file in report_files:
         report_data = parse_trivy_report(report_file)
         if report_data:
             current_images.add(report_data['image'])
+    """
 
 def main():
     """Main loop to periodically update metrics"""

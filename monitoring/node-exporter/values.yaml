@@ -1,0 +1,16 @@
+# monitoring/node-exporter/values.yaml
+
+fullnameOverride: node-exporter
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 9100
+
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi

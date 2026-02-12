@@ -17,6 +17,7 @@ rules:
   - pods/log
   - replicationcontrollers
   - services
+  - namespaces
   verbs: ["get", "list", "watch"]
 - apiGroups: ["apps"]
   resources:

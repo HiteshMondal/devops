@@ -52,19 +52,37 @@ export TRIVY_METRICS_ENABLED
 
 if [[ "${TRIVY_BUILD_IMAGES}" == "true" ]]; then
     echo "🔨 Building Trivy images..."
-    docker build \
+    
+    # Build trivy-runner
+    if ! docker build \
         --build-arg TRIVY_VERSION="${TRIVY_VERSION}" \
         -t "${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}" \
-        "$PROJECT_ROOT/Security/trivy/trivy-runner"
-    docker push "${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}"
+        "$PROJECT_ROOT/Security/trivy/trivy-runner"; then
+        echo "❌ Failed to build trivy-runner image"
+        exit 1
+    fi
 
-    docker build \
+    if ! docker push "${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}"; then
+        echo "❌ Failed to push trivy-runner image"
+        exit 1
+    fi
+    
+    # Build trivy-exporter
+    if ! docker build \
         --build-arg TRIVY_VERSION="${TRIVY_VERSION}" \
         -t "${DOCKERHUB_USERNAME}/trivy-exporter:${TRIVY_IMAGE_TAG}" \
-        "$PROJECT_ROOT/Security/trivy"
-    docker push "${DOCKERHUB_USERNAME}/trivy-exporter:${TRIVY_IMAGE_TAG}"
+        "$PROJECT_ROOT/Security/trivy"; then
+        echo "❌ Failed to build trivy-exporter image"
+        exit 1
+    fi
+    
+    if ! docker push "${DOCKERHUB_USERNAME}/trivy-exporter:${TRIVY_IMAGE_TAG}"; then
+        echo "❌ Failed to push trivy-exporter image"
+        exit 1
+    fi
+    
+    echo "✅ Both Trivy images built and pushed successfully"
 fi
-
 
 # Function to deploy Trivy
 deploy_trivy() {
