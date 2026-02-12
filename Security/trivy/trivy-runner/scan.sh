@@ -27,9 +27,13 @@ for image in "${image_array[@]}"; do
     # Safe filename generation
     safe_filename=$(echo "$image" | tr '/:@' '_' | tr -d ' ')
     safe_filename="${safe_filename:-unknown_image}"
-    trivy image --severity "${TRIVY_SEVERITY}" \
-      --format json \
-      --output "/reports/${safe_filename}.json" \
-      "$image" || echo "Failed to scan $image"
+    if ! trivy image --severity "${TRIVY_SEVERITY}" \
+        --format json \
+        --output "/reports/${safe_filename}.json" \
+        "$image"; then
+        echo "⚠️  Failed to scan $image, creating empty report"
+        # Create a minimal valid JSON report so exporter doesn't crash
+        echo '{"ArtifactName":"'"$image"'","Results":[]}' > "/reports/${safe_filename}.json"
+    fi
 done
 echo "Scan complete. Reports saved to /reports/"

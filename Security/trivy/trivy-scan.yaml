@@ -81,7 +81,7 @@ metadata:
   namespace: ${TRIVY_NAMESPACE}
 spec:
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
   resources:
     requests:
       storage: 2Gi
@@ -94,7 +94,7 @@ metadata:
   namespace: ${TRIVY_NAMESPACE}
 spec:
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
   resources:
     requests:
       storage: 1Gi
@@ -170,13 +170,13 @@ spec:
           echo "Updating vulnerability database..."
           trivy image --download-db-only --timeout 10m || true
           
-          echo "Scanning application image: ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}"
+          echo "Scanning application image: $DOCKERHUB_USERNAME/$APP_NAME:$DOCKER_IMAGE_TAG"
           trivy image \
             --scanners vuln \
             --severity HIGH,CRITICAL \
             --format json \
-            --output /reports/initial-${APP_NAME}.json \
-            ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}
+            --output /reports/initial-$APP_NAME.json \
+            $DOCKERHUB_USERNAME/$APP_NAME:$DOCKER_IMAGE_TAG
           
           echo "Initial scan complete"
         env:

@@ -91,9 +91,27 @@ def update_metrics():
     
     reports_path = Path(REPORTS_DIR)
     
+    # Ensure directory exists and is accessible
     if not reports_path.exists():
-        logger.warning(f"Reports directory {REPORTS_DIR} does not exist")
-        trivy_images_scanned.set(0)  # Set to 0 when no reports dir
+        logger.warning(f"Reports directory {REPORTS_DIR} does not exist, waiting for first scan...")
+        trivy_images_scanned.set(0)
+        return
+    
+    if not reports_path.is_dir():
+        logger.error(f"{REPORTS_DIR} exists but is not a directory")
+        trivy_images_scanned.set(0)
+        return
+    
+    # Try to access the directory
+    try:
+        list(reports_path.glob('*.json'))
+    except PermissionError:
+        logger.error(f"Permission denied accessing {REPORTS_DIR}")
+        trivy_images_scanned.set(0)
+        return
+    except Exception as e:
+        logger.error(f"Error accessing reports directory: {e}")
+        trivy_images_scanned.set(0)
         return
     
     # Find all JSON report files

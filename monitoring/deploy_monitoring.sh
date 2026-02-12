@@ -261,7 +261,7 @@ substitute_env_vars() {
     local temp_file="${file}.tmp"
     
     # Export all monitoring-related variables
-    export APP_NAME NAMESPACE PROMETHEUS_NAMESPACE
+    export APP_NAME NAMESPACE PROMETHEUS_NAMESPACE TRIVY_NAMESPACE
     export PROMETHEUS_SCRAPE_INTERVAL PROMETHEUS_SCRAPE_TIMEOUT
     export PROMETHEUS_CPU_REQUEST PROMETHEUS_CPU_LIMIT
     export PROMETHEUS_MEMORY_REQUEST PROMETHEUS_MEMORY_LIMIT
@@ -371,7 +371,7 @@ create_prometheus_configmap() {
     export APP_NAME NAMESPACE PROMETHEUS_NAMESPACE TRIVY_NAMESPACE
     export PROMETHEUS_SCRAPE_INTERVAL PROMETHEUS_SCRAPE_TIMEOUT
     export DEPLOY_TARGET K8S_DISTRIBUTION
-    
+
     # Create a temporary file with substituted values
     local temp_config="/tmp/prometheus-config-$$.yml"
     envsubst < "$prometheus_yml" > "$temp_config"
@@ -490,8 +490,12 @@ deploy_monitoring() {
     : "${GRAFANA_CPU_LIMIT:=500m}"
     : "${GRAFANA_MEMORY_REQUEST:=256Mi}"
     : "${GRAFANA_MEMORY_LIMIT:=1Gi}"
-    
+
+    # Trivy namespace (used in Prometheus scrape configs)
+    : "${TRIVY_NAMESPACE:=trivy-system}"
+
     # Export all variables
+    export TRIVY_NAMESPACE
     export PROMETHEUS_ENABLED PROMETHEUS_NAMESPACE PROMETHEUS_RETENTION PROMETHEUS_STORAGE_SIZE
     export PROMETHEUS_SCRAPE_INTERVAL PROMETHEUS_SCRAPE_TIMEOUT
     export GRAFANA_ENABLED GRAFANA_ADMIN_USER GRAFANA_ADMIN_PASSWORD GRAFANA_PORT GRAFANA_STORAGE_SIZE
@@ -548,10 +552,13 @@ deploy_monitoring() {
     echo ""
     
     # Create Prometheus ConfigMap from external file
-    if [[ -f "$WORK_DIR/prometheus/prometheus.yml" ]]; then
-        create_prometheus_configmap "$WORK_DIR/prometheus/prometheus.yml" "$PROMETHEUS_NAMESPACE"
+    if [[ -f "$PROJECT_ROOT/monitoring/prometheus/prometheus.yml" ]]; then
+        create_prometheus_configmap "$PROJECT_ROOT/monitoring/prometheus/prometheus.yml" "$PROMETHEUS_NAMESPACE"
+    elif [[ -f "$PROJECT_ROOT/monitoring/prometheus/prometheus.yaml" ]]; then
+        create_prometheus_configmap "$PROJECT_ROOT/monitoring/prometheus/prometheus.yaml" "$PROMETHEUS_NAMESPACE"
     else
-        print_warning "prometheus.yml not found, using embedded ConfigMap"
+        print_error "prometheus.yml/prometheus.yaml not found"
+        exit 1
     fi
     
     # Create ConfigMap for Prometheus alerts
@@ -788,7 +795,15 @@ deploy_monitoring() {
     fi
     
     print_divider
-    
+    echo ""
+    echo "Grafana Dashboards ID:"
+    echo ""
+    echo "Node Exporter Full:Node Exporter Full: 1860"
+    echo "Kubernetes Cluster (Prometheus): 6417"
+    echo "kube-state-metrics-v2: 13332"
+    echo ""
+    print_divider
+
     echo "🎯 Monitoring Targets"
     echo ""
     print_target "Kubernetes API Server"

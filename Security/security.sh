@@ -52,6 +52,13 @@ export TRIVY_METRICS_ENABLED
 
 if [[ "${TRIVY_BUILD_IMAGES}" == "true" ]]; then
     echo "🔨 Building Trivy images..."
+
+    # Check Docker login
+    if ! docker info | grep -q "Username: ${DOCKERHUB_USERNAME}"; then
+        echo "❌ Not logged into DockerHub as ${DOCKERHUB_USERNAME}"
+        echo "Run: docker login -u ${DOCKERHUB_USERNAME}"
+        exit 1
+    fi
     
     # Build trivy-runner
     if ! docker build \
@@ -109,13 +116,42 @@ deploy_trivy() {
     fi
 
     echo "⏳ Waiting for initial Trivy scan job..."
-    kubectl wait --for=condition=complete \
-        --timeout=300s \
+    if ! kubectl wait --for=condition=complete \
+        --timeout=600s \
         -n "$TRIVY_NAMESPACE" \
-        job/trivy-initial-scan || true
+        job/trivy-initial-scan; then
+        
+        echo "⚠️  Initial scan job did not complete in time"
+        echo "Checking job status..."
+        kubectl describe job/trivy-initial-scan -n "$TRIVY_NAMESPACE"
+        echo ""
+        echo "Checking pod logs..."
+        kubectl logs -n "$TRIVY_NAMESPACE" -l job-name=trivy-initial-scan --tail=50
+        
+        # Don't exit, but warn user
+        echo "⚠️  Continuing deployment, but Trivy metrics may be empty initially"
+    fi
 
     echo ""
     echo "✅ Trivy scanner deployed successfully!"
+
+    # Verify metrics endpoint
+    echo ""
+    echo "🔍 Verifying Trivy metrics endpoint..."
+    sleep 5  # Give exporter time to start
+    if kubectl get pods -n "$TRIVY_NAMESPACE" -l app=trivy-exporter --field-selector=status.phase=Running 2>/dev/null | grep -q trivy-exporter; then
+        echo "✅ Trivy exporter pod is running"
+        
+        # Test metrics endpoint
+        if kubectl run curl-test --image=curlimages/curl:latest --rm -i --restart=Never -n "$TRIVY_NAMESPACE" \
+            -- curl -s http://trivy-exporter:8080/metrics | grep -q "trivy_"; then
+            echo "✅ Metrics endpoint is responding"
+        else
+            echo "⚠️  Metrics endpoint not yet ready (may need more time)"
+        fi
+    else
+        echo "⚠️  Trivy exporter pod not running yet"
+    fi
 }
 
 
@@ -196,6 +232,15 @@ security() {
     echo "  └────────────────────────────────────────────────────────────────────────┘"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Grafana Dashboards ID:"
+    echo ""
+    echo "Trivy Workload Vulnerabilities: 17046"
+    echo "Trivy Operator - Vulnerabilities: 16337"
+    echo "Trivy Operator Dashboard: 21398"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
 }
 
 # Allow script to be sourced or executed directly
