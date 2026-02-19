@@ -58,11 +58,6 @@ The project is intentionally designed to reflect **real-world DevOps practices**
 │ ├── gitlab
 │ │ ├── configure_gitlab.sh
 │ │ └── .gitlab-ci.yml
-│ └── jenkins
-│     ├── deploy_jenkins.sh
-│     ├── Dockerfile
-│     ├── jenkins-deployment.yaml
-│     └── Jenkinsfile
 ├── clean_reset_all.sh
 ├── config-demo
 ├── docker-compose.yml
@@ -160,6 +155,23 @@ http://localhost:3000
 
 ---
 
+### Deploy to Kubernetes (Minikube)
+
+The project supports Kubernetes deployment with:
+
+* Namespaces
+* ConfigMaps & Secrets
+* Horizontal Pod Autoscaler
+* Ingress Controller
+
+[Kubernetes Documentation](./kubernetes/documentation.md)
+
+```bash
+minikube start
+./run.sh
+```
+---
+
 ### Provision Infrastructure (AWS)
 
 Terraform provisions:
@@ -176,22 +188,6 @@ terraform plan
 ```
 
 > ⚠️ `apply` is intentionally manual to avoid accidental cloud costs.
-
----
-
-### Deploy to Kubernetes (Minikube)
-
-The project supports Kubernetes deployment with:
-
-* Namespaces
-* ConfigMaps & Secrets
-* Horizontal Pod Autoscaler
-* Ingress Controller
-
-```bash
-minikube start
-./run.sh
-```
 
 ---
 
