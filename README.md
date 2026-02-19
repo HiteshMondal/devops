@@ -1,10 +1,9 @@
-<div align="center">
-# 🚀 End-to-End DevOps Platform
+## 🚀 End-to-End DevOps Platform
 
 A **production-grade DevOps project** demonstrating the complete lifecycle of a cloud-native application — from containerization and CI/CD to infrastructure provisioning, Kubernetes orchestration, monitoring, and security.
 
 Designed to reflect **real-world DevOps and platform engineering practices**, not just tutorials.
-</div>
+
 ---
 
 ## 🌍 Overview
