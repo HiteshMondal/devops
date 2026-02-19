@@ -39,9 +39,8 @@ Everything is automated via:
 * **Containerization**: Docker / Podman [Docker Documentation](./app/docker_documentation.md)
 * **Orchestration**: Kubernetes [Kubernetes Documentation](./kubernetes/documentation.md)
 * **CI/CD**: GitHub Actions + GitLab CI/CD
-* **Infrastructure**: Terraform / OpenTofu
-* **Cloud**: Amazon EKS
-* **Monitoring**: Prometheus + Grafana + Loki
+* **Infrastructure/Cloud**: Terraform / OpenTofu, Amazon EKS [Infrastructure Documentation](./infra/documentation.md)
+* **Monitoring**: Prometheus + Grafana + Loki [Monitoring Documentation](./monitoring/documentation.md)
 * **Security**: Trivy
 
 ---
