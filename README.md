@@ -1,120 +1,64 @@
-# 🚀 End-to-End DevOps Project
+<div align="center">
 
-This repository demonstrates a **production-style DevOps workflow** covering the complete lifecycle of an application — from development and containerization to CI/CD, cloud infrastructure provisioning, Kubernetes orchestration, and monitoring.
+# 🚀 End-to-End DevOps Platform
 
-The project is intentionally designed to reflect **real-world DevOps practices** rather than tutorial-style setups.
+A **production-grade DevOps project** demonstrating the complete lifecycle of a cloud-native application — from containerization and CI/CD to infrastructure provisioning, Kubernetes orchestration, monitoring, and security.
 
----
-
-## 📌 Project Objectives
-
-* Build and containerize a sample Node.js application
-* Automate CI/CD using Jenkins
-* Provision cloud infrastructure using Terraform (AWS)
-* Configure services using Ansible
-* Deploy and scale the application on Kubernetes (EKS / Minikube)
-* Implement monitoring and alerting using Prometheus and Grafana
-* Provide automation and recovery scripts for reliability
+Designed to reflect **real-world DevOps and platform engineering practices**, not just tutorials.
 
 ---
 
-### Architecture Overview
+## 🌍 Overview
 
-- The application supports **dual deployment modes**:
-  - **Local Kubernetes using Minikube**
-  - **Cloud Kubernetes using AWS EKS provisioned via Terraform**
+This project provides a **single-command deployment system** that works across:
 
-- CI/CD pipelines (Jenkins/GitLab) build Docker images and push them to a registry.
-- The same Kubernetes manifests are reused for both Minikube and EKS.
-- Monitoring is handled using **Prometheus + Grafana** deployed inside the cluster.
-- Deployment mode is selected interactively using `run.sh`.
+* 🖥️ Local Kubernetes (Minikube, Kind, K3s, MicroK8s)
+* ☁️ Cloud Kubernetes (AWS EKS, GKE, AKS)
 
+Everything is automated via:
 
-**Key components:**
+```bash
+./run.sh
+```
 
-* **App**: Node.js microservice
-* **CI/CD**: Jenkins (Pipeline as Code)
-* **Infrastructure**: AWS (VPC, EKS, RDS)
-* **Configuration**: Ansible
+---
+
+## 🧩 Key Features
+
+* ⚙️ **One-command deployment pipeline**
+* 🐳 Supports both Docker & Podman
+* ☸️ Kubernetes with Kustomize (base + overlays)
+* 🔁 CI/CD with GitHub Actions & GitLab CI
+* ☁️ Infrastructure as Code using Terraform & OpenTofu
+* 📊 Full observability stack (Prometheus, Grafana, Loki)
+* 🔐 Security scanning (Trivy) + runtime security (Falco)
+* 🔄 Multi-cluster compatibility (local + cloud)
+
+---
+
+### Core Stack
+
+* **Containerization**: Docker / Podman
 * **Orchestration**: Kubernetes
-* **Monitoring**: Prometheus & Grafana
+* **CI/CD**: GitHub Actions + GitLab CI/CD
+* **Infrastructure**: Terraform / OpenTofu
+* **Cloud**: Amazon EKS
+* **Monitoring**: Prometheus + Grafana + Loki
+* **Security**: Trivy + Falco
 
 ---
 
-## 📂 Repository Structure
+## 📂 Project Structure
 
 ```
-├── app
-│ ├── build_and_push_image.sh
-│ ├── configure_dockerhub_username.sh
-│ ├── Dockerfile
-│ ├── .dockerignore
-│ ├── package.json
-│ └── src
-│     └── index.js
-├── cicd
-│ ├── github
-│ │ └── configure_git_github.sh
-│ ├── gitlab
-│ │ ├── configure_gitlab.sh
-│ │ └── .gitlab-ci.yml
-├── clean_reset_all.sh
-├── config-demo
-├── docker-compose.yml
-├── dotenv_example
-├── .env
-├── .github
-│ └── workflows
-│     ├── prod.yml
-│     └── terraform.yml
-├── .gitignore
-├── .gitlab-ci.yml
-├── infra
-│ └── terraform
-│     ├── eks.tf
-│     ├── main.tf
-│     ├── outputs.tf
-│     ├── provider.tf
-│     ├── rds.tf
-│     ├── .terraform.lock.hcl
-│     ├── variables.tf
-│     └── vpc.tf
-├── kubernetes
-│ ├── base
-│ │ ├── configmap.yaml
-│ │ ├── deployment.yaml
-│ │ ├── hpa.yaml
-│ │ ├── ingress.yaml
-│ │ ├── kustomization.yaml
-│ │ ├── namespace.yaml
-│ │ ├── secrets.yaml
-│ │ └── service.yaml
-│ ├── deploy_kubernetes.sh
-│ ├── k_troubleshoot.sh
-│ └── overlays
-│     ├── local
-│     │ └── kustomization.yaml
-│     └── prod
-│         ├── kustomization.yaml
-│         ├── network-policy.yaml
-│         └── pod-disruption-budget.yaml
-├── monitoring
-│ ├── deploy_monitoring.sh
-│ ├── kube-state-metrics
-│ │ ├── deployment.yaml
-│ │ ├── rbac.yaml
-│ │ └── service.yaml
-│ ├── node-exporter
-│ │ └── daemonset.yaml
-│ ├── prometheus
-│ │ ├── alerts.yml
-│ │ └── prometheus.yml
-│ └── prometheus_grafana
-│     ├── dashboard-configmap.yaml
-│     ├── grafana.yaml
-│     └── prometheus.yaml
-└── run.sh
-
+.
+├── app/            # Node.js app + Docker setup
+├── cicd/           # GitHub & GitLab CI/CD configs
+├── infra/          # Terraform & OpenTofu infrastructure
+├── kubernetes/     # K8s manifests (Kustomize)
+├── monitoring/     # Prometheus, Grafana, Loki
+├── Security/       # Trivy & Falco security setup
+├── run.sh          # Main deployment orchestrator
 ```
 
 ---
@@ -123,170 +67,175 @@ The project is intentionally designed to reflect **real-world DevOps practices**
 
 Ensure the following tools are installed:
 
-* Docker & Docker Compose
-* Kubernetes CLI (`kubectl`)
-* Minikube (for local Kubernetes)
-* Terraform
-* Ansible
+* Docker or Podman
+* kubectl
+* Terraform / OpenTofu
 * AWS CLI (for cloud deployment)
-Docker must be accessible without sudo:
+* A running Kubernetes cluster
+
+👉 Docker without sudo:
+
 ```bash
 sudo usermod -aG docker $USER
 newgrp docker
 ```
+
 ---
 
-## 🚀 Getting Started
+## 🚀 Quick Start
 
-### Run Application
+### 1. Configure Environment
+
+```bash
+cp dotenv_example .env
+nano .env
+```
+
+Open dotenv_example to see how to configure .env file
+Set required variables like:
+
+```
+APP_NAME=
+NAMESPACE=
+DOCKERHUB_USERNAME=
+DEPLOY_TARGET=local | prod
+```
+
+---
+
+### 2. Run Deployment
 
 ```bash
 chmod +x run.sh
 ./run.sh
 ```
 
-Choose **Docker Compose** when prompted.
+---
 
-Access the app at:
+## 🎯 Deployment Modes
 
+### 🖥️ Local (Minikube / Kind / K3s / MicroK8s)
+
+```bash
+DEPLOY_TARGET=local
 ```
-http://localhost:3000
-```
+
+* Builds image locally or pushes to DockerHub
+* Deploys Kubernetes resources
+* Sets up monitoring + logging + security
 
 ---
 
-### Deploy to Kubernetes (Minikube)
+### ☁️ Production (Cloud - EKS)
 
-The project supports Kubernetes deployment with:
+```bash
+DEPLOY_TARGET=prod
+```
+
+* Provisions infrastructure (VPC, EKS, RDS)
+* Builds & pushes container image
+* Deploys to Kubernetes
+* Enables monitoring & security stack
+
+---
+
+## ☸️ Kubernetes Features
 
 * Namespaces
 * ConfigMaps & Secrets
-* Horizontal Pod Autoscaler
+* Horizontal Pod Autoscaler (HPA)
 * Ingress Controller
+* Kustomize overlays (local vs prod)
 
-[Kubernetes Documentation](./kubernetes/documentation.md)
+Docker Docs → `/app/docker_documentation.md`
+Kubernetes Docs → `kubernetes/documentation.md`
+
+---
+
+## 📊 Monitoring & Observability
+
+Includes:
+
+* **Prometheus** → Metrics collection
+* **Grafana** → Dashboards
+* **Loki** → Log aggregation
+* **Node Exporter + kube-state-metrics**
+
+---
+
+## 🔐 Security
+
+* **Trivy** → Image vulnerability scanning
+
+> ⚠️ Demo setup — not production hardened
+> For production:
+
+* Use Secrets Manager / Vault
+* Enable RBAC + Network Policies
+
+---
+
+## 🔁 CI/CD Pipelines
+
+Supports:
+
+* GitHub Actions (`.github/workflows/`)
+* GitLab CI (`.gitlab-ci.yml`)
+
+Pipeline stages:
+
+1. Build container image
+2. Push to registry
+3. Deploy to Kubernetes
+
+---
+
+## 🧨 Reset & Cleanup
 
 ```bash
-minikube start
-./run.sh
-```
----
-
-### Provision Infrastructure (AWS)
-
-Terraform provisions:
-
-* VPC & networking
-* EKS cluster
-* RDS database
-
-```bash
-cd Infra/terraform
-terraform init
-terraform plan
-# terraform apply
-```
-
-> ⚠️ `apply` is intentionally manual to avoid accidental cloud costs.
-
----
-
-## 📈 Monitoring & Observability
-
-The monitoring stack includes:
-
-* **Prometheus** for metrics collection
-* **Grafana** for dashboards
-* Custom alerts and dashboards
-
-Access (Minikube):
-
-* Prometheus → `http://<minikube-ip>:30003`
-* Grafana → `http://<minikube-ip>:30002`
-
-Default Grafana credentials (demo only):
-
-```
-username: admin
-password: admin123
-```
-
----
-
-## 🔁 CI/CD Pipeline
-
-The Jenkins pipeline:
-
-1. Pulls code from GitLab
-2. Builds Docker image
-3. Pushes image to registry
-4. Deploys to Kubernetes
-
-Defined in:
-
-```
-CICD/jenkins/Jenkinsfile
-```
-
----
-
-## 🧨 Disaster Recovery, Reset & Troubleshooting
-
-When the local environment becomes unstable:
-
-```bash
-chmod +x clean_reset_all.sh
 ./clean_reset_all.sh
 ```
 
-⚠️ **WARNING**:
+⚠️ Deletes:
 
-* Deletes all Docker containers
-* Resets Minikube
-* Clears Docker network state
-
-**Use ONLY for local development. Never run on production systems.**
+* Containers
+* Kubernetes cluster state (local)
+* Networks
 
 ---
 
-## 🔐 Security Notes
+## 📌 DevOps Concepts Demonstrated
 
-* Secrets are stored as Kubernetes Secrets (demo purposes)
-* Hardcoded credentials are **intentional for learning only**
-* For production:
-
-  * Use AWS Secrets Manager / Vault
-  * Enable RBAC & Network Policies
-
----
-
-## 📌 Key DevOps Concepts Demonstrated
-
-* Infrastructure as Code (Terraform)
-* Configuration Management (Ansible)
-* CI/CD Pipelines (Jenkins)
-* Containerization (Docker)
-* Orchestration & Scaling (Kubernetes + HPA)
-* Observability (Prometheus & Grafana)
-* Failure recovery & cleanup automation
+* Infrastructure as Code (Terraform / OpenTofu)
+* Containerization (Docker / Podman)
+* CI/CD Pipelines
+* Kubernetes Orchestration
+* Observability (Prometheus + Grafana + Loki)
+* Security (Trivy + Falco)
+* Multi-environment deployments
 
 ---
 
-## 🧠 Author Notes
+## 📈 Future Improvements
 
-This project is built as a **hands-on DevOps learning and portfolio project**, focusing on **real operational challenges** such as:
+* GitOps (ArgoCD / Flux)
+* Helm charts
+* Secrets management (Vault / AWS Secrets Manager)
+* Canary / Blue-Green deployments
+* Service mesh (Istio)
+* Distributed tracing (Jaeger)
 
-* Environment drift
-* Broken container states
-* Monitoring visibility
-* Scaling and reliability
+---
+
+## 👨‍💻 Author
+
+**Hitesh Mondal**
+DevOps • Cloud • Cybersecurity
 
 ---
 
 ## 📄 License
 
-This project is open for learning and demonstration purposes.
+Open for learning and demonstration purposes.
 
----
-
-⭐ If you find this project useful, feel free to explore, fork, or improve it!
+</div>
