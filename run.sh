@@ -293,7 +293,7 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     # Deploy Loki log aggregation
     deploy_loki
     
-    # Deploy security tools (Falco & Trivy)
+    # Deploy security tools
     security
 
     

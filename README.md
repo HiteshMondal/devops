@@ -29,35 +29,20 @@ Everything is automated via:
 * 🔁 CI/CD with GitHub Actions & GitLab CI
 * ☁️ Infrastructure as Code using Terraform & OpenTofu
 * 📊 Full observability stack (Prometheus, Grafana, Loki)
-* 🔐 Security scanning (Trivy) + runtime security (Falco)
+* 🔐 Security scanning (Trivy)
 * 🔄 Multi-cluster compatibility (local + cloud)
 
 ---
 
 ### Core Stack
 
-* **Containerization**: Docker / Podman
-* **Orchestration**: Kubernetes
+* **Containerization**: Docker / Podman [Docker Documentation](./app/docker_documentation.md)
+* **Orchestration**: Kubernetes [Kubernetes Documentation](./kubernetes/documentation.md)
 * **CI/CD**: GitHub Actions + GitLab CI/CD
 * **Infrastructure**: Terraform / OpenTofu
 * **Cloud**: Amazon EKS
 * **Monitoring**: Prometheus + Grafana + Loki
-* **Security**: Trivy + Falco
-
----
-
-## 📂 Project Structure
-
-```
-.
-├── app/            # Node.js app + Docker setup
-├── cicd/           # GitHub & GitLab CI/CD configs
-├── infra/          # Terraform & OpenTofu infrastructure
-├── kubernetes/     # K8s manifests (Kustomize)
-├── monitoring/     # Prometheus, Grafana, Loki
-├── Security/       # Trivy & Falco security setup
-├── run.sh          # Main deployment orchestrator
-```
+* **Security**: Trivy
 
 ---
 
@@ -145,9 +130,6 @@ DEPLOY_TARGET=prod
 * Ingress Controller
 * Kustomize overlays (local vs prod)
 
-Docker Docs → `/app/docker_documentation.md`
-Kubernetes Docs → `kubernetes/documentation.md`
-
 ---
 
 ## 📊 Monitoring & Observability
@@ -209,7 +191,7 @@ Pipeline stages:
 * CI/CD Pipelines
 * Kubernetes Orchestration
 * Observability (Prometheus + Grafana + Loki)
-* Security (Trivy + Falco)
+* Security (Trivy)
 * Multi-environment deployments
 
 ---
