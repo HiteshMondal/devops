@@ -257,10 +257,6 @@ jobs:
           cache: 'npm'
           cache-dependency-path: app/package.json
 
-      - name: Install dependencies
-        working-directory: app
-        run: npm ci
-
       - name: Run tests
         working-directory: app
         run: |
