@@ -1,3 +1,7 @@
+#!/bin/bash
+
+# /app/configure_dockerhub_username.sh
+
 configure_dockerhub_username() {
   echo "🐳 Configuring Docker Hub username for GitOps"
   # Read from .env

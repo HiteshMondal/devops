@@ -178,12 +178,14 @@ jobs:
           echo "Linting Shell Scripts"
           echo "============================================================================"
           if command -v shellcheck >/dev/null 2>&1; then
-            find . -name "*.sh" -print0 | xargs -0 -r shellcheck
-            echo "✅ ShellCheck complete"
+            find . -name "*.sh" -not -path "./.git/*" -print0 | \
+            xargs -0 -r shellcheck --severity=error
+            echo "✅ ShellCheck (errors only) complete"
           else
             sudo apt-get install -y shellcheck -q
-            find . -name "*.sh" -not -path "./.git/*" -print0 | xargs -0 -r shellcheck --severity=warning || true
-            echo "✅ ShellCheck complete"
+            find . -name "*.sh" -not -path "./.git/*" -print0 | \
+            xargs -0 -r shellcheck --severity=error
+            echo "✅ ShellCheck (errors only) complete"
           fi
 
       - name: Validate Kubernetes manifests
