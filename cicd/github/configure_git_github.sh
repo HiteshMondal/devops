@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+# /cicd/github/configure_git_github.sh
+
 configure_git_github() {
   echo "🧾 Configuring Git & GitHub for GitOps"
   

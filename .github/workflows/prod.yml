@@ -116,8 +116,34 @@ env:
   CI: true
   DRY_RUN: ${{ github.event.inputs.dry_run || vars.DRY_RUN || 'false' }}
 
+  # Loki Configuration
+  LOKI_ENABLED: ${{ vars.LOKI_ENABLED || 'true' }}
+  LOKI_NAMESPACE: ${{ vars.LOKI_NAMESPACE || 'loki' }}
+  LOKI_VERSION: ${{ vars.LOKI_VERSION || '2.9.3' }}
+  LOKI_RETENTION_PERIOD: ${{ vars.LOKI_RETENTION_PERIOD || '168h' }}
+  LOKI_STORAGE_SIZE: ${{ vars.LOKI_STORAGE_SIZE || '10Gi' }}
+  LOKI_SERVICE_TYPE: ${{ vars.LOKI_SERVICE_TYPE || 'ClusterIP' }}
+  LOKI_CPU_REQUEST: ${{ vars.LOKI_CPU_REQUEST || '100m' }}
+  LOKI_CPU_LIMIT: ${{ vars.LOKI_CPU_LIMIT || '1000m' }}
+  LOKI_MEMORY_REQUEST: ${{ vars.LOKI_MEMORY_REQUEST || '256Mi' }}
+  LOKI_MEMORY_LIMIT: ${{ vars.LOKI_MEMORY_LIMIT || '1Gi' }}
+
+  # Security / Trivy Configuration
+  TRIVY_ENABLED: ${{ vars.TRIVY_ENABLED || 'true' }}
+  TRIVY_NAMESPACE: ${{ vars.TRIVY_NAMESPACE || 'trivy-system' }}
+  TRIVY_VERSION: ${{ vars.TRIVY_VERSION || '0.48.0' }}
+  TRIVY_SEVERITY: ${{ vars.TRIVY_SEVERITY || 'HIGH,CRITICAL' }}
+  TRIVY_SCAN_SCHEDULE: ${{ vars.TRIVY_SCAN_SCHEDULE || '0 16-22 * * *' }}
+  TRIVY_CPU_REQUEST: ${{ vars.TRIVY_CPU_REQUEST || '500m' }}
+  TRIVY_CPU_LIMIT: ${{ vars.TRIVY_CPU_LIMIT || '2000m' }}
+  TRIVY_MEMORY_REQUEST: ${{ vars.TRIVY_MEMORY_REQUEST || '512Mi' }}
+  TRIVY_MEMORY_LIMIT: ${{ vars.TRIVY_MEMORY_LIMIT || '2Gi' }}
+  TRIVY_METRICS_ENABLED: ${{ vars.TRIVY_METRICS_ENABLED || 'true' }}
+  TRIVY_BUILD_IMAGES: ${{ vars.TRIVY_BUILD_IMAGES || 'true' }}
+  TRIVY_IMAGE_TAG: ${{ vars.TRIVY_IMAGE_TAG || '1.0' }}
+
 jobs:
-  # VALIDATION JOBS  
+  # VALIDATION JOBS
   validate-variables:
     name: Validate CI/CD Variables
     runs-on: ubuntu-latest
@@ -208,7 +234,7 @@ jobs:
           echo ""
           echo "✅ All required tools are available"
 
-  # BUILD JOBS  
+  # BUILD JOBS
   build-docker-image:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
@@ -269,7 +295,7 @@ jobs:
           echo ""
           echo "✅ Docker image built successfully (not pushed)"
 
-  # DEPLOY LOCAL JOBS  
+  # DEPLOY LOCAL JOBS
   deploy-local:
     name: Deploy to Local Kubernetes
     runs-on: ubuntu-latest
@@ -360,7 +386,7 @@ jobs:
           kubectl get svc -n $NAMESPACE || true
           kubectl get ingress -n $NAMESPACE || true
 
-  # DEPLOY PRODUCTION JOBS  
+  # DEPLOY PRODUCTION JOBS
   deploy-terraform-infrastructure:
     name: Deploy Infrastructure (Terraform)
     runs-on: ubuntu-latest
@@ -526,7 +552,7 @@ jobs:
           kubectl get svc -n $NAMESPACE || true
           kubectl get ingress -n $NAMESPACE || true
 
-  # MONITORING JOBS  
+  # MONITORING JOBS
   deploy-monitoring:
     name: Deploy Monitoring Stack
     runs-on: ubuntu-latest
@@ -612,7 +638,138 @@ jobs:
         if: always()
         run: kind delete cluster --name devops-ci
 
-  # CLEANUP JOBS  
+  # LOKI LOG AGGREGATION JOB
+  deploy-loki:
+    name: Deploy Loki Log Aggregation
+    runs-on: ubuntu-latest
+    needs: [deploy-monitoring]
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.deploy-monitoring.result == 'success' &&
+      (vars.LOKI_ENABLED == 'true' || vars.LOKI_ENABLED == '')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Set up Kind (Kubernetes in Docker)
+        uses: engineerd/setup-kind@v0.5.0
+        with:
+          version: v0.20.0
+
+      - name: Create Kind cluster
+        run: |
+          kind create cluster --name devops-loki --wait 60s
+          kubectl cluster-info
+
+      - name: Configure kubectl for Kind
+        run: |
+          export KUBECONFIG="$(kind get kubeconfig-path --name="devops-loki")"
+          kubectl cluster-info
+
+      - name: Deploy Loki log aggregation
+        run: |
+          echo "============================================================================"
+          echo "Deploying Loki Log Aggregation (Loki + Promtail)"
+          echo "============================================================================"
+
+          export PROJECT_ROOT=${{ github.workspace }}
+
+          source "${{ github.workspace }}/monitoring/deploy_loki.sh"
+          deploy_loki
+
+          echo ""
+          echo "✅ Loki log aggregation deployed successfully"
+
+      - name: Display Loki info
+        if: always()
+        run: |
+          echo ""
+          echo "============================================================================"
+          echo "Loki Stack Information"
+          echo "============================================================================"
+          kubectl get pods -n $LOKI_NAMESPACE || true
+          kubectl get svc -n $LOKI_NAMESPACE || true
+
+      - name: Delete Kind cluster
+        if: always()
+        run: kind delete cluster --name devops-loki
+
+  # SECURITY / TRIVY JOB
+  deploy-security:
+    name: Deploy Security Tools (Trivy)
+    runs-on: ubuntu-latest
+    needs: [deploy-loki]
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.deploy-loki.result == 'success' &&
+      (vars.TRIVY_ENABLED == 'true' || vars.TRIVY_ENABLED == '')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Set up Kind (Kubernetes in Docker)
+        uses: engineerd/setup-kind@v0.5.0
+        with:
+          version: v0.20.0
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Create Kind cluster
+        run: |
+          kind create cluster --name devops-security --wait 60s
+          kubectl cluster-info
+
+      - name: Configure kubectl for Kind
+        run: |
+          export KUBECONFIG="$(kind get kubeconfig-path --name="devops-security")"
+          kubectl cluster-info
+
+      - name: Deploy security tools
+        run: |
+          echo "============================================================================"
+          echo "Deploying Security Tools (Trivy Scanner + Metrics Exporter)"
+          echo "============================================================================"
+
+          export PROJECT_ROOT=${{ github.workspace }}
+
+          source "${{ github.workspace }}/Security/security.sh"
+          security
+
+          echo ""
+          echo "✅ Security tools deployed successfully"
+
+      - name: Display security info
+        if: always()
+        run: |
+          echo ""
+          echo "============================================================================"
+          echo "Security Stack Information"
+          echo "============================================================================"
+          kubectl get pods -n $TRIVY_NAMESPACE || true
+          kubectl get svc -n $TRIVY_NAMESPACE || true
+          kubectl get cronjobs -n $TRIVY_NAMESPACE || true
+
+      - name: Delete Kind cluster
+        if: always()
+        run: kind delete cluster --name devops-security
+
+  # CLEANUP JOBS
   cleanup-on-failure:
     name: Cleanup on Failure
     runs-on: ubuntu-latest
@@ -644,5 +801,7 @@ jobs:
           
           kubectl delete namespace "$NAMESPACE" --ignore-not-found=true
           kubectl delete namespace "$PROMETHEUS_NAMESPACE" --ignore-not-found=true
+          kubectl delete namespace "$LOKI_NAMESPACE" --ignore-not-found=true
+          kubectl delete namespace "$TRIVY_NAMESPACE" --ignore-not-found=true
           
           echo "✅ Cleanup completed"
