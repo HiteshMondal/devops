@@ -4,7 +4,7 @@ echo "==========================================================================
 echo "DevOps Project Deployment Runner"
 echo "============================================================================"
 echo "Usage: ./run.sh"
-echo "Description: Orchestrates deployment to any Kubernetes cluster"
+echo "Description: Orchestrates deployment to any Kubernetes cluster via Argo CD"
 echo "Supported: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s"
 echo "Requirements: .env file configured with DEPLOY_TARGET"
 echo "============================================================================"
@@ -23,6 +23,7 @@ if [[ -f "$ENV_FILE" ]]; then
     set -a
     source "$ENV_FILE"
     set +a
+
     # Check for quoted numeric values
     if grep -qE '^(REPLICAS|APP_PORT|MIN_REPLICAS|MAX_REPLICAS)=["'\'']' "$PROJECT_ROOT/.env"; then
         echo "⚠️  WARNING: Numeric values should NOT be quoted in .env"
@@ -37,16 +38,17 @@ if [[ -f "$ENV_FILE" ]]; then
     else
         echo "✅ Numeric values are correctly unquoted"
     fi
+
     # Check for required variables
     required_vars=("APP_NAME" "NAMESPACE" "DOCKERHUB_USERNAME" "DOCKER_IMAGE_TAG" "APP_PORT" "REPLICAS")
     missing_vars=()
-    
+
     for var in "${required_vars[@]}"; do
         if ! grep -q "^${var}=" "$PROJECT_ROOT/.env"; then
             missing_vars+=("$var")
         fi
     done
-    
+
     if [[ ${#missing_vars[@]} -gt 0 ]]; then
         echo "⚠️  WARNING: Missing required variables:"
         for var in "${missing_vars[@]}"; do
@@ -84,7 +86,7 @@ aws --version || true
 echo ""
 
 # Validate required tools
-for cmd in kubectl envsubst ; do
+for cmd in kubectl envsubst; do
     command -v "$cmd" >/dev/null || {
         echo "❌ Missing $cmd"
         echo "$cmd not installed"
@@ -96,7 +98,6 @@ done
 if command -v docker >/dev/null 2>&1; then
     CONTAINER_RUNTIME="docker"
     echo "✅ Using Docker as container runtime"
-    # Verify Docker access
     if ! docker info >/dev/null 2>&1; then
         echo "❌ Docker not accessible without sudo"
         echo "   Run: sudo usermod -aG docker $USER && newgrp docker"
@@ -119,18 +120,16 @@ export CONTAINER_RUNTIME
 detect_k8s_cluster() {
     echo ""
     echo "🔍 Detecting Kubernetes cluster..."
-    
-    # Check if kubectl can connect
+
     if ! kubectl cluster-info >/dev/null 2>&1; then
         echo "❌ Cannot connect to Kubernetes cluster"
         echo "   Please ensure your kubeconfig is properly configured"
         exit 1
     fi
-    
+
     local k8s_dist="unknown"
     local context=$(kubectl config current-context 2>/dev/null || echo "")
-    
-    # Detect distribution
+
     if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
         k8s_dist="minikube"
     elif [[ "$context" == *"kind"* ]] || kubectl get nodes -o json 2>/dev/null | grep -q "kind-control-plane"; then
@@ -148,14 +147,13 @@ detect_k8s_cluster() {
     else
         k8s_dist="kubernetes"
     fi
-    
+
     export K8S_DISTRIBUTION="$k8s_dist"
     export K8S_CONTEXT="$context"
-    
+
     echo "✅ Connected to: $k8s_dist"
     echo "   Context: $context"
-    
-    # Get cluster info
+
     local nodes=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
     echo "   Nodes: $nodes"
 }
@@ -163,7 +161,6 @@ detect_k8s_cluster() {
 # LOAD DEPLOYMENT SCRIPTS
 
 load_scripts() {
-    # Original scripts
     source "$PROJECT_ROOT/app/build_and_push_image.sh"
     source "$PROJECT_ROOT/app/configure_dockerhub_username.sh"
     source "$PROJECT_ROOT/kubernetes/deploy_kubernetes.sh"
@@ -174,6 +171,9 @@ load_scripts() {
     source "$PROJECT_ROOT/monitoring/deploy_loki.sh"
     source "$PROJECT_ROOT/infra/deploy_infra.sh"
     source "$PROJECT_ROOT/Security/security.sh"
+
+    # ── Argo CD ──────────────────────────────────────────────────────────────
+    source "$PROJECT_ROOT/cicd/argo/deploy_argo.sh"
 }
 
 load_scripts
@@ -185,46 +185,51 @@ detect_k8s_cluster
 
 : "${DEPLOY_TARGET:?Set DEPLOY_TARGET in .env}"
 echo ""
-echo "🎯 Deployment Target: $DEPLOY_TARGET"
+echo "🎯 Deployment Target:  $DEPLOY_TARGET"
+echo "🚀 Deployment Mode:    ${DEPLOY_MODE:-argocd}"
 echo ""
 
-# DEPLOYMENT: LOCAL ENVIRONMENTS (Minikube, Kind, K3s, MicroK8s)
+# ============================================================================
+# RESOLVE DEPLOY_MODE
+# Supports two modes:
+#   argocd  (default) — Argo CD manages all deployments after initial bootstrap
+#   direct            — Legacy direct kubectl apply (kept for compatibility)
+# ============================================================================
+: "${DEPLOY_MODE:=argocd}"
 
-if [[ "$DEPLOY_TARGET" == "local" ]]; then
-    echo "  🚀 Deploying to Local Kubernetes Environment"
-    echo ""
+# ============================================================================
+# LOCAL CLUSTER PREREQUISITES (Minikube, Kind, K3s, MicroK8s)
+# These run regardless of deploy mode — they configure the cluster itself
+# ============================================================================
+
+setup_local_cluster() {
     # Special handling for Minikube
     if [[ "$K8S_DISTRIBUTION" == "minikube" ]]; then
-        command -v minikube >/dev/null 2>&1 || { 
+        command -v minikube >/dev/null 2>&1 || {
             echo "❌ Minikube not installed"
             exit 1
         }
-        
         if [[ "$(minikube status --format='{{.Host}}')" != "Running" ]]; then
             echo "❌ Minikube is not running"
             echo "   Start it using: minikube start --memory=4096 --cpus=2"
             exit 1
         fi
-        
         if [[ "$CONTAINER_RUNTIME" == "docker" ]]; then
             echo "🐳 Configuring Docker environment for Minikube..."
             eval "$(minikube docker-env)"
         fi
-        
         if [[ "${MINIKUBE_INGRESS:-false}" == "true" ]]; then
             echo "🌐 Enabling Ingress addon..."
             minikube addons enable ingress
         fi
     fi
-    
+
     # Special handling for Kind
     if [[ "$K8S_DISTRIBUTION" == "kind" ]]; then
-        command -v kind >/dev/null 2>&1 || { 
+        command -v kind >/dev/null 2>&1 || {
             echo "❌ Kind not installed"
             exit 1
         }
-        
-        # Check if ingress controller is needed
         if [[ "${INGRESS_ENABLED:-true}" == "true" ]]; then
             if ! kubectl get pods -n ingress-nginx >/dev/null 2>&1; then
                 echo "🌐 Installing NGINX Ingress Controller for Kind..."
@@ -237,35 +242,32 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
             fi
         fi
     fi
-    
+
     # Special handling for K3s
     if [[ "$K8S_DISTRIBUTION" == "k3s" ]]; then
         echo "📦 Using K3s with Traefik ingress controller"
     fi
-    
+
     # Special handling for MicroK8s
     if [[ "$K8S_DISTRIBUTION" == "microk8s" ]]; then
-        command -v microk8s >/dev/null 2>&1 || { 
+        command -v microk8s >/dev/null 2>&1 || {
             echo "❌ MicroK8s not installed"
             exit 1
         }
-        
-        # Enable required addons
         if [[ "${INGRESS_ENABLED:-true}" == "true" ]]; then
             echo "🌐 Enabling Ingress addon..."
             microk8s enable ingress || true
         fi
-        
-        if [[ "${PROMETHEUS_ENABLED:-true}" == "true" ]]; then
-            echo "📊 Note: Using custom Prometheus deployment (not MicroK8s addon)"
-        fi
     fi
-    
+}
+
+# BUILD IMAGE (shared between both deploy modes)
+
+build_image() {
     echo "⚙️  Configuring Git and DockerHub..."
     configure_git_github
     configure_dockerhub_username
-    
-    # Build and push image based on container runtime
+
     if [[ "${BUILD_PUSH:-false}" == "true" ]]; then
         echo "🔨 Building and pushing container image..."
         if [[ "$CONTAINER_RUNTIME" == "podman" ]] && [[ -n "$(type -t build_and_push_image_podman)" ]]; then
@@ -281,201 +283,231 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
             docker build -t "$APP_NAME:latest" "$PROJECT_ROOT/app"
         fi
     fi
-    
-    # Deploy Kubernetes resources
-    echo ""
-    echo "📦 Deploying Kubernetes resources..."
-    deploy_kubernetes local
-    
-    # Deploy monitoring stack (Prometheus/Grafana)
-    deploy_monitoring
-    
-    # Deploy Loki log aggregation
-    deploy_loki
-    
-    # Deploy security tools
-    security
+}
 
-    
-    # Configure GitLab
-    configure_gitlab
-    
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    echo "  ✅ Application deployed to $K8S_DISTRIBUTION"
-    echo ""
-    
-    # Show access information based on distribution
-    echo "╔════════════════════════════════════════════════════════════════════════════╗"
-    echo "║                          🌐  ACCESS INFORMATION                            ║"
-    echo "╚════════════════════════════════════════════════════════════════════════════╝"
-    echo ""
-    
-    case "$K8S_DISTRIBUTION" in
-        minikube)
-            MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "localhost")
-            NODE_PORT=$(kubectl get svc "$APP_NAME-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-            if [[ -n "$NODE_PORT" ]]; then
-                echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-                echo "  │  🚀 APPLICATION URL                                                    │"
-                echo "  ├────────────────────────────────────────────────────────────────────────┤"
-                echo "  │                                                                        │"
-                echo "  │     👉  http://$MINIKUBE_IP:$NODE_PORT"
-                echo "  │                                                                        │"
-                echo "  └────────────────────────────────────────────────────────────────────────┘"
-            fi
-            echo ""
-            echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-            echo "  │  📊 DASHBOARD COMMAND                                                  │"
-            echo "  ├────────────────────────────────────────────────────────────────────────┤"
-            echo "  │                                                                        │"
-            echo "  │     \$ minikube dashboard                                              │"
-            echo "  │                                                                        │"
-            echo "  └────────────────────────────────────────────────────────────────────────┘"
-            ;;
-        kind)
-            NODE_PORT=$(kubectl get svc "$APP_NAME-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-            if [[ -n "$NODE_PORT" ]]; then
-                echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-                echo "  │  🚀 APPLICATION URL                                                    │"
-                echo "  ├────────────────────────────────────────────────────────────────────────┤"
-                echo "  │                                                                        │"
-                echo "  │     👉  http://localhost:$NODE_PORT"
-                echo "  │                                                                        │"
-                echo "  └────────────────────────────────────────────────────────────────────────┘"
-            fi
-            ;;
-        k3s)
-            NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "localhost")
-            NODE_PORT=$(kubectl get svc "$APP_NAME-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-            if [[ -n "$NODE_PORT" ]]; then
-                echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-                echo "  │  🚀 APPLICATION URL                                                    │"
-                echo "  ├────────────────────────────────────────────────────────────────────────┤"
-                echo "  │                                                                        │"
-                echo "  │     👉  http://$NODE_IP:$NODE_PORT"
-                echo "  │                                                                        │"
-                echo "  └────────────────────────────────────────────────────────────────────────┘"
-            fi
-            ;;
-        microk8s)
-            NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "localhost")
-            NODE_PORT=$(kubectl get svc "$APP_NAME-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-            if [[ -n "$NODE_PORT" ]]; then
-                echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-                echo "  │  🚀 APPLICATION URL                                                    │"
-                echo "  ├────────────────────────────────────────────────────────────────────────┤"
-                echo "  │                                                                        │"
-                echo "  │     👉  http://$NODE_IP:$NODE_PORT"
-                echo "  │                                                                        │"
-                echo "  └────────────────────────────────────────────────────────────────────────┘"
-            fi
-            ;;
-        *)
-            echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-            echo "  │  ⚡ REQUIRED COMMAND (Port Forward)                                     │"
-            echo "  ├────────────────────────────────────────────────────────────────────────┤"
-            echo "  │                                                                        │"
-            echo "  │     \$ kubectl port-forward svc/$APP_NAME-service $APP_PORT:80 -n $NAMESPACE"
-            echo "  │                                                                        │"
-            echo "  └────────────────────────────────────────────────────────────────────────┘"
-            echo ""
-            echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-            echo "  │  🚀 APPLICATION URL (After Port Forward)                               │"
-            echo "  ├────────────────────────────────────────────────────────────────────────┤"
-            echo "  │                                                                        │"
-            echo "  │     👉  http://localhost:$APP_PORT"
-            echo "  │                                                                        │"
-            echo "  └────────────────────────────────────────────────────────────────────────┘"
-            ;;
-    esac
-    
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+# DEPLOYMENT: LOCAL — Argo CD mode (default)
 
-# DEPLOYMENT: CLOUD KUBERNETES (EKS, GKE, AKS)
+if [[ "$DEPLOY_TARGET" == "local" ]]; then
+    echo "  🚀 Deploying to Local Kubernetes Environment"
+    echo ""
+
+    setup_local_cluster
+    build_image
+
+    if [[ "$DEPLOY_MODE" == "argocd" ]]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  🐙  Argo CD Mode — bootstrapping ArgoCD then handing off deployments"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+
+        # Deploy Argo CD and register all applications
+        deploy_argo
+
+        # Configure GitLab CI (optional, non-blocking)
+        configure_gitlab || true
+
+    else
+        # ── Legacy direct mode (kept for compatibility) ─────────────────────
+        echo ""
+        echo "📦 Deploying Kubernetes resources (direct mode)..."
+        deploy_kubernetes local
+        deploy_monitoring
+        deploy_loki
+        security
+        configure_gitlab
+
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "  ✅ Application deployed to $K8S_DISTRIBUTION (direct mode)"
+        echo ""
+
+        # Show access information based on distribution
+        echo "╔════════════════════════════════════════════════════════════════════════════╗"
+        echo "║                          🌐  ACCESS INFORMATION                            ║"
+        echo "╚════════════════════════════════════════════════════════════════════════════╝"
+        echo ""
+
+        case "$K8S_DISTRIBUTION" in
+            minikube)
+                MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "localhost")
+                NODE_PORT=$(kubectl get svc "$APP_NAME-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+                if [[ -n "$NODE_PORT" ]]; then
+                    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+                    echo "  │  🚀 APPLICATION URL                                                    │"
+                    echo "  ├────────────────────────────────────────────────────────────────────────┤"
+                    echo "  │                                                                        │"
+                    echo "  │     👉  http://$MINIKUBE_IP:$NODE_PORT"
+                    echo "  │                                                                        │"
+                    echo "  └────────────────────────────────────────────────────────────────────────┘"
+                fi
+                echo ""
+                echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+                echo "  │  📊 DASHBOARD COMMAND                                                  │"
+                echo "  ├────────────────────────────────────────────────────────────────────────┤"
+                echo "  │                                                                        │"
+                echo "  │     \$ minikube dashboard                                              │"
+                echo "  │                                                                        │"
+                echo "  └────────────────────────────────────────────────────────────────────────┘"
+                ;;
+            kind)
+                NODE_PORT=$(kubectl get svc "$APP_NAME-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+                if [[ -n "$NODE_PORT" ]]; then
+                    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+                    echo "  │  🚀 APPLICATION URL                                                    │"
+                    echo "  ├────────────────────────────────────────────────────────────────────────┤"
+                    echo "  │                                                                        │"
+                    echo "  │     👉  http://localhost:$NODE_PORT"
+                    echo "  │                                                                        │"
+                    echo "  └────────────────────────────────────────────────────────────────────────┘"
+                fi
+                ;;
+            k3s|microk8s)
+                NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "localhost")
+                NODE_PORT=$(kubectl get svc "$APP_NAME-service" -n "$NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+                if [[ -n "$NODE_PORT" ]]; then
+                    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+                    echo "  │  🚀 APPLICATION URL                                                    │"
+                    echo "  ├────────────────────────────────────────────────────────────────────────┤"
+                    echo "  │                                                                        │"
+                    echo "  │     👉  http://$NODE_IP:$NODE_PORT"
+                    echo "  │                                                                        │"
+                    echo "  └────────────────────────────────────────────────────────────────────────┘"
+                fi
+                ;;
+            *)
+                echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+                echo "  │  ⚡ REQUIRED COMMAND (Port Forward)                                     │"
+                echo "  ├────────────────────────────────────────────────────────────────────────┤"
+                echo "  │                                                                        │"
+                echo "  │     \$ kubectl port-forward svc/$APP_NAME-service $APP_PORT:80 -n $NAMESPACE"
+                echo "  │                                                                        │"
+                echo "  └────────────────────────────────────────────────────────────────────────┘"
+                echo ""
+                echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+                echo "  │  🚀 APPLICATION URL (After Port Forward)                               │"
+                echo "  ├────────────────────────────────────────────────────────────────────────┤"
+                echo "  │                                                                        │"
+                echo "  │     👉  http://localhost:$APP_PORT"
+                echo "  │                                                                        │"
+                echo "  └────────────────────────────────────────────────────────────────────────┘"
+                ;;
+        esac
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    fi
+
+# DEPLOYMENT: PRODUCTION — Argo CD mode (default)
 
 elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
-    
     echo "  ☁️  Deploying to Cloud Kubernetes (Production)"
     echo ""
-    
-    deploy_infra
-    
-    # Handle cloud-specific infrastructure provisioning
-    case "$K8S_DISTRIBUTION" in
-        eks)
-            echo "🏗️  AWS EKS Deployment"
-            command -v aws >/dev/null 2>&1 || { 
-                echo "❌ AWS CLI not installed"
-                exit 1
-            }
-            ;;
-        gke)
-            echo "🏗️  GCP GKE Deployment"
-            command -v gcloud >/dev/null 2>&1 || { 
-                echo "❌ Google Cloud SDK not installed"
-                exit 1
-            }
-            ;;
-        aks)
-            echo "🏗️  Azure AKS Deployment"
-            command -v az >/dev/null 2>&1 || { 
-                echo "❌ Azure CLI not installed"
-                exit 1
-            }
-            ;;
-        *)
-            echo "⚠️  Generic cloud Kubernetes cluster detected"
-            echo "   Skipping cloud-specific infrastructure provisioning"
-            ;;
-    esac
-    
-    echo "⚙️  Configuring Git and DockerHub..."
-    configure_git_github
-    configure_dockerhub_username
-    
-    if [[ "${BUILD_PUSH:-true}" == "true" ]]; then
-        echo "🔨 Building and pushing container image..."
-        if [[ "$CONTAINER_RUNTIME" == "podman" ]] && [[ -n "$(type -t build_and_push_image_podman)" ]]; then
-            build_and_push_image_podman
-        else
-            build_and_push_image
-        fi
-    fi
-    
-    echo ""
-    echo "📦 Deploying Kubernetes resources..."
-    deploy_kubernetes prod
-    
-    # Deploy monitoring
-    deploy_monitoring
-    
-    # Deploy Loki 
-    deploy_loki
 
-    # Deploy security tools 
-    security
-    
-    # Configure GitLab
-    configure_gitlab
-    
-    echo ""
-    echo "╔════════════════════════════════════════════════════════════════════════════╗"
-    echo "║                     ✅ DEPLOYMENT SUCCESSFUL                               ║"
-    echo "╚════════════════════════════════════════════════════════════════════════════╝"
-    echo ""
-    echo "  Deployed to: $K8S_DISTRIBUTION"
-    echo ""
-    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-    echo "  │  ⚡ CHECK SERVICE ENDPOINTS                                             │"
-    echo "  ├────────────────────────────────────────────────────────────────────────┤"
-    echo "  │                                                                        │"
-    echo "  │     \$ kubectl get svc -n $NAMESPACE                                   │"
-    echo "  │     \$ kubectl get ingress -n $NAMESPACE                               │"
-    echo "  │                                                                        │"
-    echo "  └────────────────────────────────────────────────────────────────────────┘"
-    echo ""
+    if [[ "$DEPLOY_MODE" == "argocd" ]]; then
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  🐙  Argo CD Mode — bootstrapping ArgoCD then handing off deployments"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+
+        # Provision cloud infrastructure first
+        deploy_infra
+
+        # Cloud-specific CLI checks
+        case "$K8S_DISTRIBUTION" in
+            eks)
+                echo "🏗️  AWS EKS Deployment"
+                command -v aws >/dev/null 2>&1 || { echo "❌ AWS CLI not installed"; exit 1; }
+                ;;
+            gke)
+                echo "🏗️  GCP GKE Deployment"
+                command -v gcloud >/dev/null 2>&1 || { echo "❌ Google Cloud SDK not installed"; exit 1; }
+                ;;
+            aks)
+                echo "🏗️  Azure AKS Deployment"
+                command -v az >/dev/null 2>&1 || { echo "❌ Azure CLI not installed"; exit 1; }
+                ;;
+            *)
+                echo "⚠️  Generic cloud cluster — skipping cloud-specific infrastructure"
+                ;;
+        esac
+
+        configure_git_github
+        configure_dockerhub_username
+
+        if [[ "${BUILD_PUSH:-true}" == "true" ]]; then
+            echo "🔨 Building and pushing container image..."
+            if [[ "$CONTAINER_RUNTIME" == "podman" ]] && [[ -n "$(type -t build_and_push_image_podman)" ]]; then
+                build_and_push_image_podman
+            else
+                build_and_push_image
+            fi
+        fi
+
+        # Deploy Argo CD and register all applications
+        deploy_argo
+
+        # Configure GitLab CI (optional, non-blocking)
+        configure_gitlab || true
+
+    else
+        # ── Legacy direct mode ──────────────────────────────────────────────
+        deploy_infra
+
+        case "$K8S_DISTRIBUTION" in
+            eks)
+                echo "🏗️  AWS EKS Deployment"
+                command -v aws >/dev/null 2>&1 || { echo "❌ AWS CLI not installed"; exit 1; }
+                ;;
+            gke)
+                echo "🏗️  GCP GKE Deployment"
+                command -v gcloud >/dev/null 2>&1 || { echo "❌ Google Cloud SDK not installed"; exit 1; }
+                ;;
+            aks)
+                echo "🏗️  Azure AKS Deployment"
+                command -v az >/dev/null 2>&1 || { echo "❌ Azure CLI not installed"; exit 1; }
+                ;;
+            *)
+                echo "⚠️  Generic cloud Kubernetes cluster detected"
+                ;;
+        esac
+
+        configure_git_github
+        configure_dockerhub_username
+
+        if [[ "${BUILD_PUSH:-true}" == "true" ]]; then
+            echo "🔨 Building and pushing container image..."
+            if [[ "$CONTAINER_RUNTIME" == "podman" ]] && [[ -n "$(type -t build_and_push_image_podman)" ]]; then
+                build_and_push_image_podman
+            else
+                build_and_push_image
+            fi
+        fi
+
+        echo ""
+        echo "📦 Deploying Kubernetes resources..."
+        deploy_kubernetes prod
+        deploy_monitoring
+        deploy_loki
+        security
+        configure_gitlab
+
+        echo ""
+        echo "╔════════════════════════════════════════════════════════════════════════════╗"
+        echo "║                     ✅ DEPLOYMENT SUCCESSFUL                               ║"
+        echo "╚════════════════════════════════════════════════════════════════════════════╝"
+        echo ""
+        echo "  Deployed to: $K8S_DISTRIBUTION"
+        echo ""
+        echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+        echo "  │  ⚡ CHECK SERVICE ENDPOINTS                                             │"
+        echo "  ├────────────────────────────────────────────────────────────────────────┤"
+        echo "  │                                                                        │"
+        echo "  │     \$ kubectl get svc -n $NAMESPACE                                   │"
+        echo "  │     \$ kubectl get ingress -n $NAMESPACE                               │"
+        echo "  │                                                                        │"
+        echo "  └────────────────────────────────────────────────────────────────────────┘"
+        echo ""
+    fi
 
 else
     echo "  ❌ Invalid DEPLOY_TARGET in .env"

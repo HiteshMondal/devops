@@ -1,0 +1,532 @@
+#!/bin/bash
+
+# /cicd/argo/deploy_argo.sh - Argo CD Deployment Script
+# Usage: source this script in run.sh, then call deploy_argo
+# Or run directly: ./deploy_argo.sh
+
+set -euo pipefail
+
+# ============================================================================
+# COLOR DEFINITIONS
+# ============================================================================
+if [[ -t 1 ]]; then
+    BOLD='\033[1m'
+    DIM='\033[2m'
+    RESET='\033[0m'
+    BLUE='\033[38;5;33m'
+    GREEN='\033[38;5;34m'
+    YELLOW='\033[38;5;214m'
+    RED='\033[38;5;196m'
+    CYAN='\033[38;5;51m'
+    MAGENTA='\033[38;5;201m'
+    LINK='\033[4;38;5;75m'
+else
+    BOLD=''; DIM=''; RESET=''
+    BLUE=''; GREEN=''; YELLOW=''; RED=''; CYAN=''; MAGENTA=''; LINK=''
+fi
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+print_subsection() { echo -e "\n${BOLD}${MAGENTA}▸ ${1}${RESET}\n${DIM}${MAGENTA}─────────────────────────────────────────────────────────────────────────────${RESET}"; }
+print_success()    { echo -e "${BOLD}${GREEN}✓${RESET} ${GREEN}$1${RESET}"; }
+print_info()       { echo -e "${BOLD}${CYAN}ℹ${RESET} ${CYAN}$1${RESET}"; }
+print_warning()    { echo -e "${BOLD}${YELLOW}⚠${RESET} ${YELLOW}$1${RESET}"; }
+print_error()      { echo -e "${BOLD}${RED}✗${RESET} ${RED}$1${RESET}"; }
+print_step()       { echo -e "  ${BOLD}${BLUE}▸${RESET} $1"; }
+print_divider()    { echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
+
+# ============================================================================
+# RESOLVE PROJECT ROOT
+# ============================================================================
+if [[ -z "${PROJECT_ROOT:-}" ]]; then
+    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+fi
+
+# ============================================================================
+# LOAD ENV IF NOT ALREADY LOADED
+# ============================================================================
+if [[ -z "${APP_NAME:-}" ]]; then
+    ENV_FILE="$PROJECT_ROOT/.env"
+    if [[ -f "$ENV_FILE" ]]; then
+        set -a
+        source "$ENV_FILE"
+        set +a
+    fi
+fi
+
+# ============================================================================
+# SET DEFAULTS
+# ============================================================================
+: "${ARGOCD_NAMESPACE:=argocd}"
+: "${ARGOCD_VERSION:=v2.10.0}"
+: "${ARGOCD_ADMIN_PASSWORD:=}"
+: "${DEPLOY_TARGET:=local}"
+: "${NAMESPACE:=devops-app}"
+: "${APP_NAME:=devops-app}"
+: "${PROMETHEUS_NAMESPACE:=monitoring}"
+: "${LOKI_NAMESPACE:=loki}"
+: "${TRIVY_NAMESPACE:=trivy-system}"
+: "${INGRESS_ENABLED:=true}"
+: "${INGRESS_HOST:=devops-app.local}"
+: "${ARGOCD_SYNC_WAVE_ENABLED:=true}"
+
+# Git repo details — auto-detected from local git config if not set
+if [[ -z "${GIT_REPO_URL:-}" ]]; then
+    GIT_REPO_URL="$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null || echo '')"
+fi
+: "${GIT_REPO_BRANCH:=main}"
+: "${GIT_REPO_PATH_APP:=kubernetes/base}"
+: "${GIT_REPO_PATH_MONITORING:=monitoring/prometheus_grafana}"
+: "${GIT_REPO_PATH_LOKI:=monitoring/Loki}"
+: "${GIT_REPO_PATH_SECURITY:=Security/trivy}"
+
+export ARGOCD_NAMESPACE ARGOCD_VERSION DEPLOY_TARGET NAMESPACE APP_NAME
+export PROMETHEUS_NAMESPACE LOKI_NAMESPACE TRIVY_NAMESPACE
+export INGRESS_ENABLED INGRESS_HOST
+export GIT_REPO_URL GIT_REPO_BRANCH
+export GIT_REPO_PATH_APP GIT_REPO_PATH_MONITORING GIT_REPO_PATH_LOKI GIT_REPO_PATH_SECURITY
+
+# ============================================================================
+# INSTALL ARGO CD CLI
+# ============================================================================
+install_argocd_cli() {
+    if command -v argocd >/dev/null 2>&1; then
+        print_success "ArgoCD CLI already installed: $(argocd version --client --short 2>/dev/null | head -1)"
+        return 0
+    fi
+
+    print_info "Installing ArgoCD CLI..."
+
+    local OS
+    local ARCH
+    OS="$(uname | tr '[:upper:]' '[:lower:]')"
+    ARCH="$(uname -m)"
+    case "$ARCH" in
+        x86_64)  ARCH="amd64" ;;
+        aarch64|arm64) ARCH="arm64" ;;
+    esac
+
+    local DOWNLOAD_URL="https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-${OS}-${ARCH}"
+
+    if curl -fsSL -o /tmp/argocd "$DOWNLOAD_URL"; then
+        sudo mv /tmp/argocd /usr/local/bin/argocd
+        sudo chmod +x /usr/local/bin/argocd
+        print_success "ArgoCD CLI installed: ${ARGOCD_VERSION}"
+    else
+        print_error "Failed to download ArgoCD CLI"
+        print_info "Manual install: https://argo-cd.readthedocs.io/en/stable/cli_installation/"
+        exit 1
+    fi
+}
+
+# ============================================================================
+# INSTALL ARGO CD ON CLUSTER
+# ============================================================================
+install_argocd_server() {
+    print_subsection "Installing Argo CD on Cluster"
+
+    # Create namespace
+    kubectl create namespace "$ARGOCD_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+    print_success "Namespace ready: $ARGOCD_NAMESPACE"
+
+    # Apply ArgoCD install manifest
+    local ARGO_MANIFEST="$PROJECT_ROOT/cicd/argo/install_argocd.yaml"
+
+    if [[ -f "$ARGO_MANIFEST" ]]; then
+        print_step "Applying ArgoCD install manifest (local)..."
+        kubectl apply -n "$ARGOCD_NAMESPACE" -f "$ARGO_MANIFEST"
+    else
+        print_step "Applying ArgoCD install manifest (upstream ${ARGOCD_VERSION})..."
+        kubectl apply -n "$ARGOCD_NAMESPACE" \
+            -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
+    fi
+
+    print_step "Waiting for ArgoCD server to be ready..."
+    kubectl rollout status deployment/argocd-server \
+        -n "$ARGOCD_NAMESPACE" --timeout=300s
+
+    print_success "Argo CD server is ready!"
+}
+
+# ============================================================================
+# DETECT ARGOCD STATUS
+# ============================================================================
+argocd_is_installed() {
+    kubectl get deployment argocd-server -n "$ARGOCD_NAMESPACE" >/dev/null 2>&1
+}
+
+# ============================================================================
+# LOGIN TO ARGOCD
+# ============================================================================
+argocd_login() {
+    print_subsection "Logging in to Argo CD"
+
+    # Get initial admin password
+    local admin_pass
+    if [[ -n "${ARGOCD_ADMIN_PASSWORD}" ]]; then
+        admin_pass="$ARGOCD_ADMIN_PASSWORD"
+    else
+        admin_pass=$(kubectl -n "$ARGOCD_NAMESPACE" get secret argocd-initial-admin-secret \
+            -o jsonpath="{.data.password}" 2>/dev/null | base64 -d 2>/dev/null || echo "")
+
+        if [[ -z "$admin_pass" ]]; then
+            print_error "Could not retrieve ArgoCD initial admin password"
+            print_info "Set ARGOCD_ADMIN_PASSWORD in your .env file"
+            exit 1
+        fi
+    fi
+
+    # Port-forward in background if needed
+    local ARGOCD_SERVER
+    ARGOCD_SERVER=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
+        -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+
+    if [[ -z "$ARGOCD_SERVER" ]]; then
+        # Use port-forward
+        print_step "Starting ArgoCD port-forward..."
+        kubectl port-forward svc/argocd-server -n "$ARGOCD_NAMESPACE" 8080:443 \
+            --address 127.0.0.1 >/dev/null 2>&1 &
+        ARGOCD_PF_PID=$!
+        export ARGOCD_PF_PID
+        sleep 3
+        ARGOCD_SERVER="localhost:8080"
+    fi
+
+    argocd login "$ARGOCD_SERVER" \
+        --username admin \
+        --password "$admin_pass" \
+        --insecure \
+        --grpc-web 2>/dev/null || true
+
+    print_success "Logged in to ArgoCD at $ARGOCD_SERVER"
+
+    # Store server for later use
+    export ARGOCD_SERVER
+    export ARGOCD_ADMIN_PASS="$admin_pass"
+}
+
+# ============================================================================
+# GENERATE ARGOCD APPLICATION YAMLS FROM ENV
+# ============================================================================
+generate_argocd_apps() {
+    print_subsection "Generating ArgoCD Application Manifests"
+
+    local ARGO_DIR="$PROJECT_ROOT/cicd/argo"
+    local GENERATED_DIR="$ARGO_DIR/generated"
+    mkdir -p "$GENERATED_DIR"
+
+    if [[ -z "$GIT_REPO_URL" ]]; then
+        print_error "GIT_REPO_URL is not set and could not be auto-detected from git remote"
+        print_info "Set GIT_REPO_URL in your .env file (e.g. GIT_REPO_URL=https://github.com/user/repo)"
+        exit 1
+    fi
+
+    # Determine overlay path based on DEPLOY_TARGET
+    local OVERLAY_PATH="kubernetes/overlays/${DEPLOY_TARGET}"
+
+    # ── App Application ─────────────────────────────────────────────────────
+    envsubst < "$ARGO_DIR/app-template.yaml" > "$GENERATED_DIR/app-${DEPLOY_TARGET}.yaml"
+
+    # ── Monitoring Application ───────────────────────────────────────────────
+    envsubst < "$ARGO_DIR/app-monitoring-template.yaml" > "$GENERATED_DIR/app-monitoring.yaml"
+
+    # ── Loki Application ─────────────────────────────────────────────────────
+    envsubst < "$ARGO_DIR/app-loki-template.yaml" > "$GENERATED_DIR/app-loki.yaml"
+
+    # ── Security Application ─────────────────────────────────────────────────
+    envsubst < "$ARGO_DIR/app-security-template.yaml" > "$GENERATED_DIR/app-security.yaml"
+
+    print_success "Generated manifests in: $GENERATED_DIR"
+}
+
+# ============================================================================
+# REGISTER GIT REPO WITH ARGOCD (handles private repos via SSH or HTTPS token)
+# ============================================================================
+argocd_add_repo() {
+    print_subsection "Registering Git Repository with Argo CD"
+
+    local REPO_URL="$GIT_REPO_URL"
+
+    # Check if repo is already added
+    if argocd repo list 2>/dev/null | grep -q "$REPO_URL"; then
+        print_success "Repository already registered: $REPO_URL"
+        return 0
+    fi
+
+    # Try SSH key first
+    if [[ -f "${HOME}/.ssh/id_rsa" ]] || [[ -f "${HOME}/.ssh/id_ed25519" ]]; then
+        local SSH_KEY_FILE
+        SSH_KEY_FILE="${HOME}/.ssh/id_ed25519"
+        [[ -f "${HOME}/.ssh/id_rsa" ]] && SSH_KEY_FILE="${HOME}/.ssh/id_rsa"
+
+        print_step "Adding repo via SSH key: $REPO_URL"
+        argocd repo add "$REPO_URL" \
+            --ssh-private-key-path "$SSH_KEY_FILE" \
+            --insecure-ignore-host-key || true
+
+    elif [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        print_step "Adding repo via GitHub token: $REPO_URL"
+        argocd repo add "$REPO_URL" \
+            --username git \
+            --password "$GITHUB_TOKEN" || true
+
+    elif [[ -n "${GITLAB_TOKEN:-}" ]]; then
+        print_step "Adding repo via GitLab token: $REPO_URL"
+        argocd repo add "$REPO_URL" \
+            --username oauth2 \
+            --password "$GITLAB_TOKEN" || true
+
+    else
+        # Public repo — no auth needed
+        print_step "Adding public repo: $REPO_URL"
+        argocd repo add "$REPO_URL" || true
+    fi
+
+    print_success "Repository registered!"
+}
+
+# ============================================================================
+# APPLY ARGOCD APPLICATIONS
+# ============================================================================
+apply_argocd_apps() {
+    print_subsection "Applying Argo CD Applications"
+
+    local GENERATED_DIR="$PROJECT_ROOT/cicd/argo/generated"
+
+    for app_yaml in "$GENERATED_DIR"/*.yaml; do
+        local app_name
+        app_name="$(basename "$app_yaml" .yaml)"
+        print_step "Applying: $app_name"
+        kubectl apply -f "$app_yaml" -n "$ARGOCD_NAMESPACE"
+    done
+
+    print_success "All ArgoCD Applications applied!"
+}
+
+# ============================================================================
+# SYNC ARGOCD APPLICATIONS
+# ============================================================================
+sync_argocd_apps() {
+    print_subsection "Syncing Argo CD Applications"
+
+    local apps=(
+        "${APP_NAME}-${DEPLOY_TARGET}"
+        "${APP_NAME}-monitoring"
+        "${APP_NAME}-loki"
+        "${APP_NAME}-security"
+    )
+
+    for app in "${apps[@]}"; do
+        if argocd app get "$app" >/dev/null 2>&1; then
+            print_step "Syncing: $app"
+            argocd app sync "$app" --async || print_warning "Sync queued for: $app"
+        else
+            print_warning "App not found yet (will auto-sync): $app"
+        fi
+    done
+
+    print_success "Sync initiated for all apps!"
+}
+
+# ============================================================================
+# WAIT FOR ARGOCD APPS TO BE HEALTHY
+# ============================================================================
+wait_for_apps() {
+    print_subsection "Waiting for Applications to Sync and Become Healthy"
+
+    local apps=(
+        "${APP_NAME}-${DEPLOY_TARGET}"
+        "${APP_NAME}-monitoring"
+        "${APP_NAME}-loki"
+        "${APP_NAME}-security"
+    )
+
+    for app in "${apps[@]}"; do
+        if argocd app get "$app" >/dev/null 2>&1; then
+            print_step "Waiting for: $app (timeout: 5m)"
+            argocd app wait "$app" \
+                --sync \
+                --health \
+                --timeout 300 || print_warning "Timeout waiting for $app — check ArgoCD UI"
+        fi
+    done
+
+    print_success "All apps are healthy!"
+}
+
+# ============================================================================
+# DISPLAY ARGOCD UI ACCESS INFO
+# ============================================================================
+show_argocd_access() {
+    print_subsection "Argo CD Access Information"
+
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════════════════╗"
+    echo "║                       🚀  ARGO CD ACCESS INFO                              ║"
+    echo "╚════════════════════════════════════════════════════════════════════════════╝"
+    echo ""
+
+    # Try to get external IP/hostname
+    local EXTERNAL_IP
+    EXTERNAL_IP=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
+        -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+    local EXTERNAL_HOST
+    EXTERNAL_HOST=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
+        -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+
+    if [[ -n "$EXTERNAL_IP" ]]; then
+        echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+        echo "  │  🌐 ARGO CD URL                                                        │"
+        echo "  ├────────────────────────────────────────────────────────────────────────┤"
+        echo "  │                                                                        │"
+        echo "  │     👉  https://$EXTERNAL_IP"
+        echo "  │                                                                        │"
+        echo "  └────────────────────────────────────────────────────────────────────────┘"
+    elif [[ -n "$EXTERNAL_HOST" ]]; then
+        echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+        echo "  │  🌐 ARGO CD URL                                                        │"
+        echo "  ├────────────────────────────────────────────────────────────────────────┤"
+        echo "  │                                                                        │"
+        echo "  │     👉  https://$EXTERNAL_HOST"
+        echo "  │                                                                        │"
+        echo "  └────────────────────────────────────────────────────────────────────────┘"
+    else
+        echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+        echo "  │  ⚡ PORT FORWARD COMMAND (for local clusters)                           │"
+        echo "  ├────────────────────────────────────────────────────────────────────────┤"
+        echo "  │                                                                        │"
+        echo "  │     \$ kubectl port-forward svc/argocd-server -n $ARGOCD_NAMESPACE 8080:443"
+        echo "  │                                                                        │"
+        echo "  └────────────────────────────────────────────────────────────────────────┘"
+        echo ""
+        echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+        echo "  │  🌐 ARGO CD URL (After Port Forward)                                   │"
+        echo "  ├────────────────────────────────────────────────────────────────────────┤"
+        echo "  │                                                                        │"
+        echo "  │     👉  https://localhost:8080"
+        echo "  │                                                                        │"
+        echo "  └────────────────────────────────────────────────────────────────────────┘"
+    fi
+
+    echo ""
+    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+    echo "  │  🔐 CREDENTIALS                                                        │"
+    echo "  ├────────────────────────────────────────────────────────────────────────┤"
+    echo "  │                                                                        │"
+    echo "  │     Username:  admin"
+    echo "  │     Password:  ${ARGOCD_ADMIN_PASS:-<check argocd-initial-admin-secret>}"
+    echo "  │                                                                        │"
+    echo "  └────────────────────────────────────────────────────────────────────────┘"
+    echo ""
+    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
+    echo "  │  🖥️  CLI COMMANDS                                                       │"
+    echo "  ├────────────────────────────────────────────────────────────────────────┤"
+    echo "  │                                                                        │"
+    echo "  │     # List all apps                                                   │"
+    echo "  │     \$ argocd app list                                                 │"
+    echo "  │                                                                        │"
+    echo "  │     # Get app status                                                  │"
+    echo "  │     \$ argocd app get ${APP_NAME}-${DEPLOY_TARGET}"
+    echo "  │                                                                        │"
+    echo "  │     # Force sync                                                      │"
+    echo "  │     \$ argocd app sync ${APP_NAME}-${DEPLOY_TARGET}"
+    echo "  │                                                                        │"
+    echo "  │     # Watch rollout                                                   │"
+    echo "  │     \$ argocd app wait ${APP_NAME}-${DEPLOY_TARGET} --health"
+    echo "  │                                                                        │"
+    echo "  └────────────────────────────────────────────────────────────────────────┘"
+    echo ""
+    print_divider
+}
+
+# ============================================================================
+# CLEANUP PORT-FORWARD BACKGROUND PROCESS
+# ============================================================================
+cleanup_portforward() {
+    if [[ -n "${ARGOCD_PF_PID:-}" ]]; then
+        kill "$ARGOCD_PF_PID" 2>/dev/null || true
+        unset ARGOCD_PF_PID
+    fi
+}
+
+# ============================================================================
+# MAIN PUBLIC FUNCTION — called by run.sh
+# ============================================================================
+deploy_argo() {
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════════════════╗"
+    echo "║                     🐙  ARGO CD DEPLOYMENT                                 ║"
+    echo "╚════════════════════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "  Target:      ${DEPLOY_TARGET}"
+    echo "  App:         ${APP_NAME}"
+    echo "  Namespace:   ${NAMESPACE}"
+    echo "  Repo:        ${GIT_REPO_URL:-<auto-detect>}"
+    echo "  Branch:      ${GIT_REPO_BRANCH}"
+    echo ""
+    print_divider
+
+    # Register cleanup
+    trap cleanup_portforward EXIT
+
+    # Step 1 — Install ArgoCD CLI
+    print_subsection "Step 1: ArgoCD CLI"
+    install_argocd_cli
+
+    # Step 2 — Install ArgoCD server if not present
+    print_subsection "Step 2: ArgoCD Server"
+    if argocd_is_installed; then
+        print_success "Argo CD already installed on cluster"
+    else
+        install_argocd_server
+    fi
+
+    # Step 3 — Login
+    print_subsection "Step 3: ArgoCD Login"
+    argocd_login
+
+    # Step 4 — Register repo
+    print_subsection "Step 4: Register Git Repository"
+    argocd_add_repo
+
+    # Step 5 — Generate app manifests from env
+    print_subsection "Step 5: Generate Application Manifests"
+    generate_argocd_apps
+
+    # Step 6 — Apply apps to cluster
+    print_subsection "Step 6: Apply Applications"
+    apply_argocd_apps
+
+    # Step 7 — Trigger sync
+    print_subsection "Step 7: Sync Applications"
+    sync_argocd_apps
+
+    # Step 8 — Wait for healthy (optional, skip in CI)
+    if [[ "${CI:-false}" != "true" ]]; then
+        print_subsection "Step 8: Wait for Healthy State"
+        wait_for_apps
+    else
+        print_info "CI mode detected — skipping health wait (ArgoCD will auto-sync)"
+    fi
+
+    # Step 9 — Show access info
+    show_argocd_access
+
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════════════════╗"
+    echo "║                  ✅  ARGO CD DEPLOYMENT COMPLETE                           ║"
+    echo "╚════════════════════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "  Argo CD is now managing your deployments."
+    echo "  Push commits to '${GIT_REPO_BRANCH}' and ArgoCD will auto-sync."
+    echo ""
+    print_divider
+}
+
+# ============================================================================
+# ALLOW DIRECT EXECUTION
+# ============================================================================
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    deploy_argo
+fi

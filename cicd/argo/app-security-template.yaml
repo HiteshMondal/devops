@@ -1,0 +1,53 @@
+---
+# /cicd/argo/app-security-template.yaml
+# Security stack: Trivy vulnerability scanner + metrics exporter
+# Processed by envsubst — values come from .env
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${APP_NAME}-security
+  namespace: ${ARGOCD_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: trivy
+    environment: ${DEPLOY_TARGET}
+    managed-by: argocd
+    component: security
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: ${GIT_REPO_URL}
+    targetRevision: ${GIT_REPO_BRANCH}
+    path: Security/trivy
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${TRIVY_NAMESPACE}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+
+  ignoreDifferences:
+    - group: batch
+      kind: CronJob
+      jsonPointers:
+        - /spec/schedule  # Allow schedule to be changed without ArgoCD flagging out-of-sync

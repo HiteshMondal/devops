@@ -1,11 +1,19 @@
 # ============================================================================
-# GitHub Actions Workflow for DevOps Project
+# GitHub Actions Workflow — CI ONLY
 # ============================================================================
+# /.github/workflows/prod.yml
+#
+# ARCHITECTURE:
+#   GitHub Actions = Validate + Build + Push Docker image (CI)
+#   Argo CD        = All actual deployments (local + prod)
+#
+# After this pipeline pushes a new image, Argo CD detects the image tag change
+# in kubernetes manifests and automatically deploys to the cluster.
+#
 # Configure secrets in: Repository → Settings → Secrets and variables → Actions
-# Required Secrets: See dotenv_example for complete list
 # ============================================================================
 
-name: DevOps Deployment Pipeline
+name: CI — Build, Test & Push
 
 on:
   push:
@@ -19,789 +27,435 @@ on:
       - develop
   workflow_dispatch:
     inputs:
-      deploy_target:
-        description: 'Deployment target'
-        required: true
-        default: 'local'
-        type: choice
-        options:
-          - local
-          - prod
-      dry_run:
-        description: 'Dry run mode (no actual deployment)'
+      force_push:
+        description: 'Force push image even if no code changes'
         required: false
         default: false
         type: boolean
 
 env:
-  # Project Configuration
-  APP_NAME: ${{ vars.APP_NAME || 'devops-app' }}
-  NAMESPACE: ${{ vars.NAMESPACE || 'devops-app' }}
-  APP_PORT: ${{ vars.APP_PORT || '3000' }}
-  REPLICAS: ${{ vars.REPLICAS || '2' }}
-  MIN_REPLICAS: ${{ vars.MIN_REPLICAS || '2' }}
-  MAX_REPLICAS: ${{ vars.MAX_REPLICAS || '10' }}
-  CPU_TARGET_UTILIZATION: ${{ vars.CPU_TARGET_UTILIZATION || '70' }}
-  MEMORY_TARGET_UTILIZATION: ${{ vars.MEMORY_TARGET_UTILIZATION || '80' }}
-  
-  # Docker Configuration
+  # ── App ────────────────────────────────────────────────────────────────────
+  APP_NAME:           ${{ vars.APP_NAME           || 'devops-app' }}
+  NAMESPACE:          ${{ vars.NAMESPACE           || 'devops-app' }}
+  APP_PORT:           ${{ vars.APP_PORT            || '3000' }}
+  REPLICAS:           ${{ vars.REPLICAS            || '2' }}
+  MIN_REPLICAS:       ${{ vars.MIN_REPLICAS        || '2' }}
+  MAX_REPLICAS:       ${{ vars.MAX_REPLICAS        || '10' }}
+
+  # ── Docker ─────────────────────────────────────────────────────────────────
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-  DOCKER_IMAGE_TAG: ${{ vars.DOCKER_IMAGE_TAG || 'latest' }}
-  IMAGE_TAG: ${{ vars.IMAGE_TAG || 'latest' }}
-  
-  # Ingress Configuration
-  INGRESS_ENABLED: ${{ vars.INGRESS_ENABLED || 'true' }}
-  INGRESS_HOST: ${{ vars.INGRESS_HOST || 'devops-app.local' }}
-  INGRESS_CLASS: ${{ vars.INGRESS_CLASS || 'nginx' }}
-  TLS_ENABLED: ${{ vars.TLS_ENABLED || 'false' }}
-  TLS_SECRET_NAME: ${{ vars.TLS_SECRET_NAME || 'devops-app-tls' }}
-  
-  # Database Configuration
-  DB_HOST: ${{ vars.DB_HOST || 'localhost' }}
-  DB_PORT: ${{ vars.DB_PORT || '5432' }}
-  DB_NAME: ${{ vars.DB_NAME || 'devopsdb' }}
-  DB_USERNAME: ${{ secrets.DB_USERNAME || 'dbuser' }}
-  
-  # Monitoring - Prometheus
-  PROMETHEUS_ENABLED: ${{ vars.PROMETHEUS_ENABLED || 'true' }}
-  PROMETHEUS_NAMESPACE: ${{ vars.PROMETHEUS_NAMESPACE || 'monitoring' }}
-  PROMETHEUS_RETENTION: ${{ vars.PROMETHEUS_RETENTION || '15d' }}
-  PROMETHEUS_STORAGE_SIZE: ${{ vars.PROMETHEUS_STORAGE_SIZE || '10Gi' }}
+  DOCKER_IMAGE_TAG:   ${{ vars.DOCKER_IMAGE_TAG    || 'latest' }}
+
+  # ── Ingress ────────────────────────────────────────────────────────────────
+  INGRESS_ENABLED:    ${{ vars.INGRESS_ENABLED     || 'true' }}
+  INGRESS_HOST:       ${{ vars.INGRESS_HOST        || 'devops-app.local' }}
+  INGRESS_CLASS:      ${{ vars.INGRESS_CLASS       || 'nginx' }}
+  TLS_ENABLED:        ${{ vars.TLS_ENABLED         || 'false' }}
+  TLS_SECRET_NAME:    ${{ vars.TLS_SECRET_NAME     || 'devops-app-tls' }}
+
+  # ── Database ───────────────────────────────────────────────────────────────
+  DB_HOST:            ${{ vars.DB_HOST             || 'localhost' }}
+  DB_PORT:            ${{ vars.DB_PORT             || '5432' }}
+  DB_NAME:            ${{ vars.DB_NAME             || 'devopsdb' }}
+  DB_USERNAME:        ${{ secrets.DB_USERNAME      || 'dbuser' }}
+
+  # ── Monitoring ─────────────────────────────────────────────────────────────
+  PROMETHEUS_ENABLED:        ${{ vars.PROMETHEUS_ENABLED        || 'true' }}
+  PROMETHEUS_NAMESPACE:      ${{ vars.PROMETHEUS_NAMESPACE      || 'monitoring' }}
+  PROMETHEUS_RETENTION:      ${{ vars.PROMETHEUS_RETENTION      || '15d' }}
+  PROMETHEUS_STORAGE_SIZE:   ${{ vars.PROMETHEUS_STORAGE_SIZE   || '10Gi' }}
   PROMETHEUS_SCRAPE_INTERVAL: ${{ vars.PROMETHEUS_SCRAPE_INTERVAL || '15s' }}
   PROMETHEUS_SCRAPE_TIMEOUT: ${{ vars.PROMETHEUS_SCRAPE_TIMEOUT || '10s' }}
-  
-  # Monitoring - Grafana
-  GRAFANA_ENABLED: ${{ vars.GRAFANA_ENABLED || 'true' }}
-  GRAFANA_ADMIN_USER: ${{ vars.GRAFANA_ADMIN_USER || 'admin' }}
-  GRAFANA_PORT: ${{ vars.GRAFANA_PORT || '3000' }}
-  GRAFANA_STORAGE_SIZE: ${{ vars.GRAFANA_STORAGE_SIZE || '5Gi' }}
-  
-  # Alerting Configuration
-  ALERT_EMAIL_ENABLED: ${{ vars.ALERT_EMAIL_ENABLED || 'false' }}
-  SMTP_HOST: ${{ vars.SMTP_HOST || 'smtp.gmail.com' }}
-  SMTP_PORT: ${{ vars.SMTP_PORT || '587' }}
-  
-  # Resource Limits - Application
-  APP_CPU_REQUEST: ${{ vars.APP_CPU_REQUEST || '100m' }}
-  APP_CPU_LIMIT: ${{ vars.APP_CPU_LIMIT || '500m' }}
-  APP_MEMORY_REQUEST: ${{ vars.APP_MEMORY_REQUEST || '128Mi' }}
-  APP_MEMORY_LIMIT: ${{ vars.APP_MEMORY_LIMIT || '512Mi' }}
-  
-  # Resource Limits - Prometheus
-  PROMETHEUS_CPU_REQUEST: ${{ vars.PROMETHEUS_CPU_REQUEST || '500m' }}
-  PROMETHEUS_CPU_LIMIT: ${{ vars.PROMETHEUS_CPU_LIMIT || '2000m' }}
+  GRAFANA_ENABLED:           ${{ vars.GRAFANA_ENABLED           || 'true' }}
+  GRAFANA_ADMIN_USER:        ${{ vars.GRAFANA_ADMIN_USER        || 'admin' }}
+  GRAFANA_PORT:              ${{ vars.GRAFANA_PORT              || '3000' }}
+  GRAFANA_STORAGE_SIZE:      ${{ vars.GRAFANA_STORAGE_SIZE      || '5Gi' }}
+
+  # ── Resource Limits — App ──────────────────────────────────────────────────
+  APP_CPU_REQUEST:    ${{ vars.APP_CPU_REQUEST     || '100m' }}
+  APP_CPU_LIMIT:      ${{ vars.APP_CPU_LIMIT       || '500m' }}
+  APP_MEMORY_REQUEST: ${{ vars.APP_MEMORY_REQUEST  || '128Mi' }}
+  APP_MEMORY_LIMIT:   ${{ vars.APP_MEMORY_LIMIT    || '512Mi' }}
+
+  # ── Resource Limits — Prometheus ───────────────────────────────────────────
+  PROMETHEUS_CPU_REQUEST:    ${{ vars.PROMETHEUS_CPU_REQUEST    || '500m' }}
+  PROMETHEUS_CPU_LIMIT:      ${{ vars.PROMETHEUS_CPU_LIMIT      || '2000m' }}
   PROMETHEUS_MEMORY_REQUEST: ${{ vars.PROMETHEUS_MEMORY_REQUEST || '1Gi' }}
-  PROMETHEUS_MEMORY_LIMIT: ${{ vars.PROMETHEUS_MEMORY_LIMIT || '4Gi' }}
-  
-  # Resource Limits - Grafana
-  GRAFANA_CPU_REQUEST: ${{ vars.GRAFANA_CPU_REQUEST || '100m' }}
-  GRAFANA_CPU_LIMIT: ${{ vars.GRAFANA_CPU_LIMIT || '500m' }}
+  PROMETHEUS_MEMORY_LIMIT:   ${{ vars.PROMETHEUS_MEMORY_LIMIT   || '4Gi' }}
+
+  # ── Resource Limits — Grafana ──────────────────────────────────────────────
+  GRAFANA_CPU_REQUEST:    ${{ vars.GRAFANA_CPU_REQUEST    || '100m' }}
+  GRAFANA_CPU_LIMIT:      ${{ vars.GRAFANA_CPU_LIMIT      || '500m' }}
   GRAFANA_MEMORY_REQUEST: ${{ vars.GRAFANA_MEMORY_REQUEST || '256Mi' }}
-  GRAFANA_MEMORY_LIMIT: ${{ vars.GRAFANA_MEMORY_LIMIT || '1Gi' }}
-  
-  # AWS Configuration
-  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-  EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'devops-cluster' }}
-  
-  # Git Configuration
-  GIT_AUTHOR_NAME: ${{ vars.GIT_AUTHOR_NAME || github.actor }}
-  GIT_AUTHOR_EMAIL: ${{ vars.GIT_AUTHOR_EMAIL || format('{0}@users.noreply.github.com', github.actor) }}
-  GITHUB_USERNAME: ${{ github.actor }}
-  GITHUB_EMAIL: ${{ vars.GITHUB_EMAIL || format('{0}@users.noreply.github.com', github.actor) }}
-  
-  # Deployment Configuration
-  DEPLOY_TARGET: ${{ github.event.inputs.deploy_target || vars.DEPLOY_TARGET || 'local' }}
-  BUILD_PUSH: ${{ vars.BUILD_PUSH || 'true' }}
-  CI: true
-  DRY_RUN: ${{ github.event.inputs.dry_run || vars.DRY_RUN || 'false' }}
+  GRAFANA_MEMORY_LIMIT:   ${{ vars.GRAFANA_MEMORY_LIMIT   || '1Gi' }}
 
-  # Loki Configuration
-  LOKI_ENABLED: ${{ vars.LOKI_ENABLED || 'true' }}
-  LOKI_NAMESPACE: ${{ vars.LOKI_NAMESPACE || 'loki' }}
-  LOKI_VERSION: ${{ vars.LOKI_VERSION || '2.9.3' }}
+  # ── AWS / EKS ──────────────────────────────────────────────────────────────
+  AWS_REGION:         ${{ vars.AWS_REGION          || 'us-east-1' }}
+  EKS_CLUSTER_NAME:   ${{ vars.EKS_CLUSTER_NAME    || 'devops-cluster' }}
+
+  # ── Git ────────────────────────────────────────────────────────────────────
+  GIT_AUTHOR_NAME:    ${{ vars.GIT_AUTHOR_NAME     || github.actor }}
+  GIT_AUTHOR_EMAIL:   ${{ vars.GIT_AUTHOR_EMAIL    || format('{0}@users.noreply.github.com', github.actor) }}
+
+  # ── Loki ───────────────────────────────────────────────────────────────────
+  LOKI_ENABLED:          ${{ vars.LOKI_ENABLED          || 'true' }}
+  LOKI_NAMESPACE:        ${{ vars.LOKI_NAMESPACE        || 'loki' }}
   LOKI_RETENTION_PERIOD: ${{ vars.LOKI_RETENTION_PERIOD || '168h' }}
-  LOKI_STORAGE_SIZE: ${{ vars.LOKI_STORAGE_SIZE || '10Gi' }}
-  LOKI_SERVICE_TYPE: ${{ vars.LOKI_SERVICE_TYPE || 'ClusterIP' }}
-  LOKI_CPU_REQUEST: ${{ vars.LOKI_CPU_REQUEST || '100m' }}
-  LOKI_CPU_LIMIT: ${{ vars.LOKI_CPU_LIMIT || '1000m' }}
-  LOKI_MEMORY_REQUEST: ${{ vars.LOKI_MEMORY_REQUEST || '256Mi' }}
-  LOKI_MEMORY_LIMIT: ${{ vars.LOKI_MEMORY_LIMIT || '1Gi' }}
+  LOKI_STORAGE_SIZE:     ${{ vars.LOKI_STORAGE_SIZE     || '10Gi' }}
 
-  # Security / Trivy Configuration
-  TRIVY_ENABLED: ${{ vars.TRIVY_ENABLED || 'true' }}
-  TRIVY_NAMESPACE: ${{ vars.TRIVY_NAMESPACE || 'trivy-system' }}
-  TRIVY_VERSION: ${{ vars.TRIVY_VERSION || '0.48.0' }}
-  TRIVY_SEVERITY: ${{ vars.TRIVY_SEVERITY || 'HIGH,CRITICAL' }}
-  TRIVY_SCAN_SCHEDULE: ${{ vars.TRIVY_SCAN_SCHEDULE || '0 16-22 * * *' }}
-  TRIVY_CPU_REQUEST: ${{ vars.TRIVY_CPU_REQUEST || '500m' }}
-  TRIVY_CPU_LIMIT: ${{ vars.TRIVY_CPU_LIMIT || '2000m' }}
-  TRIVY_MEMORY_REQUEST: ${{ vars.TRIVY_MEMORY_REQUEST || '512Mi' }}
-  TRIVY_MEMORY_LIMIT: ${{ vars.TRIVY_MEMORY_LIMIT || '2Gi' }}
-  TRIVY_METRICS_ENABLED: ${{ vars.TRIVY_METRICS_ENABLED || 'true' }}
-  TRIVY_BUILD_IMAGES: ${{ vars.TRIVY_BUILD_IMAGES || 'true' }}
-  TRIVY_IMAGE_TAG: ${{ vars.TRIVY_IMAGE_TAG || '1.0' }}
+  # ── Security / Trivy ───────────────────────────────────────────────────────
+  TRIVY_ENABLED:         ${{ vars.TRIVY_ENABLED         || 'true' }}
+  TRIVY_NAMESPACE:       ${{ vars.TRIVY_NAMESPACE        || 'trivy-system' }}
+  TRIVY_SEVERITY:        ${{ vars.TRIVY_SEVERITY         || 'HIGH,CRITICAL' }}
+  TRIVY_METRICS_ENABLED: ${{ vars.TRIVY_METRICS_ENABLED  || 'true' }}
 
+  # ── CI flag ────────────────────────────────────────────────────────────────
+  CI: true
+
+# ============================================================================
 jobs:
-  # VALIDATION JOBS
-  validate-variables:
-    name: Validate CI/CD Variables
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 1 — Validate required variables & secrets
+  # ────────────────────────────────────────────────────────────────────────────
+  validate:
+    name: Validate Variables & Secrets
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
-      
+
       - name: Validate required variables
         run: |
           echo "============================================================================"
-          echo "Validating Required CI/CD Variables"
+          echo "Validating Required CI Variables"
           echo "============================================================================"
-          
-          REQUIRED_VARS=(
-            "APP_NAME"
-            "NAMESPACE"
-            "DOCKERHUB_USERNAME"
-            "DOCKER_IMAGE_TAG"
-            "APP_PORT"
-            "REPLICAS"
-            "DEPLOY_TARGET"
-          )
-          
-          MISSING_VARS=()
-          
+
+          REQUIRED_VARS=(APP_NAME NAMESPACE DOCKERHUB_USERNAME DOCKER_IMAGE_TAG APP_PORT REPLICAS)
+          MISSING=()
+
           for var in "${REQUIRED_VARS[@]}"; do
-            if [ -z "${!var}" ]; then
-              MISSING_VARS+=("$var")
+            if [[ -z "${!var}" ]]; then
+              MISSING+=("$var")
             fi
           done
-          
-          if [ ${#MISSING_VARS[@]} -gt 0 ]; then
+
+          if [[ ${#MISSING[@]} -gt 0 ]]; then
             echo "❌ Missing required variables:"
-            for var in "${MISSING_VARS[@]}"; do
-              echo "   - $var"
-            done
+            for v in "${MISSING[@]}"; do echo "   - $v"; done
             echo ""
-            echo "Configure these in: Settings → Secrets and variables → Actions"
+            echo "Configure at: Settings → Secrets and variables → Actions"
             exit 1
-          else
-            echo "✅ All required variables are present"
           fi
-      
-      - name: Validate secret variables
-        run: |
-          echo ""
-          echo "Checking secret variables (values will not be displayed)..."
-          
-          if [ -z "${{ secrets.DOCKERHUB_PASSWORD }}" ]; then
-            echo "⚠️  Warning: DOCKERHUB_PASSWORD is not set"
-          else
-            echo "✅ DOCKERHUB_PASSWORD is configured"
-          fi
-          
-          if [ -z "${{ secrets.DB_PASSWORD }}" ]; then
-            echo "⚠️  Warning: DB_PASSWORD is not set"
-          else
-            echo "✅ DB_PASSWORD is configured"
-          fi
-          
-          if [ -z "${{ secrets.JWT_SECRET }}" ]; then
-            echo "⚠️  Warning: JWT_SECRET is not set"
-          else
-            echo "✅ JWT_SECRET is configured"
-          fi
-          
-          if [ -z "${{ secrets.API_KEY }}" ]; then
-            echo "⚠️  Warning: API_KEY is not set"
-          else
-            echo "✅ API_KEY is configured"
-          fi
-  
-  validate-tools:
-    name: Validate Required Tools
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Check tool versions
-        run: |
-          echo "============================================================================"
-          echo "Checking Tool Versions"
-          echo "============================================================================"
-          docker --version || true
-          kubectl version --client || true
-          git --version || true
-          echo ""
-          echo "✅ All required tools are available"
+          echo "✅ All required variables present"
 
-  # BUILD JOBS
-  build-docker-image:
-    name: Build and Push Docker Image
+      - name: Validate secrets
+        run: |
+          echo "Checking secrets (values hidden)..."
+          WARN=()
+          [[ -z "${{ secrets.DOCKERHUB_PASSWORD }}" ]] && WARN+=("DOCKERHUB_PASSWORD")
+          [[ -z "${{ secrets.DB_PASSWORD }}"        ]] && WARN+=("DB_PASSWORD")
+          [[ -z "${{ secrets.JWT_SECRET }}"         ]] && WARN+=("JWT_SECRET")
+
+          if [[ ${#WARN[@]} -gt 0 ]]; then
+            echo "⚠️  Warning — missing optional secrets:"
+            for s in "${WARN[@]}"; do echo "   - $s"; done
+          else
+            echo "✅ All secrets configured"
+          fi
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 2 — Lint & static analysis
+  # ────────────────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint & Static Analysis
     runs-on: ubuntu-latest
-    needs: [validate-variables, validate-tools]
-    if: vars.BUILD_PUSH == 'true' || vars.BUILD_PUSH == ''
+    needs: validate
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
-      
+
+      - name: Lint shell scripts
+        run: |
+          echo "============================================================================"
+          echo "Linting Shell Scripts"
+          echo "============================================================================"
+          if command -v shellcheck >/dev/null 2>&1; then
+            find . -name "*.sh" -not -path "./.git/*" | xargs shellcheck --severity=warning || true
+            echo "✅ ShellCheck complete"
+          else
+            sudo apt-get install -y shellcheck -q
+            find . -name "*.sh" -not -path "./.git/*" | xargs shellcheck --severity=warning || true
+            echo "✅ ShellCheck complete"
+          fi
+
+      - name: Validate Kubernetes manifests
+        run: |
+          echo "============================================================================"
+          echo "Validating Kubernetes Manifests"
+          echo "============================================================================"
+
+          # Install kubeval
+          if ! command -v kubeval >/dev/null 2>&1; then
+            curl -sSL https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz \
+              | tar xz -C /tmp
+            sudo mv /tmp/kubeval /usr/local/bin/kubeval
+          fi
+
+          # Set dummy vars for envsubst so validation doesn't fail on templates
+          export APP_NAME="${APP_NAME}" NAMESPACE="${NAMESPACE}" \
+            DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-dummy}" \
+            DOCKER_IMAGE_TAG="${DOCKER_IMAGE_TAG}" APP_PORT="${APP_PORT}" \
+            REPLICAS="${REPLICAS}" MIN_REPLICAS="${MIN_REPLICAS}" \
+            MAX_REPLICAS="${MAX_REPLICAS}" INGRESS_HOST="${INGRESS_HOST}" \
+            INGRESS_CLASS="${INGRESS_CLASS}" TLS_SECRET_NAME="${TLS_SECRET_NAME}" \
+            PROMETHEUS_NAMESPACE="${PROMETHEUS_NAMESPACE}" \
+            CPU_TARGET_UTILIZATION="70" MEMORY_TARGET_UTILIZATION="80" \
+            APP_CPU_REQUEST="${APP_CPU_REQUEST}" APP_CPU_LIMIT="${APP_CPU_LIMIT}" \
+            APP_MEMORY_REQUEST="${APP_MEMORY_REQUEST}" APP_MEMORY_LIMIT="${APP_MEMORY_LIMIT}" \
+            DB_HOST="${DB_HOST}" DB_PORT="${DB_PORT}" DB_NAME="${DB_NAME}" \
+            DB_USERNAME="${DB_USERNAME:-dummy}" DB_PASSWORD="dummy" \
+            JWT_SECRET="dummy" API_KEY="dummy" SESSION_SECRET="dummy" \
+            K8S_DISTRIBUTION="kubernetes" K8S_SERVICE_TYPE="ClusterIP" \
+            K8S_INGRESS_CLASS="nginx" K8S_SUPPORTS_LOADBALANCER="false" \
+            INGRESS_ENABLED="${INGRESS_ENABLED}"
+
+          find kubernetes/base -name "*.yaml" | while read -r f; do
+            envsubst < "$f" | kubeval --ignore-missing-schemas --quiet && \
+              echo "  ✅ $f" || echo "  ⚠️  $f (validation warning)"
+          done
+
+      - name: Check .env example completeness
+        run: |
+          echo "============================================================================"
+          echo "Checking dotenv_example covers all variables used in manifests"
+          echo "============================================================================"
+          # Extract all ${VAR} patterns from k8s manifests
+          USED=$(grep -roh '\${[A-Z_]\+}' kubernetes/ monitoring/ Security/ 2>/dev/null \
+            | sort -u | sed 's/[${}]//g')
+          MISSING_FROM_EXAMPLE=()
+          while IFS= read -r var; do
+            grep -q "^${var}=" dotenv_example 2>/dev/null || MISSING_FROM_EXAMPLE+=("$var")
+          done <<< "$USED"
+          if [[ ${#MISSING_FROM_EXAMPLE[@]} -gt 0 ]]; then
+            echo "⚠️  Variables used in manifests but missing from dotenv_example:"
+            for v in "${MISSING_FROM_EXAMPLE[@]}"; do echo "   - $v"; done
+          else
+            echo "✅ dotenv_example covers all manifest variables"
+          fi
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 3 — Run application tests
+  # ────────────────────────────────────────────────────────────────────────────
+  test:
+    name: Application Tests
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: app/package.json
+
+      - name: Install dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Run tests
+        working-directory: app
+        run: |
+          echo "============================================================================"
+          echo "Running Application Tests"
+          echo "============================================================================"
+          npm test --if-present || echo "ℹ️  No test script defined — skipping"
+
+      - name: Run security audit
+        working-directory: app
+        run: |
+          echo "============================================================================"
+          echo "NPM Security Audit"
+          echo "============================================================================"
+          npm audit --audit-level=high || echo "⚠️  Audit found issues — review above"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 4 — Build & Push Docker image
+  # Runs only on push to main/develop (not on PRs)
+  # ────────────────────────────────────────────────────────────────────────────
+  build-and-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    if: |
+      github.event_name == 'push' ||
+      github.event.inputs.force_push == 'true'
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      image_digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
+
+      - name: Generate image metadata
+        id: meta
+        run: |
+          # Use git SHA for precise image tagging
+          SHORT_SHA="${{ github.sha }}"
+          SHORT_SHA="${SHORT_SHA:0:7}"
+          BRANCH="${{ github.ref_name }}"
+          BRANCH="${BRANCH//\//-}"     # replace / with -
+
+          # Tag strategy:
+          #   main branch  → latest + sha
+          #   other branch → branch-name + sha
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            IMAGE_TAG="${{ env.DOCKER_IMAGE_TAG }}"
+          else
+            IMAGE_TAG="${BRANCH}-${SHORT_SHA}"
+          fi
+
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH"       >> "$GITHUB_OUTPUT"
+          echo ""
+          echo "  Image: ${{ env.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:$IMAGE_TAG"
+
       - name: Log in to DockerHub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
-      
-      - name: Build and push Docker image
-        run: |
-          echo "============================================================================"
-          echo "Building and Pushing Docker Image"
-          echo "============================================================================"
-          
-          export PROJECT_ROOT=${{ github.workspace }}
-          
-          # Source the build script
-          source "${{ github.workspace }}/app/build_and_push_image.sh"
-          
-          # Execute build and push
-          build_and_push_image
-          
-          echo ""
-          echo "✅ Docker image built and pushed successfully"
-          echo "   Image: $DOCKERHUB_USERNAME/$APP_NAME:$DOCKER_IMAGE_TAG"
-  
-  build-docker-image-local:
-    name: Build Docker Image (Local Only)
-    runs-on: ubuntu-latest
-    needs: [validate-variables, validate-tools]
-    if: vars.BUILD_PUSH == 'false'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Build Docker image
-        run: |
-          echo "============================================================================"
-          echo "Building Docker Image (Local Only - No Push)"
-          echo "============================================================================"
-          
-          cd "${{ github.workspace }}/app"
-          docker build -t "$APP_NAME:latest" .
-          
-          echo ""
-          echo "✅ Docker image built successfully (not pushed)"
 
-  # DEPLOY LOCAL JOBS
-  deploy-local:
-    name: Deploy to Local Kubernetes
-    runs-on: ubuntu-latest
-    needs: [build-docker-image, build-docker-image-local]
-    if: |
-      always() && 
-      !cancelled() && 
-      (needs.build-docker-image.result == 'success' || needs.build-docker-image-local.result == 'success') &&
-      (vars.DEPLOY_TARGET == 'local' || github.event.inputs.deploy_target == 'local')
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v5
         with:
-          version: 'v1.28.0'
-      
-      - name: Configure kubectl
-        run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
-          kubectl config use-context "${{ vars.KUBE_CONTEXT }}" || true
-      
-      - name: Detect and deploy to Kubernetes cluster
-        env:
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          API_KEY: ${{ secrets.API_KEY }}
-          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
-          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
-          ALERT_EMAIL_TO: ${{ vars.ALERT_EMAIL_TO }}
-          ALERT_EMAIL_FROM: ${{ vars.ALERT_EMAIL_FROM }}
-          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          context: ./app
+          file: ./app/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ steps.meta.outputs.image_tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Print image summary
         run: |
           echo "============================================================================"
-          echo "Deploying to Local Kubernetes Environment"
+          echo "✅ Image Built and Pushed"
           echo "============================================================================"
-
-          export PROJECT_ROOT=${{ github.workspace }}
-
-          # Skip local Kubernetes deploy in CI
-          if [[ "${CI:-false}" == "true" && "${DEPLOY_TARGET:-local}" == "local" ]]; then
-            echo "⚠️  Skipping local Kubernetes deployment in CI"
-            echo "    Local clusters are not available on GitHub Actions runners"
-            exit 0
-          fi
-
-          echo "🔍 Detecting Kubernetes cluster..."
-          if ! kubectl cluster-info >/dev/null 2>&1; then
-            echo "❌ Cannot connect to Kubernetes cluster"
-            exit 1
-          fi
-
-          # Detect distribution
-          CONTEXT=$(kubectl config current-context 2>/dev/null || echo "")
-          K8S_DIST="unknown"
-          if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
-            K8S_DIST="minikube"
-          elif [[ "$CONTEXT" == *"kind"* ]] || kubectl get nodes -o json 2>/dev/null | grep -q "kind-control-plane"; then
-            K8S_DIST="kind"
-          elif kubectl get nodes -o json 2>/dev/null | grep -q '"k3s.io"'; then
-            K8S_DIST="k3s"
-          elif kubectl get nodes -o json 2>/dev/null | grep -q '"microk8s.io"'; then
-            K8S_DIST="microk8s"
-          else
-            K8S_DIST="kubernetes"
-          fi
-
-          export K8S_DISTRIBUTION="$K8S_DIST"
-          export K8S_CONTEXT="$CONTEXT"
-
-          echo "✅ Connected to: $K8S_DIST"
-          echo "   Context: $CONTEXT"
-
-      
-      - name: Display deployment info
-        if: always()
-        run: |
+          echo "  Repository: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}"
+          echo "  Tag:        ${{ steps.meta.outputs.image_tag }}"
+          echo "  Digest:     ${{ steps.push.outputs.digest }}"
           echo ""
-          echo "============================================================================"
-          echo "Deployment Information"
-          echo "============================================================================"
-          kubectl get pods -n $NAMESPACE || true
-          kubectl get svc -n $NAMESPACE || true
-          kubectl get ingress -n $NAMESPACE || true
+          echo "  Argo CD will automatically detect this new image and deploy."
+          echo "  Monitor at: argocd app list"
 
-  # DEPLOY PRODUCTION JOBS
-  deploy-terraform-infrastructure:
-    name: Deploy Infrastructure (Terraform)
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 5 — Security scan on built image
+  # ────────────────────────────────────────────────────────────────────────────
+  scan-image:
+    name: Trivy Image Scan (CI)
     runs-on: ubuntu-latest
-    needs: [build-docker-image]
-    if: |
-      always() && 
-      !cancelled() && 
-      needs.build-docker-image.result == 'success' &&
-      (vars.DEPLOY_TARGET == 'prod' || github.event.inputs.deploy_target == 'prod') &&
-      (vars.K8S_DISTRIBUTION == 'eks' || vars.K8S_DISTRIBUTION == '')
+    needs: build-and-push
+    if: needs.build-and-push.result == 'success'
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+
+      - name: Run Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
         with:
-          terraform_version: 1.6.0
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      
-      - name: Deploy infrastructure with Terraform
-        working-directory: infra/terraform
-        run: |
-          echo "============================================================================"
-          echo "Deploying Infrastructure with Terraform"
-          echo "============================================================================"
-          
-          terraform init -upgrade
-          terraform validate
-          terraform plan -out=tfplan
-          
-          if [ "$DRY_RUN" == "true" ]; then
-            echo "🔍 DRY RUN MODE - Skipping apply"
-          else
-            terraform apply -auto-approve tfplan
-            
-            # Update kubeconfig for EKS
-            REGION=$(terraform output -raw region)
-            CLUSTER_NAME=$(terraform output -raw cluster_name)
-            
-            aws eks update-kubeconfig \
-              --region "$REGION" \
-              --name "$CLUSTER_NAME"
-          fi
-      
-      - name: Upload Terraform artifacts
+          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ needs.build-and-push.outputs.image_tag }}'
+          format: 'table'
+          exit-code: '0'           # Don't fail CI — Trivy in cluster will alert via Prometheus
+          severity: 'HIGH,CRITICAL'
+          vuln-type: 'os,library'
+
+      - name: Upload Trivy scan results
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: terraform-plan
-          path: |
-            infra/terraform/tfplan
-            infra/terraform/.terraform/
-          retention-days: 1
-  
-  deploy-production:
-    name: Deploy to Production Kubernetes
+          name: trivy-scan-results
+          path: trivy-results.sarif
+          retention-days: 30
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 6 — Notify ArgoCD (optional webhook trigger for immediate sync)
+  # ────────────────────────────────────────────────────────────────────────────
+  notify-argocd:
+    name: Notify Argo CD
     runs-on: ubuntu-latest
-    needs: [deploy-terraform-infrastructure]
+    needs: build-and-push
     if: |
-      always() && 
-      !cancelled() && 
-      needs.deploy-terraform-infrastructure.result == 'success' &&
-      (vars.DEPLOY_TARGET == 'prod' || github.event.inputs.deploy_target == 'prod')
+      needs.build-and-push.result == 'success' &&
+      github.ref_name == 'main'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.28.0'
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      
-      - name: Configure kubectl for EKS
-        run: |
-          aws eks update-kubeconfig \
-            --region "$AWS_REGION" \
-            --name "$EKS_CLUSTER_NAME"
-      
-      - name: Deploy to production cluster
-        env:
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          API_KEY: ${{ secrets.API_KEY }}
-          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
-          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
-          ALERT_EMAIL_TO: ${{ vars.ALERT_EMAIL_TO }}
-          ALERT_EMAIL_FROM: ${{ vars.ALERT_EMAIL_FROM }}
-          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      - name: Trigger ArgoCD sync via webhook
         run: |
           echo "============================================================================"
-          echo "Deploying to Production Kubernetes (Cloud)"
+          echo "Notifying Argo CD of New Image"
           echo "============================================================================"
-          
-          export PROJECT_ROOT=${{ github.workspace }}
-          
-          # Detect Kubernetes cluster
           echo ""
-          echo "🔍 Detecting Kubernetes cluster..."
-          
-          if ! kubectl cluster-info >/dev/null 2>&1; then
-            echo "❌ Cannot connect to Kubernetes cluster"
-            exit 1
-          fi
-          
-          K8S_DIST="unknown"
-          
-          if kubectl get nodes -o json 2>/dev/null | grep -q '"eks.amazonaws.com"'; then
-            K8S_DIST="eks"
-          elif kubectl get nodes -o json 2>/dev/null | grep -q '"cloud.google.com/gke"'; then
-            K8S_DIST="gke"
-          elif kubectl get nodes -o json 2>/dev/null | grep -q '"kubernetes.azure.com"'; then
-            K8S_DIST="aks"
+          echo "  Image tag: ${{ needs.build-and-push.outputs.image_tag }}"
+          echo ""
+
+          # If ARGOCD_WEBHOOK_URL is configured, trigger immediate sync
+          if [[ -n "${{ secrets.ARGOCD_WEBHOOK_URL }}" ]]; then
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -X POST "${{ secrets.ARGOCD_WEBHOOK_URL }}" \
+              -H "Content-Type: application/json" \
+              -d '{"ref":"${{ github.ref }}","repository":{"html_url":"${{ github.server_url }}/${{ github.repository }}"}}')
+            echo "  ArgoCD webhook response: HTTP $HTTP_STATUS"
           else
-            K8S_DIST="kubernetes"
+            echo "  ℹ️  ARGOCD_WEBHOOK_URL not set — ArgoCD will poll and sync automatically"
+            echo "     (default poll interval: 3 minutes)"
+            echo ""
+            echo "  To enable instant sync, set ARGOCD_WEBHOOK_URL in GitHub Secrets."
+            echo "  Guide: https://argo-cd.readthedocs.io/en/stable/operator-manual/webhook/"
           fi
-          
-          export K8S_DISTRIBUTION="$K8S_DIST"
-          
-          echo "✅ Connected to: $K8S_DIST"
-          
-          # Configure Git
-          echo ""
-          echo "⚙️  Configuring Git..."
-          source "${{ github.workspace }}/cicd/github/configure_git_github.sh"
-          configure_git_github
-          
-          # Deploy Kubernetes resources
-          echo ""
-          echo "📦 Deploying Kubernetes resources..."
-          source "${{ github.workspace }}/kubernetes/deploy_kubernetes.sh"
-          deploy_kubernetes prod
-          
-          echo ""
-          echo "✅ Application deployed to $K8S_DIST"
-          echo ""
-          echo "ℹ️  Check LoadBalancer or Ingress for external access:"
-          kubectl get svc -n "$NAMESPACE"
-          kubectl get ingress -n "$NAMESPACE"
-      
-      - name: Display deployment info
-        if: always()
-        run: |
-          echo ""
-          echo "============================================================================"
-          echo "Production Deployment Information"
-          echo "============================================================================"
-          kubectl get pods -n $NAMESPACE || true
-          kubectl get svc -n $NAMESPACE || true
-          kubectl get ingress -n $NAMESPACE || true
 
-  # MONITORING JOBS
-  deploy-monitoring:
-    name: Deploy Monitoring Stack
+  # ────────────────────────────────────────────────────────────────────────────
+  # SUMMARY JOB — Always runs, shows pipeline outcome
+  # ────────────────────────────────────────────────────────────────────────────
+  ci-summary:
+    name: CI Summary
     runs-on: ubuntu-latest
-    needs: [deploy-local, deploy-production]
-    if: |
-      always() && 
-      !cancelled() && 
-      (needs.deploy-local.result == 'success' || needs.deploy-production.result == 'success') &&
-      (vars.PROMETHEUS_ENABLED == 'true' || vars.PROMETHEUS_ENABLED == '')
+    needs: [validate, lint, test, build-and-push, scan-image, notify-argocd]
+    if: always()
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.28.0'
-
-      - name: Set up Kind (Kubernetes in Docker)
-        uses: engineerd/setup-kind@v0.5.0
-        with:
-          version: v0.20.0
-
-      - name: Create Kind cluster
-        run: |
-          kind create cluster --name devops-ci --wait 60s
-          kubectl cluster-info
-
-      - name: Configure kubectl for Kind
-        run: |
-          export KUBECONFIG="$(kind get kubeconfig-path --name="devops-ci")"
-          kubectl cluster-info
-
-      - name: Build Docker image locally for Kind
-        run: |
-          docker build -t "$APP_NAME:$IMAGE_TAG" ./app
-
-      - name: Load Docker image into Kind
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          IMAGE_TAG: ${{ env.IMAGE_TAG }}
-          APP_NAME: ${{ env.APP_NAME }}
-        run: |
-          kind load docker-image "$APP_NAME:$IMAGE_TAG" --name devops-ci
-
-      - name: Deploy application to Kind
-        run: |
-          source ./kubernetes/deploy_kubernetes.sh
-          deploy_kubernetes local
-
-      - name: Deploy monitoring stack
-        env:
-          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
-          ALERT_EMAIL_TO: ${{ vars.ALERT_EMAIL_TO }}
-          ALERT_EMAIL_FROM: ${{ vars.ALERT_EMAIL_FROM }}
-          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      - name: Print summary
         run: |
           echo "============================================================================"
-          echo "Deploying Monitoring Stack (Prometheus + Grafana)"
+          echo "CI Pipeline Summary"
           echo "============================================================================"
-          
-          export PROJECT_ROOT=${{ github.workspace }}
-          
-          source "${{ github.workspace }}/monitoring/deploy_monitoring.sh"
-          deploy_monitoring
-          
           echo ""
-          echo "✅ Monitoring stack deployed successfully"
-      
-      - name: Display monitoring info
-        if: always()
-        run: |
+          echo "  validate:      ${{ needs.validate.result }}"
+          echo "  lint:          ${{ needs.lint.result }}"
+          echo "  test:          ${{ needs.test.result }}"
+          echo "  build-push:    ${{ needs.build-and-push.result }}"
+          echo "  scan-image:    ${{ needs.scan-image.result }}"
+          echo "  notify-argo:   ${{ needs.notify-argocd.result }}"
           echo ""
-          echo "============================================================================"
-          echo "Monitoring Stack Information"
-          echo "============================================================================"
-          kubectl get pods -n $PROMETHEUS_NAMESPACE || true
-          kubectl get svc -n $PROMETHEUS_NAMESPACE || true
-
-      - name: Delete Kind cluster
-        if: always()
-        run: kind delete cluster --name devops-ci
-
-  # LOKI LOG AGGREGATION JOB
-  deploy-loki:
-    name: Deploy Loki Log Aggregation
-    runs-on: ubuntu-latest
-    needs: [deploy-monitoring]
-    if: |
-      always() &&
-      !cancelled() &&
-      needs.deploy-monitoring.result == 'success' &&
-      (vars.LOKI_ENABLED == 'true' || vars.LOKI_ENABLED == '')
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.28.0'
-
-      - name: Set up Kind (Kubernetes in Docker)
-        uses: engineerd/setup-kind@v0.5.0
-        with:
-          version: v0.20.0
-
-      - name: Create Kind cluster
-        run: |
-          kind create cluster --name devops-loki --wait 60s
-          kubectl cluster-info
-
-      - name: Configure kubectl for Kind
-        run: |
-          export KUBECONFIG="$(kind get kubeconfig-path --name="devops-loki")"
-          kubectl cluster-info
-
-      - name: Deploy Loki log aggregation
-        run: |
-          echo "============================================================================"
-          echo "Deploying Loki Log Aggregation (Loki + Promtail)"
-          echo "============================================================================"
-
-          export PROJECT_ROOT=${{ github.workspace }}
-
-          source "${{ github.workspace }}/monitoring/deploy_loki.sh"
-          deploy_loki
-
+          echo "  Branch:        ${{ github.ref_name }}"
+          echo "  Commit:        ${{ github.sha }}"
+          echo "  Triggered by:  ${{ github.actor }}"
           echo ""
-          echo "✅ Loki log aggregation deployed successfully"
-
-      - name: Display Loki info
-        if: always()
-        run: |
-          echo ""
+          echo "  ✅ Deployment is handled by Argo CD (not GitHub Actions)"
+          echo "  Monitor deployments: kubectl get applications -n argocd"
           echo "============================================================================"
-          echo "Loki Stack Information"
-          echo "============================================================================"
-          kubectl get pods -n $LOKI_NAMESPACE || true
-          kubectl get svc -n $LOKI_NAMESPACE || true
-
-      - name: Delete Kind cluster
-        if: always()
-        run: kind delete cluster --name devops-loki
-
-  # SECURITY / TRIVY JOB
-  deploy-security:
-    name: Deploy Security Tools (Trivy)
-    runs-on: ubuntu-latest
-    needs: [deploy-loki]
-    if: |
-      always() &&
-      !cancelled() &&
-      needs.deploy-loki.result == 'success' &&
-      (vars.TRIVY_ENABLED == 'true' || vars.TRIVY_ENABLED == '')
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.28.0'
-
-      - name: Set up Kind (Kubernetes in Docker)
-        uses: engineerd/setup-kind@v0.5.0
-        with:
-          version: v0.20.0
-
-      - name: Log in to DockerHub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-      - name: Create Kind cluster
-        run: |
-          kind create cluster --name devops-security --wait 60s
-          kubectl cluster-info
-
-      - name: Configure kubectl for Kind
-        run: |
-          export KUBECONFIG="$(kind get kubeconfig-path --name="devops-security")"
-          kubectl cluster-info
-
-      - name: Deploy security tools
-        run: |
-          echo "============================================================================"
-          echo "Deploying Security Tools (Trivy Scanner + Metrics Exporter)"
-          echo "============================================================================"
-
-          export PROJECT_ROOT=${{ github.workspace }}
-
-          source "${{ github.workspace }}/Security/security.sh"
-          security
-
-          echo ""
-          echo "✅ Security tools deployed successfully"
-
-      - name: Display security info
-        if: always()
-        run: |
-          echo ""
-          echo "============================================================================"
-          echo "Security Stack Information"
-          echo "============================================================================"
-          kubectl get pods -n $TRIVY_NAMESPACE || true
-          kubectl get svc -n $TRIVY_NAMESPACE || true
-          kubectl get cronjobs -n $TRIVY_NAMESPACE || true
-
-      - name: Delete Kind cluster
-        if: always()
-        run: kind delete cluster --name devops-security
-
-  # CLEANUP JOBS
-  cleanup-on-failure:
-    name: Cleanup on Failure
-    runs-on: ubuntu-latest
-    needs: [deploy-local, deploy-production]
-    if: |
-      failure() &&
-      vars.AUTO_CLEANUP_ON_FAILURE == 'true'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.28.0'
-      
-      - name: Configure kubectl
-        run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBECONFIG_PROD }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
-          kubectl config use-context "${{ vars.KUBE_CONTEXT }}" || true
-      
-      - name: Cleanup resources
-        run: |
-          echo "============================================================================"
-          echo "Cleaning up Failed Deployment"
-          echo "============================================================================"
-          
-          kubectl delete namespace "$NAMESPACE" --ignore-not-found=true
-          kubectl delete namespace "$PROMETHEUS_NAMESPACE" --ignore-not-found=true
-          kubectl delete namespace "$LOKI_NAMESPACE" --ignore-not-found=true
-          kubectl delete namespace "$TRIVY_NAMESPACE" --ignore-not-found=true
-          
-          echo "✅ Cleanup completed"

@@ -1,0 +1,54 @@
+---
+# /cicd/argo/app-monitoring-template.yaml
+# Monitoring stack: Prometheus + Grafana + kube-state-metrics
+# Processed by envsubst — values come from .env
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${APP_NAME}-monitoring
+  namespace: ${ARGOCD_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: monitoring
+    environment: ${DEPLOY_TARGET}
+    managed-by: argocd
+    component: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: ${GIT_REPO_URL}
+    targetRevision: ${GIT_REPO_BRANCH}
+    path: monitoring/prometheus_grafana
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${PROMETHEUS_NAMESPACE}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true   # Needed for large ConfigMaps (Grafana dashboards)
+    retry:
+      limit: 3
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m
+
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

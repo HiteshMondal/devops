@@ -1,0 +1,53 @@
+---
+# /cicd/argo/app-loki-template.yaml
+# Loki log aggregation stack: Loki + Promtail
+# Processed by envsubst — values come from .env
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${APP_NAME}-loki
+  namespace: ${ARGOCD_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: loki
+    environment: ${DEPLOY_TARGET}
+    managed-by: argocd
+    component: logging
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: ${GIT_REPO_URL}
+    targetRevision: ${GIT_REPO_BRANCH}
+    path: monitoring/Loki
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${LOKI_NAMESPACE}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+
+  ignoreDifferences:
+    - group: apps
+      kind: DaemonSet
+      jsonPointers:
+        - /spec/updateStrategy

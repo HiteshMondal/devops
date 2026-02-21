@@ -1,0 +1,53 @@
+---
+# /cicd/argo/app-template.yaml
+# This file is processed by envsubst — do NOT edit the generated/ version directly.
+# All values come from your .env file automatically.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${APP_NAME}-${DEPLOY_TARGET}
+  namespace: ${ARGOCD_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_NAME}
+    environment: ${DEPLOY_TARGET}
+    managed-by: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: ${GIT_REPO_URL}
+    targetRevision: ${GIT_REPO_BRANCH}
+    path: kubernetes/overlays/${DEPLOY_TARGET}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${NAMESPACE}
+
+  syncPolicy:
+    automated:
+      prune: true          # Remove resources deleted from Git
+      selfHeal: true       # Revert manual cluster changes
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+
+  # Health check overrides
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas   # Ignore HPA-managed replica count diffs
