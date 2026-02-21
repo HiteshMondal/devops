@@ -6,9 +6,7 @@
 
 set -euo pipefail
 
-# ============================================================================
 # COLOR DEFINITIONS
-# ============================================================================
 if [[ -t 1 ]]; then
     BOLD='\033[1m'
     DIM='\033[2m'
@@ -25,9 +23,7 @@ else
     BLUE=''; GREEN=''; YELLOW=''; RED=''; CYAN=''; MAGENTA=''; LINK=''
 fi
 
-# ============================================================================
 # HELPER FUNCTIONS
-# ============================================================================
 print_subsection() { echo -e "\n${BOLD}${MAGENTA}▸ ${1}${RESET}\n${DIM}${MAGENTA}─────────────────────────────────────────────────────────────────────────────${RESET}"; }
 print_success()    { echo -e "${BOLD}${GREEN}✓${RESET} ${GREEN}$1${RESET}"; }
 print_info()       { echo -e "${BOLD}${CYAN}ℹ${RESET} ${CYAN}$1${RESET}"; }
@@ -36,16 +32,12 @@ print_error()      { echo -e "${BOLD}${RED}✗${RESET} ${RED}$1${RESET}"; }
 print_step()       { echo -e "  ${BOLD}${BLUE}▸${RESET} $1"; }
 print_divider()    { echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
 
-# ============================================================================
 # RESOLVE PROJECT ROOT
-# ============================================================================
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fi
 
-# ============================================================================
 # LOAD ENV IF NOT ALREADY LOADED
-# ============================================================================
 if [[ -z "${APP_NAME:-}" ]]; then
     ENV_FILE="$PROJECT_ROOT/.env"
     if [[ -f "$ENV_FILE" ]]; then
@@ -55,9 +47,7 @@ if [[ -z "${APP_NAME:-}" ]]; then
     fi
 fi
 
-# ============================================================================
 # SET DEFAULTS
-# ============================================================================
 : "${ARGOCD_NAMESPACE:=argocd}"
 : "${ARGOCD_VERSION:=v2.10.0}"
 : "${ARGOCD_ADMIN_PASSWORD:=}"
@@ -87,9 +77,7 @@ export INGRESS_ENABLED INGRESS_HOST
 export GIT_REPO_URL GIT_REPO_BRANCH
 export GIT_REPO_PATH_APP GIT_REPO_PATH_MONITORING GIT_REPO_PATH_LOKI GIT_REPO_PATH_SECURITY
 
-# ============================================================================
 # INSTALL ARGO CD CLI
-# ============================================================================
 install_argocd_cli() {
     if command -v argocd >/dev/null 2>&1; then
         print_success "ArgoCD CLI already installed: $(argocd version --client --short 2>/dev/null | head -1)"
@@ -120,9 +108,7 @@ install_argocd_cli() {
     fi
 }
 
-# ============================================================================
 # INSTALL ARGO CD ON CLUSTER
-# ============================================================================
 install_argocd_server() {
     print_subsection "Installing Argo CD on Cluster"
 
@@ -149,16 +135,12 @@ install_argocd_server() {
     print_success "Argo CD server is ready!"
 }
 
-# ============================================================================
 # DETECT ARGOCD STATUS
-# ============================================================================
 argocd_is_installed() {
     kubectl get deployment argocd-server -n "$ARGOCD_NAMESPACE" >/dev/null 2>&1
 }
 
-# ============================================================================
 # LOGIN TO ARGOCD
-# ============================================================================
 argocd_login() {
     print_subsection "Logging in to Argo CD"
 
@@ -206,9 +188,7 @@ argocd_login() {
     export ARGOCD_ADMIN_PASS="$admin_pass"
 }
 
-# ============================================================================
 # GENERATE ARGOCD APPLICATION YAMLS FROM ENV
-# ============================================================================
 generate_argocd_apps() {
     print_subsection "Generating ArgoCD Application Manifests"
 
@@ -226,23 +206,12 @@ generate_argocd_apps() {
     local OVERLAY_PATH="kubernetes/overlays/${DEPLOY_TARGET}"
 
     # ── App Application ─────────────────────────────────────────────────────
-    envsubst < "$ARGO_DIR/app-template.yaml" > "$GENERATED_DIR/app-${DEPLOY_TARGET}.yaml"
-
-    # ── Monitoring Application ───────────────────────────────────────────────
-    envsubst < "$ARGO_DIR/app-monitoring-template.yaml" > "$GENERATED_DIR/app-monitoring.yaml"
-
-    # ── Loki Application ─────────────────────────────────────────────────────
-    envsubst < "$ARGO_DIR/app-loki-template.yaml" > "$GENERATED_DIR/app-loki.yaml"
-
-    # ── Security Application ─────────────────────────────────────────────────
-    envsubst < "$ARGO_DIR/app-security-template.yaml" > "$GENERATED_DIR/app-security.yaml"
+    envsubst < "$ARGO_DIR/app_template.yaml" > "$GENERATED_DIR/app-${DEPLOY_TARGET}.yaml"
 
     print_success "Generated manifests in: $GENERATED_DIR"
 }
 
-# ============================================================================
 # REGISTER GIT REPO WITH ARGOCD (handles private repos via SSH or HTTPS token)
-# ============================================================================
 argocd_add_repo() {
     print_subsection "Registering Git Repository with Argo CD"
 
@@ -286,27 +255,18 @@ argocd_add_repo() {
     print_success "Repository registered!"
 }
 
-# ============================================================================
 # APPLY ARGOCD APPLICATIONS
-# ============================================================================
 apply_argocd_apps() {
     print_subsection "Applying Argo CD Applications"
 
     local GENERATED_DIR="$PROJECT_ROOT/cicd/argo/generated"
 
-    for app_yaml in "$GENERATED_DIR"/*.yaml; do
-        local app_name
-        app_name="$(basename "$app_yaml" .yaml)"
-        print_step "Applying: $app_name"
-        kubectl apply -f "$app_yaml" -n "$ARGOCD_NAMESPACE"
-    done
+    kubectl apply -f "$GENERATED_DIR/apps.yaml" -n "$ARGOCD_NAMESPACE"
 
     print_success "All ArgoCD Applications applied!"
 }
 
-# ============================================================================
 # SYNC ARGOCD APPLICATIONS
-# ============================================================================
 sync_argocd_apps() {
     print_subsection "Syncing Argo CD Applications"
 
@@ -329,9 +289,7 @@ sync_argocd_apps() {
     print_success "Sync initiated for all apps!"
 }
 
-# ============================================================================
 # WAIT FOR ARGOCD APPS TO BE HEALTHY
-# ============================================================================
 wait_for_apps() {
     print_subsection "Waiting for Applications to Sync and Become Healthy"
 
@@ -355,9 +313,7 @@ wait_for_apps() {
     print_success "All apps are healthy!"
 }
 
-# ============================================================================
 # DISPLAY ARGOCD UI ACCESS INFO
-# ============================================================================
 show_argocd_access() {
     print_subsection "Argo CD Access Information"
 
@@ -440,9 +396,7 @@ show_argocd_access() {
     print_divider
 }
 
-# ============================================================================
 # CLEANUP PORT-FORWARD BACKGROUND PROCESS
-# ============================================================================
 cleanup_portforward() {
     if [[ -n "${ARGOCD_PF_PID:-}" ]]; then
         kill "$ARGOCD_PF_PID" 2>/dev/null || true
@@ -450,9 +404,7 @@ cleanup_portforward() {
     fi
 }
 
-# ============================================================================
 # MAIN PUBLIC FUNCTION — called by run.sh
-# ============================================================================
 deploy_argo() {
     echo ""
     echo "╔════════════════════════════════════════════════════════════════════════════╗"
@@ -524,9 +476,7 @@ deploy_argo() {
     print_divider
 }
 
-# ============================================================================
 # ALLOW DIRECT EXECUTION
-# ============================================================================
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     deploy_argo
 fi

@@ -1,0 +1,206 @@
+# /cicd/argo/app_template.yaml
+# Processed by envsubst — values come from .env
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${APP_NAME}-loki
+  namespace: ${ARGOCD_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: loki
+    environment: ${DEPLOY_TARGET}
+    managed-by: argocd
+    component: logging
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: ${GIT_REPO_URL}
+    targetRevision: ${GIT_REPO_BRANCH}
+    path: monitoring/Loki
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${LOKI_NAMESPACE}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+
+  ignoreDifferences:
+    - group: apps
+      kind: DaemonSet
+      jsonPointers:
+        - /spec/updateStrategy
+
+---
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${APP_NAME}-monitoring
+  namespace: ${ARGOCD_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: monitoring
+    environment: ${DEPLOY_TARGET}
+    managed-by: argocd
+    component: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: ${GIT_REPO_URL}
+    targetRevision: ${GIT_REPO_BRANCH}
+    path: monitoring/prometheus_grafana
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${PROMETHEUS_NAMESPACE}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true   # Needed for large ConfigMaps (Grafana dashboards)
+    retry:
+      limit: 3
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m
+
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+
+---
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${APP_NAME}-security
+  namespace: ${ARGOCD_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: trivy
+    environment: ${DEPLOY_TARGET}
+    managed-by: argocd
+    component: security
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: ${GIT_REPO_URL}
+    targetRevision: ${GIT_REPO_BRANCH}
+    path: Security/trivy
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${TRIVY_NAMESPACE}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+
+  ignoreDifferences:
+    - group: batch
+      kind: CronJob
+      jsonPointers:
+        - /spec/schedule  # Allow schedule to be changed without ArgoCD flagging out-of-sync
+
+---
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${APP_NAME}-${DEPLOY_TARGET}
+  namespace: ${ARGOCD_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_NAME}
+    environment: ${DEPLOY_TARGET}
+    managed-by: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: ${GIT_REPO_URL}
+    targetRevision: ${GIT_REPO_BRANCH}
+    path: kubernetes/overlays/${DEPLOY_TARGET}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${NAMESPACE}
+
+  syncPolicy:
+    automated:
+      prune: true          # Remove resources deleted from Git
+      selfHeal: true       # Revert manual cluster changes
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+
+  # Health check overrides
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas   # Ignore HPA-managed replica count diffs
+
