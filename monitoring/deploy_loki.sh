@@ -216,15 +216,12 @@ deploy_loki() {
     echo "  └────────────────────────────────────────────────────────────────────────┘"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-    print_divider
     echo ""
     echo "Grafana Dashboards ID:"
     echo ""
     echo "Loki stack monitoring (Promtail, Loki): 14055"
     echo ""
-
-    print_divider
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
 # Allow script to be sourced or executed directly
