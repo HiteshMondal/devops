@@ -1,25 +1,30 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: devops-app-ingress
-  namespace: devops-app
+  name: ${APP_NAME}-ingress
+  namespace: ${NAMESPACE}
   labels:
-    app: devops-app
+    app: ${APP_NAME}
   annotations:
-    kubernetes.io/ingress.class: "nginx"
+    kubernetes.io/ingress.class: "${INGRESS_CLASS}"
     nginx.ingress.kubernetes.io/rewrite-target: /
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
-  ingressClassName: nginx
+  ingressClassName: ${INGRESS_CLASS}
   rules:
-  - host: devops-app.local
+  - host: ${INGRESS_HOST}
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: devops-app-service
+            name: ${APP_NAME}-service
             port:
               number: 80
+  # Uncomment for TLS
+  # tls:
+  # - hosts:
+  #   - ${INGRESS_HOST}
+  #   secretName: ${TLS_SECRET_NAME}

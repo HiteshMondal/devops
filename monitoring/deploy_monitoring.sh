@@ -84,6 +84,42 @@ print_target() {
     echo -e "  ${GREEN}✓${RESET} $1"
 }
 
+# Set defaults for optional variables
+: "${PROMETHEUS_ENABLED:=true}"
+: "${PROMETHEUS_NAMESPACE:=monitoring}"
+: "${PROMETHEUS_RETENTION:=15d}"
+: "${PROMETHEUS_STORAGE_SIZE:=10Gi}"
+: "${PROMETHEUS_SCRAPE_INTERVAL:=15s}"
+: "${PROMETHEUS_SCRAPE_TIMEOUT:=10s}"
+: "${GRAFANA_ENABLED:=true}"
+: "${GRAFANA_ADMIN_USER:=admin}"
+: "${GRAFANA_ADMIN_PASSWORD:=admin123}"
+: "${GRAFANA_PORT:=3000}"
+: "${GRAFANA_STORAGE_SIZE:=5Gi}"
+: "${DEPLOY_TARGET:=local}"
+    
+# Set resource limits defaults
+: "${PROMETHEUS_CPU_REQUEST:=500m}"
+: "${PROMETHEUS_CPU_LIMIT:=2000m}"
+: "${PROMETHEUS_MEMORY_REQUEST:=1Gi}"
+: "${PROMETHEUS_MEMORY_LIMIT:=4Gi}"
+: "${GRAFANA_CPU_REQUEST:=100m}"
+: "${GRAFANA_CPU_LIMIT:=500m}"
+: "${GRAFANA_MEMORY_REQUEST:=256Mi}"
+: "${GRAFANA_MEMORY_LIMIT:=1Gi}"
+
+# Trivy namespace (used in Prometheus scrape configs)
+: "${TRIVY_NAMESPACE:=trivy-system}"
+
+# Export all variables
+export TRIVY_NAMESPACE
+export PROMETHEUS_ENABLED PROMETHEUS_NAMESPACE PROMETHEUS_RETENTION PROMETHEUS_STORAGE_SIZE
+export PROMETHEUS_SCRAPE_INTERVAL PROMETHEUS_SCRAPE_TIMEOUT
+export GRAFANA_ENABLED GRAFANA_ADMIN_USER GRAFANA_ADMIN_PASSWORD GRAFANA_PORT GRAFANA_STORAGE_SIZE
+export DEPLOY_TARGET
+export PROMETHEUS_CPU_REQUEST PROMETHEUS_CPU_LIMIT PROMETHEUS_MEMORY_REQUEST PROMETHEUS_MEMORY_LIMIT
+export GRAFANA_CPU_REQUEST GRAFANA_CPU_LIMIT GRAFANA_MEMORY_REQUEST GRAFANA_MEMORY_LIMIT
+
 # KUBERNETES DISTRIBUTION DETECTION (reuse from deploy_kubernetes.sh)
 
 detect_k8s_distribution() {
@@ -216,44 +252,6 @@ else
 fi
 
 export PROJECT_ROOT
-
-# ENVIRONMENT VARIABLE VALIDATION
-validate_required_vars() {
-    print_subsection "Validating Monitoring Environment Variables"
-    
-    local required_vars=(
-        "PROMETHEUS_NAMESPACE"
-        "NAMESPACE"
-        "APP_NAME"
-        "PROMETHEUS_SCRAPE_INTERVAL"
-        "PROMETHEUS_SCRAPE_TIMEOUT"
-        "PROMETHEUS_RETENTION"
-        "PROMETHEUS_STORAGE_SIZE"
-    )
-    
-    local missing_vars=()
-    
-    for var in "${required_vars[@]}"; do
-        if [[ -z "${!var:-}" ]]; then
-            missing_vars+=("$var")
-        fi
-    done
-    
-    if [[ ${#missing_vars[@]} -gt 0 ]]; then
-        print_error "Missing required monitoring variables:"
-        for var in "${missing_vars[@]}"; do
-            echo -e "     ${RED}●${RESET} $var"
-        done
-        echo ""
-        print_info "These variables should be:"
-        echo -e "     ${CYAN}●${RESET} Set in .env file (for local run.sh)"
-        echo -e "     ${CYAN}●${RESET} Set as GitHub Secrets/Variables (for GitHub Actions)"
-        echo -e "     ${CYAN}●${RESET} Set as GitLab CI/CD Variables (for GitLab CI)"
-        exit 1
-    fi
-    
-    print_success "All required monitoring variables are present"
-}
 
 # YAML PROCESSING FUNCTIONS
 substitute_env_vars() {
@@ -463,45 +461,6 @@ deploy_monitoring() {
         print_warning "Prometheus monitoring is disabled (PROMETHEUS_ENABLED=false)"
         return 0
     fi
-    
-    # Validate environment variables
-    validate_required_vars
-    
-    # Set defaults for optional variables
-    : "${PROMETHEUS_ENABLED:=true}"
-    : "${PROMETHEUS_NAMESPACE:=monitoring}"
-    : "${PROMETHEUS_RETENTION:=15d}"
-    : "${PROMETHEUS_STORAGE_SIZE:=10Gi}"
-    : "${PROMETHEUS_SCRAPE_INTERVAL:=15s}"
-    : "${PROMETHEUS_SCRAPE_TIMEOUT:=10s}"
-    : "${GRAFANA_ENABLED:=true}"
-    : "${GRAFANA_ADMIN_USER:=admin}"
-    : "${GRAFANA_ADMIN_PASSWORD:=admin123}"
-    : "${GRAFANA_PORT:=3000}"
-    : "${GRAFANA_STORAGE_SIZE:=5Gi}"
-    : "${DEPLOY_TARGET:=local}"
-    
-    # Set resource limits defaults
-    : "${PROMETHEUS_CPU_REQUEST:=500m}"
-    : "${PROMETHEUS_CPU_LIMIT:=2000m}"
-    : "${PROMETHEUS_MEMORY_REQUEST:=1Gi}"
-    : "${PROMETHEUS_MEMORY_LIMIT:=4Gi}"
-    : "${GRAFANA_CPU_REQUEST:=100m}"
-    : "${GRAFANA_CPU_LIMIT:=500m}"
-    : "${GRAFANA_MEMORY_REQUEST:=256Mi}"
-    : "${GRAFANA_MEMORY_LIMIT:=1Gi}"
-
-    # Trivy namespace (used in Prometheus scrape configs)
-    : "${TRIVY_NAMESPACE:=trivy-system}"
-
-    # Export all variables
-    export TRIVY_NAMESPACE
-    export PROMETHEUS_ENABLED PROMETHEUS_NAMESPACE PROMETHEUS_RETENTION PROMETHEUS_STORAGE_SIZE
-    export PROMETHEUS_SCRAPE_INTERVAL PROMETHEUS_SCRAPE_TIMEOUT
-    export GRAFANA_ENABLED GRAFANA_ADMIN_USER GRAFANA_ADMIN_PASSWORD GRAFANA_PORT GRAFANA_STORAGE_SIZE
-    export DEPLOY_TARGET
-    export PROMETHEUS_CPU_REQUEST PROMETHEUS_CPU_LIMIT PROMETHEUS_MEMORY_REQUEST PROMETHEUS_MEMORY_LIMIT
-    export GRAFANA_CPU_REQUEST GRAFANA_CPU_LIMIT GRAFANA_MEMORY_REQUEST GRAFANA_MEMORY_LIMIT
     
     setup_helm
 

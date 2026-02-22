@@ -1,73 +1,147 @@
-# ========================================
-# DevOps Project Environment Configuration
-# ========================================
-# Update the values according to your setup
+################################################################################
+# DevOps Project — Environment Configuration
+################################################################################
+# Usage:
+#   1. Copy this file to `.env`
+#   2. Update ALL required values
+#   3. Run: ./run.sh
+#
+# CI/CD Variables:
+#   - GitHub Actions → Repo Settings → Secrets and variables → Actions
+#   - GitLab         → Project Settings → CI/CD → Variables
+################################################################################
 
-# ====================================================================================
-# CICD Variables
-# For Github Action: Navigate to your repository → Settings → Secrets and variables → Actions 
-# For Gitlab : Project Setting → CI/CD → Variables
-# For Jenkins: Manage Jenkins → Credentials → System → Global
-# ====================================================================================
 
+################################################################################
+# CORE PROJECT CONFIGURATION (REQUIRED)
+# All variables in this section MUST be reviewed and updated
+################################################################################
 
-# ── DEPLOYMENT TARGET and MODE ─────────────────────────────────────────────────────────
-# REQUIRED: Deployment environment — local or prod (default: local)
+# Deployment target environment
+#   local — local Kubernetes (minikube, kind, k3s, etc.)
+#   prod  — production (EKS / cloud)
 DEPLOY_TARGET=local
-# RESOLVE DEPLOY_MODE
-# Supports two modes:
-#   argocd  (default) — Argo CD manages all deployments after initial bootstrap
-#   direct            — Legacy direct kubectl apply (kept for compatibility)
+
+# Deployment mode
+#   argocd — GitOps via Argo CD (recommended for prod)
+#   direct — Direct kubectl apply via run.sh
 DEPLOY_MODE=direct
 
+# Build and push Docker images to DockerHub
+BUILD_PUSH=false
 
-# ── DOCKER / CONTAINER REGISTRY ───────────────────────────────────────────────
-# REQUIRED: Your Docker Hub username
-DOCKERHUB_USERNAME=
+# CI mode (used internally by scripts)
+CI=false
 
-# REQUIRED: Docker Hub password or access token (used for docker login)
-DOCKERHUB_PASSWORD=
-
-# REQUIRED: Image tag to build and deploy (e.g. 1.0, v1.2.3, latest)
-DOCKER_IMAGE_TAG=
+# Dry-run mode (prints actions without executing)
+DRY_RUN=false
 
 
-# ── GIT / GITHUB ──────────────────────────────────────────────────────────────
-# REQUIRED: Your GitHub username (used in ArgoCD application manifests)
-GITHUB_USERNAME=
+################################################################################
+# APPLICATION CONFIGURATION
+################################################################################
 
-# REQUIRED: Full name used for git commits
-GIT_AUTHOR_NAME=
+APP_NAME=devops-app
+NAMESPACE=devops-app
+APP_PORT=3000
 
-# REQUIRED: Email used for git commits
-GIT_AUTHOR_EMAIL=
+# Replica & Autoscaling configuration
+REPLICAS=2
+MIN_REPLICAS=2
+MAX_REPLICAS=10
+CPU_TARGET_UTILIZATION=70
+MEMORY_TARGET_UTILIZATION=80
 
-# OPTIONAL: GitHub personal access token (used by ArgoCD to access private repos)
-GITHUB_TOKEN=
+# Runtime configuration
+NODE_ENV=production
+LOG_LEVEL=info
 
-# OPTIONAL: GitLab personal access token (used by ArgoCD to access private repos)
-GITLAB_TOKEN=
-
-# OPTIONAL: Git remote URL of your repository (auto-detected from git remote if not set)
-GIT_REPO_URL=
-
-# OPTIONAL: Branch ArgoCD tracks for GitOps syncing (default: main)
-GIT_REPO_BRANCH=main
+# Resource requests & limits
+APP_CPU_REQUEST=100m
+APP_CPU_LIMIT=500m
+APP_MEMORY_REQUEST=128Mi
+APP_MEMORY_LIMIT=512Mi
 
 
-# ── DATABASE ──────────────────────────────────────────────────────────────────
-# OPTIONAL: Database connection settings (used in Kubernetes Secrets/ConfigMaps)
-DB_HOST=
-DB_NAME=
+################################################################################
+# INGRESS CONFIGURATION (OPTIONAL)
+################################################################################
+
+# Enable or disable Kubernetes Ingress
+INGRESS_ENABLED=true
+
+# Ingress hostname
+# NOTE: For local clusters, add this to /etc/hosts
+INGRESS_HOST=devops-app.local
+
+# Ingress controller class
+# Common values:
+#   nginx   — minikube, kind, microk8s
+#   traefik — k3s
+#   alb     — AWS EKS
+#   gce     — GKE
+#   azure/application-gateway — AKS
+INGRESS_CLASS=nginx
+
+# TLS secret name (used mainly in production with cert-manager)
+TLS_SECRET_NAME=devops-app-tls
+
+
+################################################################################
+# DOCKER / CONTAINER REGISTRY
+################################################################################
+
+# DockerHub credentials (required if BUILD_PUSH=true)
+DOCKERHUB_USERNAME=yourdockerhubusername
+DOCKERHUB_PASSWORD=your-dockerhub-password-or-token
+
+# Image tag to use
+DOCKER_IMAGE_TAG=latest
+
+
+################################################################################
+# GIT & GITHUB CONFIGURATION
+################################################################################
+
+# Git author configuration
+GIT_AUTHOR_NAME=Your Name
+GIT_AUTHOR_EMAIL=you@example.com
+
+# GitHub configuration
+GITHUB_USERNAME=yourgithubusername
+GITHUB_EMAIL=yourmail@example.com
+GITHUB_TOKEN=your-github-personal-access-token
+
+# Repository URL
+GIT_REPO_URL=https://github.com/User_Name/Project_Name.git
+
+
+################################################################################
+# DATABASE CONFIGURATION (OPTIONAL)
+# Injected via Kubernetes ConfigMaps / Secrets
+################################################################################
+
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=devopsdb
 DB_USERNAME=
 DB_PASSWORD=
 
-# ── APPLICATION SECRETS ───────────────────────────────────────────────────────
-# OPTIONAL: Application-level secrets injected via Kubernetes Secrets
+
+################################################################################
+# APPLICATION SECRETS (OPTIONAL)
+# Stored as Kubernetes Secrets
+################################################################################
+
 JWT_SECRET=
 API_KEY=
 SESSION_SECRET=
 
-# ── ARGO CD ───────────────────────────────────────────────────────────────────
-# OPTIONAL: ArgoCD admin password — if unset, retrieved from the initial admin secret
+
+################################################################################
+# ARGO CD CONFIGURATION (OPTIONAL)
+################################################################################
+
+# Argo CD admin password
+# If unset, it will be retrieved from the default admin secret
 ARGOCD_ADMIN_PASSWORD=
