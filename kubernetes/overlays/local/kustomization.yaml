@@ -17,7 +17,7 @@ namespace: devops-app
 
 images:
   - name: devops-app
-    newName: devops-app
+    newName: hiteshmondaldocker/devops-app
     newTag: latest
 
 patches:
