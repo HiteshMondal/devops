@@ -81,6 +81,12 @@ export INGRESS_ENABLED INGRESS_HOST
 export GIT_REPO_URL GIT_REPO_BRANCH
 export GIT_REPO_PATH_APP GIT_REPO_PATH_MONITORING GIT_REPO_PATH_LOKI GIT_REPO_PATH_SECURITY
 
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  🐙  Argo CD Mode — bootstrapping ArgoCD then handing off deployments"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
 # INSTALL ARGO CD CLI
 install_argocd_cli() {
     if command -v argocd >/dev/null 2>&1; then

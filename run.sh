@@ -171,8 +171,6 @@ load_scripts() {
     source "$PROJECT_ROOT/monitoring/deploy_loki.sh"
     source "$PROJECT_ROOT/infra/deploy_infra.sh"
     source "$PROJECT_ROOT/Security/security.sh"
-
-    # ── Argo CD ──────────────────────────────────────────────────────────────
     source "$PROJECT_ROOT/cicd/argo/deploy_argo.sh"
 }
 
@@ -288,11 +286,6 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     build_image
 
     if [[ "$DEPLOY_MODE" == "argocd" ]]; then
-        echo ""
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "  🐙  Argo CD Mode — bootstrapping ArgoCD then handing off deployments"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo ""
 
         # Deploy Argo CD and register all applications
         deploy_argo
@@ -397,10 +390,6 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
     echo ""
 
     if [[ "$DEPLOY_MODE" == "argocd" ]]; then
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "  🐙  Argo CD Mode — bootstrapping ArgoCD then handing off deployments"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo ""
 
         # Provision cloud infrastructure first
         deploy_infra
