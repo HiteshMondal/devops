@@ -184,18 +184,11 @@ detect_k8s_cluster
 # VALIDATE DEPLOYMENT TARGET
 
 : "${DEPLOY_TARGET:?Set DEPLOY_TARGET in .env}"
+: "${DEPLOY_MODE:?Set DEPLOY_MODE in .env}"
 echo ""
 echo "🎯 Deployment Target:  $DEPLOY_TARGET"
-echo "🚀 Deployment Mode:    ${DEPLOY_MODE:-argocd}"
+echo "🚀 Deployment Mode:    $DEPLOY_MODE"
 echo ""
-
-# ============================================================================
-# RESOLVE DEPLOY_MODE
-# Supports two modes:
-#   argocd  (default) — Argo CD manages all deployments after initial bootstrap
-#   direct            — Legacy direct kubectl apply (kept for compatibility)
-# ============================================================================
-: "${DEPLOY_MODE:=argocd}"
 
 # ============================================================================
 # LOCAL CLUSTER PREREQUISITES (Minikube, Kind, K3s, MicroK8s)

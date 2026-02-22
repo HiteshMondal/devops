@@ -11,9 +11,14 @@
 # ====================================================================================
 
 
-# ── DEPLOYMENT TARGET ─────────────────────────────────────────────────────────
+# ── DEPLOYMENT TARGET and MODE ─────────────────────────────────────────────────────────
 # REQUIRED: Deployment environment — local or prod (default: local)
 DEPLOY_TARGET=local
+# RESOLVE DEPLOY_MODE
+# Supports two modes:
+#   argocd  (default) — Argo CD manages all deployments after initial bootstrap
+#   direct            — Legacy direct kubectl apply (kept for compatibility)
+DEPLOY_MODE=direct
 
 
 # ── DOCKER / CONTAINER REGISTRY ───────────────────────────────────────────────
