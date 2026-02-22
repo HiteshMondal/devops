@@ -473,26 +473,6 @@ show_argocd_access() {
         echo "       Password:  <stored in argocd-initial-admin-secret>"
     fi
     echo ""
-    echo "  ────────────────────────────────────────────────────────────────────────"
-    echo ""
-    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-    echo "  │  🖥️  CLI COMMANDS                                                      │"
-    echo "  ├────────────────────────────────────────────────────────────────────────┤"
-    echo "  │                                                                        │"
-    echo "  │     # List all apps                                                    │"
-    echo "  │     \$ argocd app list                                                 │"
-    echo "  │                                                                        │"
-    echo "  │     # Get app status                                                   │"
-    echo "  │     \$ argocd app get ${APP_NAME}-${DEPLOY_TARGET}"
-    echo "  │                                                                        │"
-    echo "  │     # Force sync                                                       │"
-    echo "  │     \$ argocd app sync ${APP_NAME}-${DEPLOY_TARGET}"
-    echo "  │                                                                        │"
-    echo "  │     # Watch rollout                                                    │"
-    echo "  │     \$ argocd app wait ${APP_NAME}-${DEPLOY_TARGET} --health"
-    echo "  │                                                                        │"
-    echo "  └────────────────────────────────────────────────────────────────────────┘"
-    echo ""
     print_divider
 }
 
