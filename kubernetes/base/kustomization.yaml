@@ -1,10 +1,22 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: ${NAMESPACE}
+# /kubernetes/base/kustomization.yaml
+#
+# IMPORTANT: namespace.yaml is intentionally NOT listed here.
+# - ArgoCD mode:  namespace is created by syncOptions: CreateNamespace=true
+# - Direct mode:  namespace is created by `kubectl create namespace` in deploy_kubernetes.sh
+# Including namespace.yaml causes Kustomize to inject label selectors onto the Namespace
+# object, which Kubernetes rejects as invalid.
+#
+# IMPORTANT: commonLabels is intentionally NOT used here.
+# commonLabels injects label selectors onto ALL resources including Namespace and Service,
+# which breaks Namespace (rejects selectors) and locks Service selectors permanently.
+# Labels are defined directly on each resource instead.
+
+namespace: devops-app
 
 resources:
-  - namespace.yaml
   - configmap.yaml
   - secrets.yaml
   - deployment.yaml
@@ -12,10 +24,7 @@ resources:
   - ingress.yaml
   - hpa.yaml
 
-commonLabels:
-  app: ${APP_NAME}
-  managed-by: kustomize
-
 images:
-  - name: ${DOCKERHUB_USERNAME}/${APP_NAME}
-    newTag: ${DOCKER_IMAGE_TAG}
+  - name: devops-app
+    newName: devops-app
+    newTag: latest

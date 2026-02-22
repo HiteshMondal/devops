@@ -61,6 +61,10 @@ fi
 : "${INGRESS_HOST:=devops-app.local}"
 : "${ARGOCD_SYNC_WAVE_ENABLED:=true}"
 
+# Shared port-forward port — used consistently across login and show_argocd_access
+ARGOCD_LOCAL_PORT=8080
+export ARGOCD_LOCAL_PORT
+
 # Git repo details — auto-detected from local git config if not set
 if [[ -z "${GIT_REPO_URL:-}" ]]; then
     GIT_REPO_URL="$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null || echo '')"
@@ -128,9 +132,22 @@ install_argocd_server() {
             -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
     fi
 
-    print_step "Waiting for ArgoCD server to be ready..."
+    print_step "Waiting for ArgoCD server deployment to roll out..."
     kubectl rollout status deployment/argocd-server \
         -n "$ARGOCD_NAMESPACE" --timeout=300s
+
+    # Wait for initial-admin-secret to be created before login attempts it
+    print_step "Waiting for ArgoCD initial-admin-secret to be available..."
+    local retries=30
+    local count=0
+    until kubectl -n "$ARGOCD_NAMESPACE" get secret argocd-initial-admin-secret >/dev/null 2>&1; do
+        count=$((count + 1))
+        if [[ $count -ge $retries ]]; then
+            print_error "Timed out waiting for argocd-initial-admin-secret"
+            exit 1
+        fi
+        sleep 5
+    done
 
     print_success "Argo CD server is ready!"
 }
@@ -144,7 +161,7 @@ argocd_is_installed() {
 argocd_login() {
     print_subsection "Logging in to Argo CD"
 
-    # Get initial admin password
+    # Get admin password
     local admin_pass
     if [[ -n "${ARGOCD_ADMIN_PASSWORD}" ]]; then
         admin_pass="$ARGOCD_ADMIN_PASSWORD"
@@ -159,45 +176,53 @@ argocd_login() {
         fi
     fi
 
-    # Port-forward in background if needed
+    # Try to get external IP first (cloud clusters)
     local ARGOCD_SERVER
     ARGOCD_SERVER=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
-      -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+      -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
 
     if [[ -z "$ARGOCD_SERVER" ]]; then
         ARGOCD_SERVER=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
-          -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+    fi
 
-        # Use port-forward
+    # No external address — use port-forward (local clusters: minikube, kind, k3s, etc.)
+    if [[ -z "$ARGOCD_SERVER" ]]; then
+        # BUG FIX #5 — Validate SERVICE_PORT before using it
+        local SERVICE_PORT
         SERVICE_PORT=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
-          -o jsonpath='{.spec.ports[0].port}')
+          -o jsonpath='{.spec.ports[?(@.name=="https")].port}' 2>/dev/null || echo "")
 
-        LOCAL_PORT=8080
+        # Fallback: grab first port if named port not found
+        if [[ -z "$SERVICE_PORT" ]]; then
+            SERVICE_PORT=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
+              -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || echo "443")
+        fi
 
-        print_step "Starting ArgoCD port-forward on port ${LOCAL_PORT} → ${SERVICE_PORT}..."
+        print_step "Starting ArgoCD port-forward on localhost:${ARGOCD_LOCAL_PORT} → ${SERVICE_PORT}..."
         kubectl port-forward svc/argocd-server -n "$ARGOCD_NAMESPACE" \
-          ${LOCAL_PORT}:${SERVICE_PORT} \
+          "${ARGOCD_LOCAL_PORT}:${SERVICE_PORT}" \
           --address 127.0.0.1 >/dev/null 2>&1 &
 
         ARGOCD_PF_PID=$!
         export ARGOCD_PF_PID
 
+        # Use curl -k (insecure) because ArgoCD uses self-signed TLS
         local ready=false
-        local proto="https"
-        [[ "$SERVICE_PORT" == "80" ]] && proto="http"
-
-        for i in {1..15}; do
-          if curl -4 -s ${proto}://localhost:${LOCAL_PORT} >/dev/null 2>&1; then
-            ready=true
-            break
-          fi
-          sleep 1
+        for i in {1..20}; do
+            if curl -4 -sk "https://localhost:${ARGOCD_LOCAL_PORT}" >/dev/null 2>&1; then
+                ready=true
+                break
+            fi
+            sleep 2
         done
+
         if [[ "$ready" != true ]]; then
-          print_error "Port-forward to ArgoCD failed"
-          exit 1
+            print_error "Port-forward to ArgoCD failed to become ready"
+            exit 1
         fi
-        ARGOCD_SERVER="localhost:8080"
+
+        ARGOCD_SERVER="localhost:${ARGOCD_LOCAL_PORT}"
     fi
 
     if ! argocd login "$ARGOCD_SERVER" \
@@ -211,14 +236,14 @@ argocd_login() {
 
     print_success "Logged in to ArgoCD at $ARGOCD_SERVER"
 
-    # Store server for later use
     export ARGOCD_SERVER
     export ARGOCD_ADMIN_PASS="$admin_pass"
 }
 
 # GENERATE ARGOCD APPLICATION YAMLS FROM ENV
 generate_argocd_apps() {
-    required_vars=(
+    # Declare required_vars as local
+    local required_vars=(
       GIT_REPO_URL GIT_REPO_BRANCH DEPLOY_TARGET APP_NAME
       ARGOCD_NAMESPACE NAMESPACE
       PROMETHEUS_NAMESPACE LOKI_NAMESPACE TRIVY_NAMESPACE
@@ -243,11 +268,11 @@ generate_argocd_apps() {
         exit 1
     fi
 
-    # ── App Application ─────────────────────────────────────────────────────
     if [[ ! -f "$ARGO_DIR/app_template.yaml" ]]; then
         print_error "Missing app_template.yaml in $ARGO_DIR"
         exit 1
     fi
+
     envsubst < "$ARGO_DIR/app_template.yaml" > "$GENERATED_DIR/apps.yaml"
 
     print_success "Generated manifests in: $GENERATED_DIR"
@@ -259,19 +284,23 @@ argocd_add_repo() {
 
     local REPO_URL="$GIT_REPO_URL"
 
-    # Check if repo is already added
+    # Check if repo is already registered
     if argocd repo list 2>/dev/null | grep -q "$REPO_URL"; then
         print_success "Repository already registered: $REPO_URL"
         return 0
     fi
 
-    # Try SSH key first
-    if [[ -f "${HOME}/.ssh/id_rsa" ]] || [[ -f "${HOME}/.ssh/id_ed25519" ]]; then
-        local SSH_KEY_FILE
-        SSH_KEY_FILE="${HOME}/.ssh/id_ed25519"
-        [[ -f "${HOME}/.ssh/id_rsa" ]] && SSH_KEY_FILE="${HOME}/.ssh/id_rsa"
+    # Prefer ed25519 over id_rsa (modern standard); only fall back to rsa
+    if [[ -f "${HOME}/.ssh/id_ed25519" ]]; then
+        local SSH_KEY_FILE="${HOME}/.ssh/id_ed25519"
+        print_step "Adding repo via SSH key (ed25519): $REPO_URL"
+        argocd repo add "$REPO_URL" \
+            --ssh-private-key-path "$SSH_KEY_FILE" \
+            --insecure-ignore-host-key || true
 
-        print_step "Adding repo via SSH key: $REPO_URL"
+    elif [[ -f "${HOME}/.ssh/id_rsa" ]]; then
+        local SSH_KEY_FILE="${HOME}/.ssh/id_rsa"
+        print_step "Adding repo via SSH key (rsa): $REPO_URL"
         argocd repo add "$REPO_URL" \
             --ssh-private-key-path "$SSH_KEY_FILE" \
             --insecure-ignore-host-key || true
@@ -293,6 +322,7 @@ argocd_add_repo() {
         print_step "Adding public repo: $REPO_URL"
         argocd repo add "$REPO_URL" || true
     fi
+
     # Verify registration
     if ! argocd repo list | grep -q "$REPO_URL"; then
         print_error "Repository registration failed"
@@ -317,9 +347,12 @@ apply_argocd_apps() {
 }
 
 # SYNC ARGOCD APPLICATIONS
+# BUG FIX #12 — sync-wave annotations on Application CRs are ignored by plain kubectl apply.
+# Sequential sync calls here enforce the intended ordering: app first, then monitoring, loki, security.
 sync_argocd_apps() {
-    print_subsection "Syncing Argo CD Applications"
+    print_subsection "Syncing Argo CD Applications (ordered)"
 
+    # Ordered deliberately: app (wave 1) → monitoring (wave 2) → loki (wave 3) → security (wave 4)
     local apps=(
         "${APP_NAME}-${DEPLOY_TARGET}"
         "${APP_NAME}-monitoring"
@@ -373,7 +406,6 @@ show_argocd_access() {
     echo "╚════════════════════════════════════════════════════════════════════════════╝"
     echo ""
 
-    # Try to get external IP/hostname
     local EXTERNAL_IP
     EXTERNAL_IP=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
         -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
@@ -398,14 +430,18 @@ show_argocd_access() {
         echo "                                                                          "
         echo "  ────────────────────────────────────────────────────────────────────────"
     else
+        # Use shared ARGOCD_LOCAL_PORT so this always matches what argocd_login used
         echo "  ────────────────────────────────────────────────────────────────────────"
         echo "    ⚡ PORT FORWARD COMMAND (for local clusters)                          "
         echo "  ────────────────────────────────────────────────────────────────────────"
         echo "                                                                          "
-        SERVICE_PORT=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
-          -o jsonpath='{.spec.ports[0].port}')
 
-        echo "       \$ kubectl port-forward svc/argocd-server -n $ARGOCD_NAMESPACE 8080:${SERVICE_PORT}"
+        local SERVICE_PORT
+        SERVICE_PORT=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
+          -o jsonpath='{.spec.ports[?(@.name=="https")].port}' 2>/dev/null || echo "443")
+        [[ -z "$SERVICE_PORT" ]] && SERVICE_PORT="443"
+
+        echo "       \$ kubectl port-forward svc/argocd-server -n $ARGOCD_NAMESPACE ${ARGOCD_LOCAL_PORT}:${SERVICE_PORT}"
         echo "                                                                          "
         echo "  ────────────────────────────────────────────────────────────────────────"
         echo ""
@@ -413,10 +449,7 @@ show_argocd_access() {
         echo "    🌐 ARGO CD URL (After Port Forward)                                   "
         echo "  ────────────────────────────────────────────────────────────────────────"
         echo "                                                                          "
-        local proto="https"
-        [[ "$SERVICE_PORT" == "80" ]] && proto="http"
-
-        echo "       👉  ${proto}://localhost:8080"
+        echo "       👉  https://localhost:${ARGOCD_LOCAL_PORT}"
         echo "                                                                          "
         echo "  ────────────────────────────────────────────────────────────────────────"
     fi
@@ -426,11 +459,12 @@ show_argocd_access() {
     echo "    🔐 CREDENTIALS                                                        "
     echo "  ────────────────────────────────────────────────────────────────────────"
     echo "                                                                          "
+    # Consistent indentation on both credential lines
     echo "       Username:  admin"
     if [[ "${CI:-false}" != "true" ]]; then
-        echo "   Password:  ${ARGOCD_ADMIN_PASS}"
+        echo "       Password:  ${ARGOCD_ADMIN_PASS}"
     else
-        echo "   Password:  <stored in argocd-initial-admin-secret>"
+        echo "       Password:  <stored in argocd-initial-admin-secret>"
     fi
     echo ""
     echo "  ────────────────────────────────────────────────────────────────────────"
@@ -479,7 +513,7 @@ deploy_argo() {
     echo ""
     print_divider
 
-    # Register cleanup
+    # Register cleanup for port-forward on any exit
     trap cleanup_portforward EXIT
 
     # Step 1 — Install ArgoCD CLI
@@ -510,11 +544,11 @@ deploy_argo() {
     print_subsection "Step 6: Apply Applications"
     apply_argocd_apps
 
-    # Step 7 — Trigger sync
+    # Step 7 — Trigger sync (ordered: app → monitoring → loki → security)
     print_subsection "Step 7: Sync Applications"
     sync_argocd_apps
 
-    # Step 8 — Wait for healthy (optional, skip in CI)
+    # Step 8 — Wait for healthy (skip in CI — ArgoCD will auto-sync)
     if [[ "${CI:-false}" != "true" ]]; then
         print_subsection "Step 8: Wait for Healthy State"
         wait_for_apps

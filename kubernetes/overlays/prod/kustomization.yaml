@@ -4,21 +4,26 @@ kind: Kustomization
 # /kubernetes/overlays/prod/kustomization.yaml
 # Universal Production Environment Overlay
 # Works with: AWS EKS, Google GKE, Azure AKS, and other cloud Kubernetes platforms
+# ArgoCD-compatible: no shell variable substitution — plain Kustomize only
+#
+# NOTE: No `labels` block here — Kustomize's labels transformer also injects
+# label selectors onto resources, which causes issues on immutable fields.
+# Environment labels are applied via the Deployment patch below.
 
 resources:
   - ../../base
+  - network-policy.yaml
+  - pod-disruption-budget.yaml
 
 namespace: devops-app
 
-# REMOVED namePrefix to avoid patch matching issues
-
-labels:
-  - pairs:
-      environment: production
-      managed-by: kustomize
+images:
+  - name: devops-app
+    newName: devops-app
+    newTag: latest
 
 patches:
-  # Production-grade resource allocation
+  # Production-grade resource allocation and replica count
   - target:
       kind: Deployment
       name: devops-app
@@ -27,6 +32,8 @@ patches:
       kind: Deployment
       metadata:
         name: devops-app
+        labels:
+          environment: production
       spec:
         replicas: 3
         strategy:
@@ -76,7 +83,7 @@ patches:
                 periodSeconds: 5
                 timeoutSeconds: 3
                 failureThreshold: 3
-  
+
   # Production HPA configuration
   - target:
       kind: HorizontalPodAutoscaler
@@ -119,8 +126,8 @@ patches:
               value: 2
               periodSeconds: 30
             selectPolicy: Max
-  
-  # Universal LoadBalancer Service
+
+  # Universal LoadBalancer Service for cloud clusters
   - target:
       kind: Service
       name: devops-app-service
@@ -151,8 +158,8 @@ patches:
           targetPort: 3000
           protocol: TCP
           name: https
-  
-  # Universal Ingress configuration
+
+  # Universal Ingress configuration for cloud clusters
   - target:
       kind: Ingress
       name: devops-app-ingress
@@ -162,16 +169,13 @@ patches:
       metadata:
         name: devops-app-ingress
         annotations:
-          kubernetes.io/ingress.class: alb
           alb.ingress.kubernetes.io/scheme: internet-facing
           alb.ingress.kubernetes.io/target-type: ip
           alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
           alb.ingress.kubernetes.io/ssl-redirect: '443'
           alb.ingress.kubernetes.io/healthcheck-path: /health
-          kubernetes.io/ingress.class: gce
           kubernetes.io/ingress.global-static-ip-name: "devops-app-ip"
           networking.gke.io/managed-certificates: "devops-app-cert"
-          kubernetes.io/ingress.class: azure/application-gateway
           appgw.ingress.kubernetes.io/ssl-redirect: "true"
           nginx.ingress.kubernetes.io/ssl-redirect: "true"
           cert-manager.io/cluster-issuer: letsencrypt-prod
@@ -192,8 +196,3 @@ patches:
                   name: devops-app-service
                   port:
                     number: 80
-
-# Additional production resources
-resources:
-  - network-policy.yaml
-  - pod-disruption-budget.yaml

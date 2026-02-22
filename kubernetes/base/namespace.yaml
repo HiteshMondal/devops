@@ -1,8 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ${NAMESPACE}
+  name: devops-app
   labels:
-    name: ${NAMESPACE}
-    environment: ${DEPLOY_TARGET}
+    name: devops-app
     managed-by: kustomize

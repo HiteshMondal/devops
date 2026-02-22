@@ -4,19 +4,24 @@ kind: Kustomization
 # /kubernetes/overlays/local/kustomization.yaml
 # Universal Local Environment Overlay
 # Works with: Minikube, Kind, K3s, MicroK8s, and local Kubernetes clusters
+# ArgoCD-compatible: no shell variable substitution — plain Kustomize only
+#
+# NOTE: No `labels` block here — Kustomize's labels transformer also injects
+# label selectors onto resources, which causes issues on immutable fields.
+# Environment labels are applied via the Deployment patch below.
 
 resources:
   - ../../base
 
 namespace: devops-app
 
-labels:
-  - pairs:
-      environment: local
-      managed-by: kustomize
+images:
+  - name: devops-app
+    newName: devops-app
+    newTag: latest
 
 patches:
-  # Reduce resource requirements for local environments
+  # Reduce resource requirements and tag environment for local
   - target:
       kind: Deployment
       name: devops-app
@@ -25,6 +30,8 @@ patches:
       kind: Deployment
       metadata:
         name: devops-app
+        labels:
+          environment: local
       spec:
         replicas: 1
         template:
@@ -41,7 +48,7 @@ patches:
                 limits:
                   cpu: 200m
                   memory: 256Mi
-  
+
   # Scale down HPA for local environment
   - target:
       kind: HorizontalPodAutoscaler
@@ -61,7 +68,7 @@ patches:
             target:
               type: Utilization
               averageUtilization: 80
-  
+
   # Use NodePort for universal local access
   - target:
       kind: Service
@@ -81,8 +88,8 @@ patches:
           nodePort: 30080
           protocol: TCP
           name: http
-  
-  # Universal Ingress configuration
+
+  # Universal Ingress configuration for local clusters
   - target:
       kind: Ingress
       name: devops-app-ingress

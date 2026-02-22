@@ -1,5 +1,13 @@
 # /cicd/argo/app_template.yaml
 # Processed by envsubst — values come from .env
+#
+# NOTE on sync-wave annotations:
+# argocd.argoproj.io/sync-wave on Application CRs only takes effect when using
+# an App-of-Apps or ApplicationSet pattern. When applied via plain `kubectl apply`
+# (as done in deploy_argo.sh), waves between Application objects are ignored by ArgoCD.
+# Deployment ordering is instead enforced by the sequential `argocd app sync` calls
+# in sync_argocd_apps() in deploy_argo.sh. The annotations are kept for documentation
+# purposes and future App-of-Apps migration.
 
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -197,10 +205,8 @@ spec:
         factor: 2
         maxDuration: 3m
 
-  # Health check overrides
   ignoreDifferences:
     - group: apps
       kind: Deployment
       jsonPointers:
         - /spec/replicas   # Ignore HPA-managed replica count diffs
-

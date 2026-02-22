@@ -3,6 +3,11 @@
 # /kubernetes/deploy_kubernetes.sh - Universal Kubernetes Deployment Script
 # Works with: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, and any Kubernetes distribution
 # Usage: ./deploy_kubernetes.sh [local|prod]
+#
+# NOTE: This script is used for DIRECT mode deployment only (DEPLOY_MODE=direct).
+#       ArgoCD mode uses the Git repo + Kustomize overlays directly — no envsubst needed.
+#       Base YAML files must NOT contain ${VAR} placeholders so ArgoCD can read them cleanly.
+#       Runtime values (image tag, secrets) are injected via kustomize patches in this script.
 
 set -euo pipefail
 
@@ -12,21 +17,19 @@ if [[ -t 1 ]]; then
     DIM='\033[2m'
     RESET='\033[0m'
 
-    BLUE='\033[38;5;33m'      
-    GREEN='\033[38;5;34m'     
-    YELLOW='\033[38;5;214m'   
-    RED='\033[38;5;196m'     
-    CYAN='\033[38;5;51m'      
-    MAGENTA='\033[38;5;201m'  
-    
-    # Background colors (subtle)
+    BLUE='\033[38;5;33m'
+    GREEN='\033[38;5;34m'
+    YELLOW='\033[38;5;214m'
+    RED='\033[38;5;196m'
+    CYAN='\033[38;5;51m'
+    MAGENTA='\033[38;5;201m'
+
     BG_BLUE='\033[48;5;17m'
     BG_GREEN='\033[48;5;22m'
     BG_YELLOW='\033[48;5;58m'
     BG_RED='\033[48;5;52m'
-    
-    # Special formatting
-    LINK='\033[4;38;5;75m'    # Underlined bright blue for URLs
+
+    LINK='\033[4;38;5;75m'
 else
     BOLD=''; DIM=''; RESET=''
     BLUE=''; GREEN=''; YELLOW=''; RED=''; CYAN=''; MAGENTA=''
@@ -77,20 +80,15 @@ print_divider() {
 
 detect_k8s_distribution() {
     print_subsection "Detecting Kubernetes Distribution"
-    
+
     local k8s_dist="unknown"
-    local k8s_version=""
-    local cluster_info=""
-    
-    # Get Kubernetes version
+
     if k8s_version=$(kubectl version --short 2>/dev/null | grep Server || kubectl version -o json 2>/dev/null | grep gitVersion || echo ""); then
         print_info "Kubernetes version detected"
     fi
-    
-    # Get cluster context
+
     local context=$(kubectl config current-context 2>/dev/null || echo "")
-    
-    # Detect distribution based on various indicators
+
     if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
         k8s_dist="minikube"
     elif [[ "$context" == *"kind"* ]] || kubectl get nodes -o json 2>/dev/null | grep -q '"node-role.kubernetes.io/control-plane"' && kubectl get nodes 2>/dev/null | grep -q "kind-control-plane"; then
@@ -106,18 +104,15 @@ detect_k8s_distribution() {
     elif kubectl get nodes -o json 2>/dev/null | grep -q '"microk8s.io"'; then
         k8s_dist="microk8s"
     else
-        # Generic Kubernetes cluster
         if kubectl cluster-info 2>/dev/null | grep -q "Kubernetes"; then
             k8s_dist="kubernetes"
         fi
     fi
-    
-    # Export detected distribution
+
     export K8S_DISTRIBUTION="$k8s_dist"
-    
+
     print_success "Detected: ${BOLD}$k8s_dist${RESET}"
-    
-    # Set distribution-specific configurations
+
     case "$k8s_dist" in
         minikube)
             export K8S_SERVICE_TYPE="NodePort"
@@ -132,7 +127,7 @@ detect_k8s_distribution() {
         k3s)
             export K8S_SERVICE_TYPE="NodePort"
             export K8S_INGRESS_CLASS="traefik"
-            export K8S_SUPPORTS_LOADBALANCER="true"  # k3s has built-in LB
+            export K8S_SUPPORTS_LOADBALANCER="true"
             ;;
         microk8s)
             export K8S_SERVICE_TYPE="NodePort"
@@ -155,14 +150,13 @@ detect_k8s_distribution() {
             export K8S_SUPPORTS_LOADBALANCER="true"
             ;;
         *)
-            # Default to generic Kubernetes
             export K8S_SERVICE_TYPE="ClusterIP"
             export K8S_INGRESS_CLASS="nginx"
             export K8S_SUPPORTS_LOADBALANCER="false"
             print_warning "Unknown distribution, using conservative defaults"
             ;;
     esac
-    
+
     print_info "Service Type: ${BOLD}$K8S_SERVICE_TYPE${RESET}"
     print_info "Ingress Class: ${BOLD}$K8S_INGRESS_CLASS${RESET}"
 }
@@ -171,7 +165,7 @@ detect_k8s_distribution() {
 get_access_url() {
     local service_name="$1"
     local namespace="$2"
-    
+
     case "$K8S_DISTRIBUTION" in
         minikube)
             if command -v minikube >/dev/null 2>&1; then
@@ -232,7 +226,6 @@ get_access_url() {
 
 # ENVIRONMENT DETECTION & CONFIGURATION
 
-# Detect if running in CI/CD environment
 if [[ "${CI:-false}" == "true" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ -n "${GITLAB_CI:-}" ]]; then
     print_info "Detected CI/CD environment"
     CI_MODE=true
@@ -241,7 +234,6 @@ else
     CI_MODE=false
 fi
 
-# Determine PROJECT_ROOT
 if [[ -n "${PROJECT_ROOT:-}" ]]; then
     print_info "Using PROJECT_ROOT: ${BOLD}$PROJECT_ROOT${RESET}"
 elif [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
@@ -260,7 +252,7 @@ export PROJECT_ROOT
 # ENVIRONMENT VARIABLE VALIDATION
 validate_required_vars() {
     print_subsection "Validating Required Environment Variables"
-    
+
     local required_vars=(
         "APP_NAME"
         "NAMESPACE"
@@ -268,15 +260,15 @@ validate_required_vars() {
         "DOCKER_IMAGE_TAG"
         "APP_PORT"
     )
-    
+
     local missing_vars=()
-    
+
     for var in "${required_vars[@]}"; do
         if [[ -z "${!var:-}" ]]; then
             missing_vars+=("$var")
         fi
     done
-    
+
     if [[ ${#missing_vars[@]} -gt 0 ]]; then
         print_error "Missing required environment variables:"
         for var in "${missing_vars[@]}"; do
@@ -289,108 +281,173 @@ validate_required_vars() {
         echo -e "     ${CYAN}●${RESET} Set as GitLab CI/CD Variables (for GitLab CI)"
         exit 1
     fi
-    
+
     print_success "All required variables are present"
 }
 
-# YAML PROCESSING FUNCTIONS
-substitute_env_vars() {
-    local file=$1
-    local temp_file="${file}.tmp"
-    
-    # Export all variables that might be used in YAML files
-    export APP_NAME NAMESPACE DOCKERHUB_USERNAME DOCKER_IMAGE_TAG APP_PORT
-    export REPLICAS MIN_REPLICAS MAX_REPLICAS 
-    export CPU_TARGET_UTILIZATION MEMORY_TARGET_UTILIZATION
-    export APP_CPU_REQUEST APP_CPU_LIMIT APP_MEMORY_REQUEST APP_MEMORY_LIMIT
-    export DB_HOST DB_PORT DB_NAME DB_USERNAME DB_PASSWORD
-    export JWT_SECRET API_KEY SESSION_SECRET
-    export INGRESS_HOST INGRESS_CLASS TLS_SECRET_NAME
-    export PROMETHEUS_NAMESPACE INGRESS_ENABLED
-    export K8S_DISTRIBUTION K8S_SERVICE_TYPE K8S_INGRESS_CLASS K8S_SUPPORTS_LOADBALANCER
-    
-    # Use envsubst to replace all exported variables
-    envsubst < "$file" > "$temp_file"
-    
-    # Verify substitution worked (check for remaining ${VAR} patterns)
-    if grep -qE '\$\{[A-Z_]+\}' "$temp_file"; then
-        print_warning "Unsubstituted variables found in $(basename "$file"):"
-        grep -oE '\$\{[A-Z_]+\}' "$temp_file" | sort -u | head -5 | while read -r var; do
-            echo -e "     ${YELLOW}●${RESET} $var"
-        done
-    fi
-    
-    mv "$temp_file" "$file"
-}
+# KUSTOMIZE OVERLAY PATCHING
+# Injects runtime values (image, secrets, configmap data) into a working copy
+# of the overlay before applying. The Git-committed base files stay clean.
+patch_overlay_for_direct_mode() {
+    local work_overlay_dir="$1"
+    local environment="$2"
 
-process_yaml_files() {
-    local dir=$1
-    
-    print_subsection "Processing YAML Files in $(basename "$dir")"
-    
-    # Find all YAML files and substitute environment variables
-    find "$dir" -type f \( -name "*.yaml" -o -name "*.yml" \) 2>/dev/null | while read -r file; do
-        if [[ "$CI_MODE" == "true" ]]; then
-            echo -e "  ${GREEN}✓${RESET} $(basename "$file")"
-        else
-            echo -e "  ${BLUE}▸${RESET} Processing: ${BOLD}$(basename "$file")${RESET}"
-        fi
-        substitute_env_vars "$file"
-    done
+    print_subsection "Patching Overlay for Direct Mode (runtime values from .env)"
+
+    # ── Image patch ──────────────────────────────────────────────────────────
+    # Inject the correct DockerHub image + tag into the overlay kustomization
+    local kustomization_file="$work_overlay_dir/kustomization.yaml"
+
+    # Replace the images block with actual values from .env
+    # Using python3 for reliable YAML manipulation (available everywhere)
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$kustomization_file" "$DOCKERHUB_USERNAME" "$APP_NAME" "$DOCKER_IMAGE_TAG" <<'PYEOF'
+import sys, re
+
+filepath    = sys.argv[1]
+dh_user     = sys.argv[2]
+app_name    = sys.argv[3]
+image_tag   = sys.argv[4]
+new_image   = f"{dh_user}/{app_name}"
+
+with open(filepath) as f:
+    content = f.read()
+
+# Replace the entire images block
+images_block = f"""images:
+  - name: devops-app
+    newName: {new_image}
+    newTag: {image_tag}"""
+
+content = re.sub(
+    r'^images:.*?(?=^\S|\Z)',
+    images_block + '\n',
+    content,
+    flags=re.MULTILINE | re.DOTALL
+)
+
+with open(filepath, 'w') as f:
+    f.write(content)
+
+print(f"  Image set to: {new_image}:{image_tag}")
+PYEOF
+    else
+        # Fallback: sed-based replacement
+        sed -i "s|newName: devops-app|newName: ${DOCKERHUB_USERNAME}/${APP_NAME}|g" "$kustomization_file"
+        sed -i "s|newTag: latest|newTag: ${DOCKER_IMAGE_TAG}|g" "$kustomization_file"
+        print_info "Image set to: ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}"
+    fi
+
+    # ── ConfigMap patch ──────────────────────────────────────────────────────
+    # Write a patch file into the working overlay to override configmap values from .env
+    cat > "$work_overlay_dir/configmap-patch.yaml" <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: devops-app-config
+  namespace: ${NAMESPACE}
+data:
+  APP_NAME: "${APP_NAME}"
+  APP_PORT: "${APP_PORT}"
+  NODE_ENV: "${NODE_ENV:-production}"
+  LOG_LEVEL: "${LOG_LEVEL:-info}"
+  DB_HOST: "${DB_HOST:-localhost}"
+  DB_PORT: "${DB_PORT:-5432}"
+  DB_NAME: "${DB_NAME:-devops_db}"
+EOF
+
+    # ── Secrets patch ────────────────────────────────────────────────────────
+    cat > "$work_overlay_dir/secrets-patch.yaml" <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: devops-app-secrets
+  namespace: ${NAMESPACE}
+type: Opaque
+stringData:
+  DB_USERNAME: "${DB_USERNAME:-devops_user}"
+  DB_PASSWORD: "${DB_PASSWORD:-changeme}"
+  JWT_SECRET: "${JWT_SECRET:-changeme-jwt-secret}"
+  API_KEY: "${API_KEY:-changeme-api-key}"
+  SESSION_SECRET: "${SESSION_SECRET:-changeme-session-secret}"
+EOF
+
+    # ── Namespace patch (set correct name from .env) ─────────────────────────
+    cat > "$work_overlay_dir/namespace-patch.yaml" <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${NAMESPACE}
+  labels:
+    name: ${NAMESPACE}
+    environment: ${environment}
+    managed-by: kustomize
+EOF
+
+    # ── Register the new patches in the working overlay kustomization ────────
+    python3 - "$kustomization_file" <<'PYEOF'
+import sys, re
+
+filepath = sys.argv[1]
+with open(filepath) as f:
+    content = f.read()
+
+patches_to_add = [
+    'configmap-patch.yaml',
+    'secrets-patch.yaml',
+    'namespace-patch.yaml',
+]
+
+# Append to patchesStrategicMerge block, or add it if missing
+for patch in patches_to_add:
+    if patch not in content:
+        if 'patchesStrategicMerge:' in content:
+            content = content.replace(
+                'patchesStrategicMerge:',
+                f'patchesStrategicMerge:\n  - {patch}'
+            )
+        else:
+            content += f'\npatchesStrategicMerge:\n  - {patch}\n'
+
+with open(filepath, 'w') as f:
+    f.write(content)
+PYEOF
+
+    print_success "Overlay patched with runtime values from .env"
 }
 
 # MAIN DEPLOYMENT FUNCTION
 deploy_kubernetes() {
     local environment=${1:-local}
-    
-    echo "🚀 KUBERNETES DEPLOYMENT"
+
+    echo "🚀 KUBERNETES DEPLOYMENT (Direct Mode)"
     echo -e "${BOLD}Environment:${RESET} ${CYAN}$environment${RESET}"
     echo -e "${BOLD}Mode:${RESET}        ${CYAN}$([ "$CI_MODE" == "true" ] && echo "CI/CD" || echo "Local")${RESET}"
     echo ""
-    
-    # Detect Kubernetes distribution
+
     detect_k8s_distribution
-    
-    # Validate environment variables
     validate_required_vars
-    
+
     # Set defaults for optional variables
     : "${REPLICAS:=2}"
     : "${MIN_REPLICAS:=2}"
     : "${MAX_REPLICAS:=10}"
-    : "${CPU_TARGET_UTILIZATION:=70}"
-    : "${MEMORY_TARGET_UTILIZATION:=80}"
     : "${INGRESS_ENABLED:=true}"
     : "${INGRESS_HOST:=devops-app.local}"
-    : "${TLS_SECRET_NAME:=devops-app-tls}"
     : "${PROMETHEUS_NAMESPACE:=monitoring}"
-    
-    # Override ingress class if not set, based on distribution
+
     if [[ -z "${INGRESS_CLASS:-}" ]]; then
         INGRESS_CLASS="$K8S_INGRESS_CLASS"
     fi
-    
-    # Set resource limits defaults
-    : "${APP_CPU_REQUEST:=100m}"
-    : "${APP_CPU_LIMIT:=500m}"
-    : "${APP_MEMORY_REQUEST:=128Mi}"
-    : "${APP_MEMORY_LIMIT:=512Mi}"
-    
-    # Export defaults
-    export REPLICAS MIN_REPLICAS MAX_REPLICAS
-    export CPU_TARGET_UTILIZATION MEMORY_TARGET_UTILIZATION
-    export INGRESS_ENABLED INGRESS_HOST INGRESS_CLASS TLS_SECRET_NAME
-    export PROMETHEUS_NAMESPACE
-    export APP_CPU_REQUEST APP_CPU_LIMIT APP_MEMORY_REQUEST APP_MEMORY_LIMIT
-    
+
+    export REPLICAS MIN_REPLICAS MAX_REPLICAS INGRESS_ENABLED INGRESS_HOST INGRESS_CLASS PROMETHEUS_NAMESPACE
+
     # Create temporary working directory
     WORK_DIR="/tmp/k8s-deployment-$$"
     mkdir -p "$WORK_DIR"
-    
-    # Setup cleanup trap
     trap "rm -rf $WORK_DIR" EXIT
-    
-    # Copy Kubernetes manifests to working directory
+
+    # Copy Kubernetes manifests to working directory (never modify Git sources)
     echo "📋 Preparing Kubernetes Manifests"
     if [[ -d "$PROJECT_ROOT/kubernetes/base" ]]; then
         cp -r "$PROJECT_ROOT/kubernetes/base" "$WORK_DIR/"
@@ -399,80 +456,46 @@ deploy_kubernetes() {
         print_error "kubernetes/base directory not found at $PROJECT_ROOT/kubernetes/base"
         exit 1
     fi
-    
+
     if [[ -d "$PROJECT_ROOT/kubernetes/overlays" ]]; then
         cp -r "$PROJECT_ROOT/kubernetes/overlays" "$WORK_DIR/"
         print_success "Copied overlay manifests"
     fi
-    
-    # Process base manifests
-    process_yaml_files "$WORK_DIR/base"
-    
-    # Process overlay manifests if they exist
-    if [[ -d "$WORK_DIR/overlays/$environment" ]]; then
-        process_yaml_files "$WORK_DIR/overlays/$environment"
+
+    # Patch the working overlay with runtime .env values
+    local work_overlay="$WORK_DIR/overlays/$environment"
+    if [[ -d "$work_overlay" ]]; then
+        patch_overlay_for_direct_mode "$work_overlay" "$environment"
+    else
+        print_warning "No overlay found for environment '$environment' — applying base only"
     fi
-    
+
     print_divider
-    
-    # Create namespace if it doesn't exist
+
+    # Create namespace
     echo "📦 Setting Up Namespace"
     kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
     print_success "Namespace ready: ${BOLD}$NAMESPACE${RESET}"
-    
+
     print_divider
-    
-    # Apply Kubernetes resources in order
-    echo "🔧 Deploying Kubernetes Resources"
+
+    # Apply via kustomize
+    echo "🔧 Deploying via Kustomize"
     echo ""
-    
-    # Namespace (already created above, but apply for consistency)
-    if [[ -f "$WORK_DIR/base/namespace.yaml" ]]; then
-        print_step "Namespace configuration"
-        kubectl apply -f "$WORK_DIR/base/namespace.yaml"
-    fi
-    
-    # Secrets
-    if [[ -f "$WORK_DIR/base/secrets.yaml" ]]; then
-        print_step "Secrets"
-        kubectl apply -f "$WORK_DIR/base/secrets.yaml"
-    fi
-    
-    # ConfigMaps
-    if [[ -f "$WORK_DIR/base/configmap.yaml" ]]; then
-        print_step "ConfigMap"
-        kubectl apply -f "$WORK_DIR/base/configmap.yaml"
-    fi
-    
-    # Deployment
-    if [[ -f "$WORK_DIR/base/deployment.yaml" ]]; then
-        print_step "Deployment"
-        kubectl apply -f "$WORK_DIR/base/deployment.yaml"
-    fi
-    
-    # Service
-    if [[ -f "$WORK_DIR/base/service.yaml" ]]; then
-        print_step "Service"
-        kubectl apply -f "$WORK_DIR/base/service.yaml"
-    fi
-    
-    # HPA
-    if [[ -f "$WORK_DIR/base/hpa.yaml" ]]; then
-        print_step "HorizontalPodAutoscaler"
-        kubectl apply -f "$WORK_DIR/base/hpa.yaml"
-    fi
-    
-    # Ingress (if enabled)
-    if [[ "${INGRESS_ENABLED}" == "true" ]] && [[ -f "$WORK_DIR/base/ingress.yaml" ]]; then
-        print_step "Ingress"
-        kubectl apply -f "$WORK_DIR/base/ingress.yaml"
+
+    local apply_target
+    if [[ -d "$work_overlay" ]]; then
+        apply_target="$work_overlay"
+        print_step "Applying overlay: $environment"
     else
-        echo -e "  ${DIM}${BLUE}▸${RESET} ${DIM}Ingress (disabled or not found)${RESET}"
+        apply_target="$WORK_DIR/base"
+        print_step "Applying base (no overlay)"
     fi
-    
-    echo ""
+
+    kubectl apply -k "$apply_target"
+
     print_divider
-    
+
     # Wait for deployment to be ready
     echo "⏳ Waiting for Deployment to be Ready"
     if kubectl rollout status deployment/"$APP_NAME" -n "$NAMESPACE" --timeout=300s; then
@@ -490,12 +513,12 @@ deploy_kubernetes() {
         kubectl get events -n "$NAMESPACE" --sort-by='.lastTimestamp' | tail -20 || true
         exit 1
     fi
-    
+
     print_success "Kubernetes deployment completed successfully!"
-    
+
     print_divider
-    
-    # Display deployment information
+
+    # Display deployment status
     echo "📊 Deployment Status"
     echo ""
     echo -e "${BOLD}${CYAN}Deployments:${RESET}"
@@ -506,22 +529,21 @@ deploy_kubernetes() {
     echo ""
     echo -e "${BOLD}${CYAN}Pods:${RESET}"
     kubectl get pods -n "$NAMESPACE" -o wide
-    
+
     print_divider
-    
-    # Show access information based on distribution
+
+    # Show access information
     echo ""
     echo "╔════════════════════════════════════════════════════════════════════════════╗"
     echo "║                      🌐  APPLICATION ACCESS INFORMATION                    ║"
     echo "╚════════════════════════════════════════════════════════════════════════════╝"
     echo ""
-    
+
     echo -e "${BOLD}${GREEN}Kubernetes Distribution: $K8S_DISTRIBUTION${RESET}"
     echo ""
-    
-    # Get application URL
+
     local app_url=$(get_access_url "${APP_NAME}-service" "$NAMESPACE")
-    
+
     case "$app_url" in
         port-forward-required)
             echo "  ┌────────────────────────────────────────────────────────────────────────┐"
@@ -563,7 +585,7 @@ deploy_kubernetes() {
             echo "  └────────────────────────────────────────────────────────────────────────┘"
             ;;
     esac
-    
+
     if [[ "${INGRESS_ENABLED}" == "true" ]]; then
         echo ""
         echo "  ┌────────────────────────────────────────────────────────────────────────┐"
@@ -573,8 +595,7 @@ deploy_kubernetes() {
         echo "  │     👉  http://${INGRESS_HOST}"
         echo "  │                                                                        │"
         echo "  └────────────────────────────────────────────────────────────────────────┘"
-        
-        # Add /etc/hosts hint for local environments
+
         if [[ "$K8S_DISTRIBUTION" == "minikube" ]] || [[ "$K8S_DISTRIBUTION" == "kind" ]] || [[ "$K8S_DISTRIBUTION" == "k3s" ]]; then
             echo ""
             case "$K8S_DISTRIBUTION" in
@@ -615,13 +636,10 @@ deploy_kubernetes() {
             esac
         fi
     fi
-    
     print_divider
 }
 
 # SCRIPT EXECUTION
-# Allow script to be sourced (for run.sh) or executed directly (for CI/CD)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # Script is being executed directly
     deploy_kubernetes "${1:-local}"
 fi
