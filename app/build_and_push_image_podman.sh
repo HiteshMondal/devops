@@ -20,7 +20,7 @@ else
 fi
 
 # Validate required variables
-: "${APP_NAME:?Set APP_NAME in .env}"
+: "${APP_NAME:=devops-app}"
 : "${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME in .env}"
 : "${DOCKER_IMAGE_TAG:?Set DOCKER_IMAGE_TAG in .env}"
 

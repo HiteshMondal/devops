@@ -3,13 +3,13 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ${APP_NAME}
-  namespace: ${NAMESPACE}
+  name: devops-app
+  namespace: devops-app
   labels:
-    app: ${APP_NAME}
+    app: devops-app
     version: v1
 spec:
-  replicas: ${REPLICAS}
+  replicas: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -17,15 +17,15 @@ spec:
       maxUnavailable: 0
   selector:
     matchLabels:
-      app: ${APP_NAME}
+      app: devops-app
   template:
     metadata:
       labels:
-        app: ${APP_NAME}
+        app: devops-app
         version: v1
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "${APP_PORT}"
+        prometheus.io/port: "3000"
         prometheus.io/path: "/metrics"
         prometheus.io/scheme: "http"
     spec:
@@ -35,81 +35,81 @@ spec:
         runAsUser: 1000
         fsGroup: 1000
       containers:
-      - name: ${APP_NAME}
-        image: ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}
+      - name: devops-app
+        image: hiteshmondaldocker/devops-app:latest
         imagePullPolicy: Always
         ports:
         - name: http
-          containerPort: ${APP_PORT}
+          containerPort: 3000
           protocol: TCP
         env:
         - name: APP_NAME
           valueFrom:
             configMapKeyRef:
-              name: ${APP_NAME}-config
+              name: devops-app-config
               key: APP_NAME
         - name: APP_PORT
           valueFrom:
             configMapKeyRef:
-              name: ${APP_NAME}-config
+              name: devops-app-config
               key: APP_PORT
         - name: NODE_ENV
           valueFrom:
             configMapKeyRef:
-              name: ${APP_NAME}-config
+              name: devops-app-config
               key: NODE_ENV
         - name: LOG_LEVEL
           valueFrom:
             configMapKeyRef:
-              name: ${APP_NAME}-config
+              name: devops-app-config
               key: LOG_LEVEL
         - name: DB_HOST
           valueFrom:
             configMapKeyRef:
-              name: ${APP_NAME}-config
+              name: devops-app-config
               key: DB_HOST
         - name: DB_PORT
           valueFrom:
             configMapKeyRef:
-              name: ${APP_NAME}-config
+              name: devops-app-config
               key: DB_PORT
         - name: DB_NAME
           valueFrom:
             configMapKeyRef:
-              name: ${APP_NAME}-config
+              name: devops-app-config
               key: DB_NAME
         - name: DB_USERNAME
           valueFrom:
             secretKeyRef:
-              name: ${APP_NAME}-secrets
+              name: devops-app-secrets
               key: DB_USERNAME
         - name: DB_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: ${APP_NAME}-secrets
+              name: devops-app-secrets
               key: DB_PASSWORD
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:
-              name: ${APP_NAME}-secrets
+              name: devops-app-secrets
               key: JWT_SECRET
         - name: API_KEY
           valueFrom:
             secretKeyRef:
-              name: ${APP_NAME}-secrets
+              name: devops-app-secrets
               key: API_KEY
         - name: SESSION_SECRET
           valueFrom:
             secretKeyRef:
-              name: ${APP_NAME}-secrets
+              name: devops-app-secrets
               key: SESSION_SECRET
         resources:
           requests:
-            cpu: ${APP_CPU_REQUEST}
-            memory: ${APP_MEMORY_REQUEST}
+            cpu: 100m
+            memory: 128Mi
           limits:
-            cpu: ${APP_CPU_LIMIT}
-            memory: ${APP_MEMORY_LIMIT}
+            cpu: 500m
+            memory: 512Mi
         # SIMPLIFIED HEALTH CHECKS - Only enable if your app has these endpoints
         # Comment out these probes if your app doesn't have /health and /ready endpoints
         # livenessProbe:
@@ -160,7 +160,7 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: ${APP_NAME}-sa
-  namespace: ${NAMESPACE}
+  name: devops-app-sa
+  namespace: devops-app
   labels:
-    app: ${APP_NAME}
+    app: devops-app

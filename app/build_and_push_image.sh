@@ -9,7 +9,7 @@ build_and_push_image() {
 
   # Required
   : "${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}"
-  : "${APP_NAME:?APP_NAME is required}"
+  : "${APP_NAME:=devops-app}"
 
   # Optional
   IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo latest)}"
@@ -33,3 +33,4 @@ build_and_push_image() {
 
   echo "✅ Image pushed successfully: $IMAGE_NAME"
 }
+
