@@ -286,20 +286,30 @@ validate_required_vars() {
 }
 
 # KUSTOMIZE OVERLAY PATCHING
-# Injects runtime values (image, secrets, configmap data) into a working copy
-# of the overlay before applying. The Git-committed base files stay clean.
+# Replace deprecated patchesStrategicMerge with Kustomize v5 compatible syntax.
+#
+# Kustomize v5 (released May 2023) removed the `patchesStrategicMerge` field.
+# The script was appending patch file paths under `patchesStrategicMerge:` which Kustomize v5
+# rejects with: "json: cannot unmarshal string into Go struct field Kustomization.patches
+# of type types.Patch"
+#
+# Fix: Use the unified `patches:` field with `path:` key instead, which is valid in both
+# Kustomize v4 and v5:
+#
+#   patches:           ← unified field (v4+, required in v5)
+#     - path: foo.yaml ← path-based entry (auto-detects target from kind+name in the file)
+#
+# The existing inline patches in the overlay (with target: selectors) are unaffected —
+# they already use the correct `patches:` field format.
 patch_overlay_for_direct_mode() {
     local work_overlay_dir="$1"
     local environment="$2"
 
     print_subsection "Patching Overlay for Direct Mode (runtime values from .env)"
 
-    # ── Image patch ──────────────────────────────────────────────────────────
-    # Inject the correct DockerHub image + tag into the overlay kustomization
     local kustomization_file="$work_overlay_dir/kustomization.yaml"
 
-    # Replace the images block with actual values from .env
-    # Using python3 for reliable YAML manipulation (available everywhere)
+    # ── Image patch ──────────────────────────────────────────────────────────
     if command -v python3 >/dev/null 2>&1; then
         python3 - "$kustomization_file" "$DOCKERHUB_USERNAME" "$APP_NAME" "$DOCKER_IMAGE_TAG" <<'PYEOF'
 import sys, re
@@ -332,19 +342,21 @@ with open(filepath, 'w') as f:
 print(f"  Image set to: {new_image}:{image_tag}")
 PYEOF
     else
-        # Fallback: sed-based replacement
         sed -i "s|newName: devops-app|newName: ${DOCKERHUB_USERNAME}/${APP_NAME}|g" "$kustomization_file"
         sed -i "s|newTag: latest|newTag: ${DOCKER_IMAGE_TAG}|g" "$kustomization_file"
         print_info "Image set to: ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}"
     fi
 
     # ── ConfigMap patch ──────────────────────────────────────────────────────
-    # Write a patch file into the working overlay to override configmap values from .env
+    # namespace is required in Kustomize v5 path-based patches so Kustomize can
+    # uniquely identify the target resource. Without it, the match fails with:
+    # "no resource matches strategic merge patch ... [noNs]"
     cat > "$work_overlay_dir/configmap-patch.yaml" <<EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: devops-app-config
+  namespace: "${NAMESPACE}"
 data:
   APP_NAME: "${APP_NAME}"
   APP_PORT: "${APP_PORT}"
@@ -356,11 +368,13 @@ data:
 EOF
 
     # ── Secrets patch ────────────────────────────────────────────────────────
+    # Same namespace requirement applies here.
     cat > "$work_overlay_dir/secrets-patch.yaml" <<EOF
 apiVersion: v1
 kind: Secret
 metadata:
   name: devops-app-secrets
+  namespace: "${NAMESPACE}"
 type: Opaque
 stringData:
   DB_USERNAME: "${DB_USERNAME:-devops_user}"
@@ -370,11 +384,12 @@ stringData:
   SESSION_SECRET: "${SESSION_SECRET:-changeme-session-secret}"
 EOF
 
-    # NOTE: No namespace patch — namespace.yaml is not in base/kustomization.yaml resources.
-    # The namespace is created by `kubectl create namespace` before kustomize runs.
-    # Adding a namespace patch here would fail with "no matches for Id Namespace".
-
-    # ── Register the new patches in the working overlay kustomization ────────
+    # ── Register patches in the working overlay kustomization (Kustomize v5) ─
+    # FIX #2: Use `patches: - path:` syntax instead of the removed
+    # `patchesStrategicMerge` field. Both patch file entries are appended to
+    # the existing `patches:` block. Kustomize v5 auto-detects the target
+    # resource from the kind + metadata.name in each patch file, which is
+    # exactly equivalent to what patchesStrategicMerge did in v4.
     python3 - "$kustomization_file" <<'PYEOF'
 import sys
 
@@ -382,30 +397,45 @@ filepath = sys.argv[1]
 with open(filepath) as f:
     content = f.read()
 
-# Register configmap and secrets as patchesStrategicMerge (separate from patches: block).
-# IMPORTANT: Do NOT add these to the `patches:` block — that block uses inline patches
-# with `target:` selectors. Path-based entries in `patches:` without a `target:` cause
-# kustomize to error with "no matches for Id Namespace..." because it can't auto-detect
-# the target resource. patchesStrategicMerge auto-detects the target from kind+name
-# in the patch file, which is exactly what we need for full-resource patch files.
+# Path-based patches to register using Kustomize v5 `patches: - path:` syntax.
+# These use strategic merge patch semantics (Kustomize auto-detects from kind+name).
 patches_to_add = [
     'configmap-patch.yaml',
     'secrets-patch.yaml',
 ]
 
+# Remove any legacy patchesStrategicMerge entries if present (defensive cleanup
+# in case this script runs on a working copy that was previously patched with v4 syntax).
+import re
+content = re.sub(
+    r'^patchesStrategicMerge:.*?(?=^\S|\Z)',
+    '',
+    content,
+    flags=re.MULTILINE | re.DOTALL
+)
+
 for patch in patches_to_add:
-    if patch not in content:
-        if 'patchesStrategicMerge:' in content:
-            content = content.replace(
-                'patchesStrategicMerge:',
-                f'patchesStrategicMerge:\n  - {patch}'
-            )
-        else:
-            # Add as a new patchesStrategicMerge section at the end
-            content += f'patchesStrategicMerge:\n  - {patch}\n'
+    # Skip if this path entry is already present in the patches block
+    if f'path: {patch}' in content:
+        continue
+
+    if 'patches:' in content:
+        # Append a new path-based entry to the existing patches: block.
+        # Insert immediately after the `patches:` line so it sits at the
+        # top of the list (order doesn't matter for strategic merge patches).
+        content = content.replace(
+            'patches:',
+            f'patches:\n  - path: {patch}',
+            1  # only replace the first occurrence
+        )
+    else:
+        # No patches block exists yet — create one at the end of the file.
+        content += f'\npatches:\n  - path: {patch}\n'
 
 with open(filepath, 'w') as f:
     f.write(content)
+
+print("  Registered configmap-patch.yaml and secrets-patch.yaml in patches: block")
 PYEOF
 
     print_success "Overlay patched with runtime values from .env"

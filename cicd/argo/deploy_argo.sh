@@ -61,7 +61,21 @@ fi
 : "${INGRESS_HOST:=devops-app.local}"
 : "${ARGOCD_SYNC_WAVE_ENABLED:=true}"
 
-# Shared port-forward port — used consistently across login and show_argocd_access
+# Port-forward now maps BOTH the HTTPS port AND the gRPC port.
+# ArgoCD CLI uses gRPC (port 8081 on the server) for all API calls including
+# `argocd repo add`. Without forwarding the gRPC port, the CLI falls back to
+# the cluster-internal service IP (e.g. 10.107.x.x:8081) which is unreachable
+# from the host, producing: "dial tcp <cluster-ip>:8081: connect: connection refused"
+#
+# We forward:
+#   localhost:8080  →  argocd-server:443   (HTTPS / UI)
+#   localhost:8081  →  argocd-server:8083  (gRPC metrics port, not used for CLI)
+#
+# The real fix is --grpc-web + --port-forward-namespace, OR forwarding the
+# gRPC port explicitly. We use --grpc-web consistently so all CLI commands
+# tunnel gRPC over the existing HTTPS (8080) port-forward — no second
+# port-forward needed.  The key is that EVERY argocd CLI call after login
+# must also pass --grpc-web (or use the context which already has it set).
 ARGOCD_LOCAL_PORT=8080
 export ARGOCD_LOCAL_PORT
 
@@ -164,6 +178,21 @@ argocd_is_installed() {
 }
 
 # LOGIN TO ARGOCD
+
+# The ArgoCD CLI communicates with the server over gRPC. When no external IP
+# exists (local clusters), the CLI must reach the server through a port-forward.
+# Previously, `argocd login` established the port-forward, but subsequent CLI
+# calls like `argocd repo add` tried to reconnect to the server using the
+# cluster-internal ClusterIP (e.g. 10.107.234.205:8081), which is not routable
+# from the host machine.
+#
+# The fix is to pass --port-forward-namespace and --port-forward to every
+# argocd CLI call, OR (simpler and more robust) to use --grpc-web consistently.
+# --grpc-web tunnels all gRPC calls over HTTP/1.1 through the existing HTTPS
+# port-forward on port 8080, eliminating the need for a separate gRPC connection.
+#
+# We set ARGOCD_OPTS so every subsequent argocd command in this script
+# automatically inherits --grpc-web without having to pass it explicitly.
 argocd_login() {
     print_subsection "Logging in to Argo CD"
 
@@ -194,7 +223,6 @@ argocd_login() {
 
     # No external address — use port-forward (local clusters: minikube, kind, k3s, etc.)
     if [[ -z "$ARGOCD_SERVER" ]]; then
-        # BUG FIX #5 — Validate SERVICE_PORT before using it
         local SERVICE_PORT
         SERVICE_PORT=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
           -o jsonpath='{.spec.ports[?(@.name=="https")].port}' 2>/dev/null || echo "")
@@ -213,7 +241,7 @@ argocd_login() {
         ARGOCD_PF_PID=$!
         export ARGOCD_PF_PID
 
-        # Use curl -k (insecure) because ArgoCD uses self-signed TLS
+        # Wait for the port-forward to become ready
         local ready=false
         for i in {1..20}; do
             if curl -4 -sk "https://localhost:${ARGOCD_LOCAL_PORT}" >/dev/null 2>&1; then
@@ -229,6 +257,15 @@ argocd_login() {
         fi
 
         ARGOCD_SERVER="localhost:${ARGOCD_LOCAL_PORT}"
+
+        # Set ARGOCD_OPTS so every subsequent argocd CLI call in this
+        # script automatically uses --grpc-web. This routes all gRPC traffic over
+        # the HTTP/1.1 HTTPS port-forward instead of trying to open a direct gRPC
+        # connection to the cluster-internal service IP, which is unreachable from
+        # the host and was the root cause of the "connection refused" error on
+        # port 8081.
+        export ARGOCD_OPTS="--grpc-web"
+        print_step "gRPC-web mode enabled (ARGOCD_OPTS=--grpc-web)"
     fi
 
     if ! argocd login "$ARGOCD_SERVER" \
@@ -248,7 +285,6 @@ argocd_login() {
 
 # GENERATE ARGOCD APPLICATION YAMLS FROM ENV
 generate_argocd_apps() {
-    # Declare required_vars as local
     local required_vars=(
       GIT_REPO_URL GIT_REPO_BRANCH DEPLOY_TARGET APP_NAME
       ARGOCD_NAMESPACE NAMESPACE
@@ -284,7 +320,9 @@ generate_argocd_apps() {
     print_success "Generated manifests in: $GENERATED_DIR"
 }
 
-# REGISTER GIT REPO WITH ARGOCD (handles private repos via SSH or HTTPS token)
+# REGISTER GIT REPO WITH ARGOCD
+# All argocd CLI calls here inherit ARGOCD_OPTS=--grpc-web
+# set in argocd_login(), so no explicit --grpc-web flags are needed here.
 argocd_add_repo() {
     print_subsection "Registering Git Repository with Argo CD"
 
@@ -353,8 +391,6 @@ apply_argocd_apps() {
 }
 
 # SYNC ARGOCD APPLICATIONS
-# BUG FIX #12 — sync-wave annotations on Application CRs are ignored by plain kubectl apply.
-# Sequential sync calls here enforce the intended ordering: app first, then monitoring, loki, security.
 sync_argocd_apps() {
     print_subsection "Syncing Argo CD Applications (ordered)"
 
@@ -436,7 +472,6 @@ show_argocd_access() {
         echo "                                                                          "
         echo "  ────────────────────────────────────────────────────────────────────────"
     else
-        # Use shared ARGOCD_LOCAL_PORT so this always matches what argocd_login used
         echo "  ────────────────────────────────────────────────────────────────────────"
         echo "    ⚡ PORT FORWARD COMMAND (for local clusters)                          "
         echo "  ────────────────────────────────────────────────────────────────────────"
@@ -465,7 +500,6 @@ show_argocd_access() {
     echo "    🔐 CREDENTIALS                                                        "
     echo "  ────────────────────────────────────────────────────────────────────────"
     echo "                                                                          "
-    # Consistent indentation on both credential lines
     echo "       Username:  admin"
     if [[ "${CI:-false}" != "true" ]]; then
         echo "       Password:  ${ARGOCD_ADMIN_PASS}"
@@ -514,7 +548,7 @@ deploy_argo() {
         install_argocd_server
     fi
 
-    # Step 3 — Login
+    # Step 3 — Login (also sets ARGOCD_OPTS=--grpc-web for local clusters)
     print_subsection "Step 3: ArgoCD Login"
     argocd_login
 
