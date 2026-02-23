@@ -4,10 +4,21 @@
 
 set -euo pipefail
 
-# ── Resolve PROJECT_ROOT ──────────────────────────────────────────────────────
-if [[ -z "${PROJECT_ROOT:-}" ]]; then
-    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# ── SAFETY: must not be sourced ──────────────────────────────────────────────
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    echo "ERROR: This script must be executed, not sourced"
+    return 1 2>/dev/null || exit 1
 fi
+
+# ── Resolve PROJECT_ROOT ONCE ────────────────────────────────────────────────
+if [[ -z "${PROJECT_ROOT:-}" ]]; then
+    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+fi
+
+# ── FREEZE PROJECT_ROOT (CRITICAL) ───────────────────────────────────────────
+readonly PROJECT_ROOT
+
+# ── Now it is safe to source libraries ───────────────────────────────────────
 source "${PROJECT_ROOT}/lib/bootstrap.sh"
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
@@ -47,9 +58,6 @@ if [[ "${CI:-false}" == "true" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ -n "${
 else
     CI_MODE=false
 fi
-[[ -n "${GITHUB_WORKSPACE:-}" ]]  && PROJECT_ROOT="${GITHUB_WORKSPACE}"
-[[ -n "${CI_PROJECT_DIR:-}" ]]    && PROJECT_ROOT="${CI_PROJECT_DIR}"
-export PROJECT_ROOT
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  KUBERNETES DISTRIBUTION DETECTION
@@ -318,10 +326,26 @@ deploy_monitoring() {
     setup_helm
     deploy_node_exporter
 
-    # ── Working directory ────────────────────────────────────────────────────
-    WORK_DIR="/tmp/monitoring-deployment-$$"
-    mkdir -p "$WORK_DIR/monitoring" "$WORK_DIR/prometheus" "$WORK_DIR/kube-state-metrics"
-    trap "rm -rf $WORK_DIR" EXIT
+    # ── Working directory (SAFE) ─────────────────────────────────────────────
+    WORK_DIR="$(mktemp -d /tmp/monitoring-deployment.XXXXXX)"
+    readonly WORK_DIR
+
+    mkdir -p \
+      "$WORK_DIR/monitoring" \
+      "$WORK_DIR/prometheus" \
+      "$WORK_DIR/kube-state-metrics"
+
+    cleanup_workdir() {
+        [[ -n "${WORK_DIR:-}" ]] || return
+        [[ "$WORK_DIR" == /tmp/monitoring-deployment.* ]] || return
+        [[ -d "$WORK_DIR" ]] || return
+        rm -rf -- "$WORK_DIR"
+    }
+
+    # Only clean up when executed directly, NEVER when sourced
+    if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+        trap cleanup_workdir EXIT
+    fi
 
     print_subsection "Preparing Manifests"
 

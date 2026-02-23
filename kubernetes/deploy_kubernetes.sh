@@ -10,10 +10,21 @@
 
 set -euo pipefail
 
-# ── Resolve PROJECT_ROOT ──────────────────────────────────────────────────────
-if [[ -z "${PROJECT_ROOT:-}" ]]; then
-    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# ── SAFETY: must not be sourced ──────────────────────────────────────────────
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    echo "ERROR: This script must be executed, not sourced"
+    return 1 2>/dev/null || exit 1
 fi
+
+# ── Resolve PROJECT_ROOT ONCE ────────────────────────────────────────────────
+if [[ -z "${PROJECT_ROOT:-}" ]]; then
+    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+fi
+
+# ── FREEZE PROJECT_ROOT (CRITICAL) ───────────────────────────────────────────
+readonly PROJECT_ROOT
+
+# ── Now it is safe to source libraries ───────────────────────────────────────
 source "${PROJECT_ROOT}/lib/bootstrap.sh"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -152,13 +163,6 @@ if [[ "${CI:-false}" == "true" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ -n "${
 else
     CI_MODE=false
 fi
-
-if [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
-    PROJECT_ROOT="${GITHUB_WORKSPACE}"
-elif [[ -n "${CI_PROJECT_DIR:-}" ]]; then
-    PROJECT_ROOT="${CI_PROJECT_DIR}"
-fi
-export PROJECT_ROOT
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  VALIDATE REQUIRED VARS
@@ -331,10 +335,20 @@ deploy_kubernetes() {
 
     export REPLICAS MIN_REPLICAS MAX_REPLICAS INGRESS_ENABLED INGRESS_HOST INGRESS_CLASS PROMETHEUS_NAMESPACE
 
-    # ── Working directory ────────────────────────────────────────────────────
-    WORK_DIR="/tmp/k8s-deployment-$$"
-    mkdir -p "$WORK_DIR"
-    trap "rm -rf $WORK_DIR" EXIT
+    # ── Working directory (SAFE) ─────────────────────────────────────────────
+    WORK_DIR="$(mktemp -d /tmp/k8s-deployment.XXXXXX)"
+    readonly WORK_DIR
+
+    cleanup_workdir() {
+        [[ -n "${WORK_DIR:-}" ]] || return
+        [[ "$WORK_DIR" == /tmp/k8s-deployment.* ]] || return
+        [[ -d "$WORK_DIR" ]] || return
+        rm -rf -- "$WORK_DIR"
+    }
+
+    if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+        trap cleanup_workdir EXIT
+    fi
 
     print_subsection "Preparing Manifests"
     require_dir "$PROJECT_ROOT/kubernetes/base" "kubernetes/base directory not found"

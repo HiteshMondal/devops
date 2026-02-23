@@ -6,28 +6,91 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-export PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export workdir="$PROJECT_ROOT"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly PROJECT_ROOT
+export PROJECT_ROOT
+
+# NEVER alias workdir to project root
+WORKDIR="/tmp/devops-run-${UID}"
+mkdir -p "$WORKDIR"
+readonly WORKDIR
+export WORKDIR
+
 cd "$PROJECT_ROOT"
 
-#  LOAD SHARED LIBRARIES & DEPLOYMENT SCRIPTS
-load_scripts() {
+# Absolute safety guard
+if [[ "$PROJECT_ROOT" == "/" || "$PROJECT_ROOT" == "$HOME" || "$PROJECT_ROOT" == "/home/$USER" ]]; then
+    echo "FATAL: PROJECT_ROOT resolves to an unsafe path: $PROJECT_ROOT"
+    exit 99
+fi
+# ─────────────────────────────────────────────────────────────────────────────
+# LOAD SHARED LIBRARIES (SAFE TO SOURCE)
+# ─────────────────────────────────────────────────────────────────────────────
+
+load_libraries() {
+    # Defensive checks
+    [[ -n "${PROJECT_ROOT:-}" ]] || {
+        echo "FATAL: PROJECT_ROOT not set"
+        exit 1
+    }
+
+    # Pure libraries only — NO side effects allowed
     source "$PROJECT_ROOT/lib/colors.sh"
     source "$PROJECT_ROOT/lib/logging.sh"
     source "$PROJECT_ROOT/lib/guards.sh"
-    source "$PROJECT_ROOT/app/build_and_push_image.sh"
-    source "$PROJECT_ROOT/app/build_and_push_image_podman.sh"
-    source "$PROJECT_ROOT/app/configure_dockerhub_username.sh"
-    source "$PROJECT_ROOT/kubernetes/deploy_kubernetes.sh"
-    source "$PROJECT_ROOT/monitoring/deploy_monitoring.sh"
-    source "$PROJECT_ROOT/monitoring/deploy_loki.sh"
-    source "$PROJECT_ROOT/infra/deploy_infra.sh"
-    source "$PROJECT_ROOT/Security/security.sh"
-    source "$PROJECT_ROOT/cicd/github/configure_git_github.sh"
-    source "$PROJECT_ROOT/cicd/gitlab/configure_gitlab.sh"
-    source "$PROJECT_ROOT/cicd/argo/deploy_argo.sh"
 }
-load_scripts
+
+load_libraries
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ACTION SCRIPT RUNNERS (ISOLATED EXECUTION)
+# Each runs in its OWN process — no variable / trap leakage
+# ─────────────────────────────────────────────────────────────────────────────
+
+deploy_kubernetes() {
+    "$PROJECT_ROOT/kubernetes/deploy_kubernetes.sh" "$@"
+}
+
+deploy_monitoring() {
+    "$PROJECT_ROOT/monitoring/deploy_monitoring.sh"
+}
+
+deploy_loki() {
+    "$PROJECT_ROOT/monitoring/deploy_loki.sh"
+}
+
+security() {
+    "$PROJECT_ROOT/Security/security.sh"
+}
+
+deploy_infra() {
+    "$PROJECT_ROOT/infra/deploy_infra.sh"
+}
+
+deploy_argo() {
+    "$PROJECT_ROOT/cicd/argo/deploy_argo.sh"
+}
+
+configure_git_github() {
+    "$PROJECT_ROOT/cicd/github/configure_git_github.sh"
+}
+
+configure_gitlab() {
+    "$PROJECT_ROOT/cicd/gitlab/configure_gitlab.sh"
+}
+
+build_and_push_image() {
+    "$PROJECT_ROOT/app/build_and_push_image.sh"
+}
+
+build_and_push_image_podman() {
+    "$PROJECT_ROOT/app/build_and_push_image_podman.sh"
+}
+
+configure_dockerhub_username() {
+    "$PROJECT_ROOT/app/configure_dockerhub_username.sh"
+}
 
 print_section "DevOps Project — Deployment Runner" "🚀"
 print_kv "Project Root" "${PROJECT_ROOT}"

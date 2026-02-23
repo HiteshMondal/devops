@@ -4,14 +4,22 @@
 
 set -euo pipefail
 
-# ── Bootstrap ─────────────────────────────────────────────────────────────────
-if [[ -z "${PROJECT_ROOT:-}" ]]; then
-    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# ── SAFETY: must not be sourced ──────────────────────────────────────────────
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    echo "ERROR: This script must be executed, not sourced"
+    return 1 2>/dev/null || exit 1
 fi
 
-if [[ -z "${APP_NAME:-}" ]]; then
-    ENV_FILE="$PROJECT_ROOT/.env"
-    [[ -f "$ENV_FILE" ]] && { set -a; source "$ENV_FILE"; set +a; }
+# ── Resolve PROJECT_ROOT once ────────────────────────────────────────────────
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+readonly PROJECT_ROOT
+
+# ── Load env safely ──────────────────────────────────────────────────────────
+ENV_FILE="$PROJECT_ROOT/.env"
+if [[ -f "$ENV_FILE" ]]; then
+    set -a
+    source "$ENV_FILE"
+    set +a
 fi
 
 source "$PROJECT_ROOT/lib/bootstrap.sh"
