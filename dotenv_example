@@ -13,31 +13,6 @@
 
 
 ################################################################################
-# CORE PROJECT CONFIGURATION (REQUIRED)
-# All variables in this section MUST be reviewed and updated
-################################################################################
-
-# Deployment target environment
-#   local — local Kubernetes (minikube, kind, k3s, etc.)
-#   prod  — production (EKS / cloud)
-DEPLOY_TARGET=local
-
-# Deployment mode
-#   argocd — GitOps via Argo CD (recommended for prod)
-#   direct — Direct kubectl apply via run.sh
-DEPLOY_MODE=direct
-
-# Build and push Docker images to DockerHub
-BUILD_PUSH=false
-
-# CI mode (used internally by scripts)
-CI=false
-
-# Dry-run mode (prints actions without executing)
-DRY_RUN=false
-
-
-################################################################################
 # APPLICATION CONFIGURATION
 ################################################################################
 

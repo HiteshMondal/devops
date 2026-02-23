@@ -4,30 +4,11 @@
 # Description: Guides the user to commit code and register a GitLab Runner
 # ============================================================================
 
-# COLOR DEFINITIONS - Optimized for both light and dark terminals
-if [[ -t 1 ]]; then
-    BOLD='\033[1m'
-    DIM='\033[2m'
-    RESET='\033[0m'
-    
-    BLUE='\033[38;5;33m'      
-    GREEN='\033[38;5;34m'     
-    YELLOW='\033[38;5;214m'   
-    RED='\033[38;5;196m'      
-    CYAN='\033[38;5;51m'      
-    MAGENTA='\033[38;5;201m'  
-    
-    # Special formatting
-    LINK='\033[4;38;5;75m'    # Underlined bright blue for URLs
-else
-    BOLD=''; DIM=''; RESET=''
-    BLUE=''; GREEN=''; YELLOW=''; RED=''; CYAN=''; MAGENTA=''
-    LINK=''
+# Resolve PROJECT_ROOT only if not already defined
+if [[ -z "${PROJECT_ROOT:-}" ]]; then
+    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fi
-
-echo_separator() {
-    echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-}
+source "${PROJECT_ROOT}/lib/bootstrap.sh"
 
 configure_gitlab () {
     echo ""

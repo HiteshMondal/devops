@@ -1,19 +1,88 @@
 #!/bin/bash
 
-echo "============================================================================"
-echo "DevOps Project Deployment Runner"
-echo "============================================================================"
-echo "Usage: ./run.sh"
-echo "Description: Orchestrates deployment to any Kubernetes cluster via Argo CD"
-echo "Supported: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s"
-echo "Requirements: .env file configured with DEPLOY_TARGET"
-echo "============================================================================"
-
 set -euo pipefail
 IFS=$'\n\t'
 
 export PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
+
+# LOAD DEPLOYMENT SCRIPTS
+load_scripts() {
+    # Shared libraries (ALWAYS FIRST)
+    source "$PROJECT_ROOT/lib/colors.sh"
+    source "$PROJECT_ROOT/lib/logging.sh"
+    source "$PROJECT_ROOT/lib/guards.sh"
+    # Application & platform scripts
+    source "$PROJECT_ROOT/app/build_and_push_image.sh"
+    source "$PROJECT_ROOT/app/build_and_push_image_podman.sh"
+    source "$PROJECT_ROOT/app/configure_dockerhub_username.sh"
+    source "$PROJECT_ROOT/kubernetes/deploy_kubernetes.sh"
+    source "$PROJECT_ROOT/monitoring/deploy_monitoring.sh"
+    source "$PROJECT_ROOT/monitoring/deploy_loki.sh"
+    source "$PROJECT_ROOT/infra/deploy_infra.sh"
+    source "$PROJECT_ROOT/Security/security.sh"
+    source "$PROJECT_ROOT/cicd/github/configure_git_github.sh"
+    source "$PROJECT_ROOT/cicd/gitlab/configure_gitlab.sh"
+    source "$PROJECT_ROOT/cicd/argo/deploy_argo.sh"
+}
+load_scripts
+
+print_divider
+print_subsection "DevOps Project Deployment Runner"
+print_info "Usage: ./run.sh"
+print_info "Description: Orchestrates deployment to any Kubernetes cluster via Argo CD"
+print_info "Supported: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s"
+print_info "Requirements: .env file configured with DEPLOY_TARGET"
+print_divider
+
+is_interactive() {
+    [[ -t 0 && -z "${CI:-}" ]]
+}
+
+ask_choice() {
+    local var_name="$1"
+    local prompt="$2"
+    local default="$3"
+    shift 3
+    local options=("$@")
+
+    local input
+    while true; do
+        echo ""
+        echo "$prompt"
+        echo "Options: ${options[*]}"
+        read -rp "Enter choice [$default]: " input
+        input="${input:-$default}"
+
+        for opt in "${options[@]}"; do
+            if [[ "$input" == "$opt" ]]; then
+                export "$var_name=$input"
+                return
+            fi
+        done
+
+        echo "❌ Invalid option. Please choose from: ${options[*]}"
+    done
+}
+
+ask_bool() {
+    local var_name="$1"
+    local prompt="$2"
+    local default="$3"
+
+    local input
+    while true; do
+        read -rp "$prompt (true/false) [$default]: " input
+        input="${input:-$default}"
+
+        if [[ "$input" == "true" || "$input" == "false" ]]; then
+            export "$var_name=$input"
+            return
+        fi
+
+        echo "❌ Please enter true or false"
+    done
+}
 
 # CONFIGURATION & INITIALIZATION
 
@@ -65,13 +134,45 @@ else
     exit 1
 fi
 
+# INTERACTIVE DEPLOYMENT OPTIONS
+
+if is_interactive; then
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════"
+    echo "🧭 Deployment Configuration"
+    echo "════════════════════════════════════════════════════════════════════════════"
+
+    ask_choice DEPLOY_TARGET \
+        "Select deployment target environment" \
+        "${DEPLOY_TARGET:-local}" \
+        local prod
+
+    ask_choice DEPLOY_MODE \
+        "Select deployment mode" \
+        "${DEPLOY_MODE:-direct}" \
+        argocd direct
+
+    ask_bool BUILD_PUSH \
+        "Build and push Docker image to registry?" \
+        "${BUILD_PUSH:-false}"
+
+    ask_bool DRY_RUN \
+        "Enable dry-run mode?" \
+        "${DRY_RUN:-false}"
+
+    export CI=false
+else
+    echo "🤖 Non-interactive / CI mode detected — skipping prompts"
+fi
+
 # Verify passwordless sudo
-echo "⚠️  Some steps may require sudo privileges"
-if ! sudo -n true 2>/dev/null; then
-    echo "❌ Passwordless sudo required."
-    echo "   Run: sudo visudo"
-    echo "   Add: $USER ALL=(ALL) NOPASSWD: /usr/bin/docker, /usr/bin/kubectl"
-    exit 1
+print_warn "Some steps may require sudo privileges"
+if command -v sudo >/dev/null 2>&1; then
+    if ! sudo -n true 2>/dev/null; then
+        print_error "Passwordless sudo required"
+        print_info "Add: $USER ALL=(ALL) NOPASSWD: /usr/bin/docker, /usr/bin/kubectl"
+        exit 1
+    fi
 fi
 
 # Check prerequisites
@@ -157,24 +258,6 @@ detect_k8s_cluster() {
     local nodes=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
     echo "   Nodes: $nodes"
 }
-
-# LOAD DEPLOYMENT SCRIPTS
-
-load_scripts() {
-    source "$PROJECT_ROOT/app/build_and_push_image.sh"
-    source "$PROJECT_ROOT/app/configure_dockerhub_username.sh"
-    source "$PROJECT_ROOT/kubernetes/deploy_kubernetes.sh"
-    source "$PROJECT_ROOT/monitoring/deploy_monitoring.sh"
-    source "$PROJECT_ROOT/cicd/github/configure_git_github.sh"
-    source "$PROJECT_ROOT/cicd/gitlab/configure_gitlab.sh"
-    source "$PROJECT_ROOT/app/build_and_push_image_podman.sh"
-    source "$PROJECT_ROOT/monitoring/deploy_loki.sh"
-    source "$PROJECT_ROOT/infra/deploy_infra.sh"
-    source "$PROJECT_ROOT/Security/security.sh"
-    source "$PROJECT_ROOT/cicd/argo/deploy_argo.sh"
-}
-
-load_scripts
 
 # Detect cluster
 detect_k8s_cluster

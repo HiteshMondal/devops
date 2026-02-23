@@ -6,32 +6,6 @@
 
 set -euo pipefail
 
-# COLOR DEFINITIONS
-if [[ -t 1 ]]; then
-    BOLD='\033[1m'
-    DIM='\033[2m'
-    RESET='\033[0m'
-    BLUE='\033[38;5;33m'
-    GREEN='\033[38;5;34m'
-    YELLOW='\033[38;5;214m'
-    RED='\033[38;5;196m'
-    CYAN='\033[38;5;51m'
-    MAGENTA='\033[38;5;201m'
-    LINK='\033[4;38;5;75m'
-else
-    BOLD=''; DIM=''; RESET=''
-    BLUE=''; GREEN=''; YELLOW=''; RED=''; CYAN=''; MAGENTA=''; LINK=''
-fi
-
-# HELPER FUNCTIONS
-print_subsection() { echo -e "\n${BOLD}${MAGENTA}▸ ${1}${RESET}\n${DIM}${MAGENTA}─────────────────────────────────────────────────────────────────────────────${RESET}"; }
-print_success()    { echo -e "${BOLD}${GREEN}✓${RESET} ${GREEN}$1${RESET}"; }
-print_info()       { echo -e "${BOLD}${CYAN}ℹ${RESET} ${CYAN}$1${RESET}"; }
-print_warning()    { echo -e "${BOLD}${YELLOW}⚠${RESET} ${YELLOW}$1${RESET}"; }
-print_error()      { echo -e "${BOLD}${RED}✗${RESET} ${RED}$1${RESET}"; }
-print_step()       { echo -e "  ${BOLD}${BLUE}▸${RESET} $1"; }
-print_divider()    { echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
-
 # RESOLVE PROJECT ROOT
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -46,6 +20,12 @@ if [[ -z "${APP_NAME:-}" ]]; then
         set +a
     fi
 fi
+
+# Resolve PROJECT_ROOT only if not already defined
+if [[ -z "${PROJECT_ROOT:-}" ]]; then
+    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+fi
+source "${PROJECT_ROOT}/lib/bootstrap.sh"
 
 # SET DEFAULTS
 : "${ARGOCD_NAMESPACE:=argocd}"

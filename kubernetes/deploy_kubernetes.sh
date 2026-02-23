@@ -11,70 +11,11 @@
 
 set -euo pipefail
 
-# COLOR DEFINITIONS - Optimized for both light and dark terminals
-if [[ -t 1 ]]; then
-    BOLD='\033[1m'
-    DIM='\033[2m'
-    RESET='\033[0m'
-
-    BLUE='\033[38;5;33m'
-    GREEN='\033[38;5;34m'
-    YELLOW='\033[38;5;214m'
-    RED='\033[38;5;196m'
-    CYAN='\033[38;5;51m'
-    MAGENTA='\033[38;5;201m'
-
-    BG_BLUE='\033[48;5;17m'
-    BG_GREEN='\033[48;5;22m'
-    BG_YELLOW='\033[48;5;58m'
-    BG_RED='\033[48;5;52m'
-
-    LINK='\033[4;38;5;75m'
-else
-    BOLD=''; DIM=''; RESET=''
-    BLUE=''; GREEN=''; YELLOW=''; RED=''; CYAN=''; MAGENTA=''
-    BG_BLUE=''; BG_GREEN=''; BG_YELLOW=''; BG_RED=''
-    LINK=''
+# Resolve PROJECT_ROOT only if not already defined
+if [[ -z "${PROJECT_ROOT:-}" ]]; then
+    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fi
-
-# VISUAL HELPER FUNCTIONS
-
-print_subsection() {
-    local text="$1"
-    echo -e ""
-    echo -e "${BOLD}${MAGENTA}▸ ${text}${RESET}"
-    echo -e "${DIM}${MAGENTA}─────────────────────────────────────────────────────────────────────────────${RESET}"
-}
-
-print_success() {
-    echo -e "${BOLD}${GREEN}✓${RESET} ${GREEN}$1${RESET}"
-}
-
-print_info() {
-    echo -e "${BOLD}${CYAN}ℹ${RESET} ${CYAN}$1${RESET}"
-}
-
-print_warning() {
-    echo -e "${BOLD}${YELLOW}⚠${RESET} ${YELLOW}$1${RESET}"
-}
-
-print_error() {
-    echo -e "${BOLD}${RED}✗${RESET} ${RED}$1${RESET}"
-}
-
-print_step() {
-    echo -e "  ${BOLD}${BLUE}▸${RESET} $1"
-}
-
-print_url() {
-    local label="$1"
-    local url="$2"
-    echo -e "  ${BOLD}${label}${RESET} ${LINK}${url}${RESET}"
-}
-
-print_divider() {
-    echo -e "${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-}
+source "${PROJECT_ROOT}/lib/bootstrap.sh"
 
 # KUBERNETES DISTRIBUTION DETECTION
 

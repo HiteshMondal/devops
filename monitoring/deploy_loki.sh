@@ -1,29 +1,28 @@
-#!/bin/bash
-
+#!/usr/bin/env bash
 # monitoring/deploy_loki.sh - Deploy Loki log aggregation system
-# Usage: ./deploy_loki.sh or source it in deploy_monitoring.sh
+# Safe to source. Executable directly.
 
 set -euo pipefail
+IFS=$'\n\t'
 
-echo "📝 LOKI LOG AGGREGATION DEPLOYMENT"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
+# Bootstrap (NO OUTPUT HERE)
 # Determine PROJECT_ROOT
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fi
 
-# Load environment variables if not already loaded
+# Load shared libs if not already loaded
+for lib in colors logging guards; do
+    [[ -n "$(type -t print_info 2>/dev/null)" ]] && break
+    source "$PROJECT_ROOT/lib/${lib}.sh"
+done
+
+# Load env only if needed
 if [[ -z "${APP_NAME:-}" ]]; then
-    ENV_FILE="$PROJECT_ROOT/.env"
-    if [[ -f "$ENV_FILE" ]]; then
-        set -a
-        source "$ENV_FILE"
-        set +a
-    fi
+    [[ -f "$PROJECT_ROOT/.env" ]] && source "$PROJECT_ROOT/.env"
 fi
 
-# Set defaults for Loki
+# Defaults
 : "${LOKI_ENABLED:=true}"
 : "${LOKI_NAMESPACE:=loki}"
 : "${LOKI_VERSION:=2.9.3}"
@@ -35,196 +34,112 @@ fi
 : "${LOKI_MEMORY_REQUEST:=256Mi}"
 : "${LOKI_MEMORY_LIMIT:=1Gi}"
 
-export LOKI_ENABLED LOKI_NAMESPACE LOKI_VERSION LOKI_RETENTION_PERIOD
-export LOKI_STORAGE_SIZE LOKI_SERVICE_TYPE
-export LOKI_CPU_REQUEST LOKI_CPU_LIMIT LOKI_MEMORY_REQUEST LOKI_MEMORY_LIMIT
+export \
+  LOKI_ENABLED LOKI_NAMESPACE LOKI_VERSION LOKI_RETENTION_PERIOD \
+  LOKI_STORAGE_SIZE LOKI_SERVICE_TYPE \
+  LOKI_CPU_REQUEST LOKI_CPU_LIMIT \
+  LOKI_MEMORY_REQUEST LOKI_MEMORY_LIMIT
 
-# Detect Kubernetes distribution (if not already set)
+# Helpers
 detect_k8s_distribution() {
-    if [[ -n "${K8S_DISTRIBUTION:-}" ]]; then
-        return 0
-    fi
-    
-    local k8s_dist="unknown"
-    
-    if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
-        k8s_dist="minikube"
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"eks.amazonaws.com"'; then
-        k8s_dist="eks"
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"cloud.google.com/gke"'; then
-        k8s_dist="gke"
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"kubernetes.azure.com"'; then
-        k8s_dist="aks"
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"k3s.io"'; then
-        k8s_dist="k3s"
+    [[ -n "${K8S_DISTRIBUTION:-}" ]] && return 0
+
+    if kubectl get nodes -o json | grep -q '"minikube.k8s.io/version"'; then
+        K8S_DISTRIBUTION=minikube
+    elif kubectl get nodes -o json | grep -q '"eks.amazonaws.com"'; then
+        K8S_DISTRIBUTION=eks
+    elif kubectl get nodes -o json | grep -q '"cloud.google.com/gke"'; then
+        K8S_DISTRIBUTION=gke
+    elif kubectl get nodes -o json | grep -q '"kubernetes.azure.com"'; then
+        K8S_DISTRIBUTION=aks
+    elif kubectl get nodes -o json | grep -q '"k3s.io"'; then
+        K8S_DISTRIBUTION=k3s
     else
-        k8s_dist="kubernetes"
+        K8S_DISTRIBUTION=kubernetes
     fi
-    
-    export K8S_DISTRIBUTION="$k8s_dist"
+
+    export K8S_DISTRIBUTION
 }
 
-# Get Loki access URL
 get_loki_url() {
-    local service_name="loki"
-    local namespace="$LOKI_NAMESPACE"
-    local default_port="3100"
-    
-    case "${K8S_DISTRIBUTION}" in
+    local port=3100
+
+    case "$K8S_DISTRIBUTION" in
         minikube)
-            local minikube_ip=$(minikube ip 2>/dev/null || echo "localhost")
-            local node_port=$(kubectl get svc "$service_name" -n "$namespace" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-            if [[ -n "$node_port" ]]; then
-                echo "http://$minikube_ip:$node_port"
-            else
-                echo "port-forward:$default_port"
-            fi
-            ;;
-        eks|gke|aks)
-            echo "port-forward:$default_port"
+            local ip
+            ip=$(minikube ip 2>/dev/null || echo localhost)
+            local node_port
+            node_port=$(kubectl get svc loki -n "$LOKI_NAMESPACE" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || true)
+            [[ -n "$node_port" ]] && echo "http://$ip:$node_port" || echo "port-forward:$port"
             ;;
         *)
-            echo "port-forward:$default_port"
+            echo "port-forward:$port"
             ;;
     esac
 }
 
-# Main deployment function
+# Main
 deploy_loki() {
-    if [[ "${LOKI_ENABLED}" != "true" ]]; then
-        echo "⏭️  Skipping Loki deployment (LOKI_ENABLED=false)"
+    print_subsection "LOKI LOG AGGREGATION DEPLOYMENT"
+
+    if [[ "$LOKI_ENABLED" != "true" ]]; then
+        print_info "Skipping Loki deployment (LOKI_ENABLED=false)"
         return 0
     fi
-    
-    echo ""
-    echo "🔍 Detected Kubernetes Distribution"
+
     detect_k8s_distribution
-    echo "   Distribution: $K8S_DISTRIBUTION"
-    
-    # Create temporary working directory
-    LOKI_WORK_DIR="/tmp/loki-deployment-$$"
-    mkdir -p "$LOKI_WORK_DIR"
-    
-    # Setup cleanup trap
-    trap "rm -rf $LOKI_WORK_DIR" EXIT
-    
-    echo ""
-    echo "📋 Preparing Loki Manifests"
-    
-    # Copy Loki manifests
-    if [[ -f "$PROJECT_ROOT/monitoring/Loki/loki-deployment.yaml" ]]; then
-        cp "$PROJECT_ROOT/monitoring/Loki/loki-deployment.yaml" "$LOKI_WORK_DIR/"
-        echo "✓ Copied Loki deployment manifest"
-    else
-        echo "❌ Loki deployment manifest not found"
-        return 1
-    fi
-    
-    # Substitute environment variables
-    cd "$LOKI_WORK_DIR"
-    envsubst < loki-deployment.yaml > loki-deployment-processed.yaml
-    
-    echo ""
-    echo "📦 Creating Loki Namespace"
+    print_info "Kubernetes Distribution: $K8S_DISTRIBUTION"
+
+    local workdir="/tmp/loki-deploy-$$"
+    mkdir -p "$workdir"
+    trap 'rm -rf "$workdir"' EXIT
+
+    print_step "Preparing manifests"
+    cp "$PROJECT_ROOT/monitoring/Loki/loki-deployment.yaml" "$workdir/"
+
+    envsubst <"$workdir/loki-deployment.yaml" >"$workdir/loki.yaml"
+
+    print_step "Ensuring namespace $LOKI_NAMESPACE"
     kubectl create namespace "$LOKI_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-    echo "✓ Namespace ready: $LOKI_NAMESPACE"
-    
-    echo ""
-    echo "🚀 Deploying Loki Stack"
-    echo "   • Loki server"
-    echo "   • Promtail log collector (DaemonSet)"
-    echo ""
-    
-    kubectl apply -f loki-deployment-processed.yaml
-    
-    echo ""
-    echo "⏳ Waiting for Loki to be Ready"
-    if kubectl rollout status deployment/loki -n "$LOKI_NAMESPACE" --timeout=300s; then
-        echo "✅ Loki is ready!"
-    else
-        echo "⚠️  Loki deployment had issues"
-        kubectl get pods -n "$LOKI_NAMESPACE"
-        kubectl describe deployment/loki -n "$LOKI_NAMESPACE"
-    fi
-    
-    echo ""
-    echo "⏳ Waiting for Promtail to be Ready"
-    if kubectl rollout status daemonset/promtail -n "$LOKI_NAMESPACE" --timeout=120s; then
-        echo "✅ Promtail is ready!"
-    else
-        echo "⚠️  Promtail deployment had issues"
-        kubectl get pods -n "$LOKI_NAMESPACE" -l app=promtail
-    fi
-    
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "✅ Loki log aggregation deployed successfully!"
-    echo ""
-    echo "📊 Loki Components"
+
+    print_step "Deploying Loki & Promtail"
+    kubectl apply -f "$workdir/loki.yaml"
+
+    print_step "Waiting for Loki"
+    kubectl rollout status deployment/loki -n "$LOKI_NAMESPACE" --timeout=300s || print_warning "Loki rollout issues"
+
+    print_step "Waiting for Promtail"
+    kubectl rollout status daemonset/promtail -n "$LOKI_NAMESPACE" --timeout=120s || print_warning "Promtail rollout issues"
+
+    print_success "Loki deployed successfully"
+
+    print_divider
+    print_info "Loki resources"
     kubectl get all -n "$LOKI_NAMESPACE"
-    
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    echo "╔════════════════════════════════════════════════════════════════════════════╗"
-    echo "║                        🌐  LOKI ACCESS INFORMATION                         ║"
-    echo "╚════════════════════════════════════════════════════════════════════════════╝"
-    echo ""
-    
-    local loki_url=$(get_loki_url)
-    
-    if [[ "$loki_url" == port-forward:* ]]; then
-        local port="${loki_url#port-forward:}"
-        echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-        echo "  │  ⚡ PORT FORWARD COMMAND                                                │"
-        echo "  ├────────────────────────────────────────────────────────────────────────┤"
-        echo "  │                                                                        │"
-        echo "  │     \$ kubectl port-forward svc/loki $port:$port -n $LOKI_NAMESPACE    │"
-        echo "  │                                                                        │"
-        echo "  └────────────────────────────────────────────────────────────────────────┘"
-        echo ""
-        echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-        echo "  │  📝 LOKI URL (After Port Forward)                                      │"
-        echo "  ├────────────────────────────────────────────────────────────────────────┤"
-        echo "  │                                                                        │"
-        echo "  │     👉  http://localhost:$port"
-        echo "  │                                                                        │"
-        echo "  └────────────────────────────────────────────────────────────────────────┘"
+
+    print_divider
+    print_subsection "LOKI ACCESS INFORMATION"
+
+    local url
+    url=$(get_loki_url)
+
+    if [[ "$url" == port-forward:* ]]; then
+        local port="${url#port-forward:}"
+        print_info "Run:"
+        print_step "kubectl port-forward svc/loki $port:$port -n $LOKI_NAMESPACE"
+        print_target "http://localhost:$port"
     else
-        echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-        echo "  │  📝 LOKI URL                                                           │"
-        echo "  ├────────────────────────────────────────────────────────────────────────┤"
-        echo "  │                                                                        │"
-        echo "  │     👉  $loki_url"
-        echo "  │                                                                        │"
-        echo "  └────────────────────────────────────────────────────────────────────────┘"
+        print_target "$url"
     fi
-    
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    echo "╔════════════════════════════════════════════════════════════════════════════╗"
-    echo "║                    📋 GRAFANA INTEGRATION STEPS                            ║"
-    echo "╚════════════════════════════════════════════════════════════════════════════╝"
-    echo ""
-    echo "  Add Loki as a data source in Grafana:"
-    echo ""
-    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-    echo "  │  Name:  Loki                                                           │"
-    echo "  │  Type:  Loki                                                           │"
-    echo "  │  URL:   http://loki.$LOKI_NAMESPACE.svc.cluster.local:3100             │"
-    echo "  └────────────────────────────────────────────────────────────────────────┘"
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    echo "Grafana Dashboards ID:"
-    echo ""
-    echo "Loki stack monitoring (Promtail, Loki): 14055"
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    print_divider
+    print_info "Grafana datasource URL:"
+    print_target "http://loki.$LOKI_NAMESPACE.svc.cluster.local:3100"
+    print_info "Recommended dashboard ID: 14055"
+    print_divider
 }
 
-# Allow script to be sourced or executed directly
+# Direct execution
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     deploy_loki
 fi
