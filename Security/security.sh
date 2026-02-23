@@ -4,17 +4,17 @@
 
 set -euo pipefail
 
-# ── SAFETY: must not be sourced ──────────────────────────────────────────────
+# SAFETY: must not be sourced
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     echo "ERROR: This script must be executed, not sourced"
     return 1 2>/dev/null || exit 1
 fi
 
-# ── Resolve PROJECT_ROOT once ────────────────────────────────────────────────
+# Resolve PROJECT_ROOT once
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly PROJECT_ROOT
 
-# ── Load env safely ──────────────────────────────────────────────────────────
+# Load env safely
 ENV_FILE="$PROJECT_ROOT/.env"
 if [[ -f "$ENV_FILE" ]]; then
     set -a
@@ -24,7 +24,7 @@ fi
 
 source "$PROJECT_ROOT/lib/bootstrap.sh"
 
-# ── Defaults ──────────────────────────────────────────────────────────────────
+# Defaults
 : "${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}"
 : "${TRIVY_ENABLED:=true}"
 : "${TRIVY_NAMESPACE:=trivy-system}"
@@ -44,12 +44,10 @@ export TRIVY_IMAGE_TAG DOCKERHUB_USERNAME
 export TRIVY_CPU_REQUEST TRIVY_CPU_LIMIT TRIVY_MEMORY_REQUEST TRIVY_MEMORY_LIMIT
 export TRIVY_METRICS_ENABLED
 
-# ── Prerequisite check ────────────────────────────────────────────────────────
+# Prerequisite check
 require_command envsubst "Install gettext package (apt-get install gettext / brew install gettext)"
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  BUILD & PUSH IMAGES
-# ─────────────────────────────────────────────────────────────────────────────
 build_trivy_images() {
     if [[ "${TRIVY_BUILD_IMAGES}" != "true" ]]; then
         print_info "Skipping image build (TRIVY_BUILD_IMAGES=false)"
@@ -91,9 +89,7 @@ build_trivy_images() {
     print_success "trivy-exporter pushed: ${BOLD}${DOCKERHUB_USERNAME}/trivy-exporter:${TRIVY_IMAGE_TAG}${RESET}"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  DEPLOY TRIVY TO CLUSTER
-# ─────────────────────────────────────────────────────────────────────────────
 deploy_trivy() {
     if [[ "${TRIVY_ENABLED}" != "true" ]]; then
         print_info "Skipping Trivy deployment (TRIVY_ENABLED=false)"
@@ -131,7 +127,7 @@ deploy_trivy() {
         print_success "Initial Trivy scan complete"
     fi
 
-    # ── Verify metrics endpoint ───────────────────────────────────────────────
+    # Verify metrics endpoint
     print_step "Verifying metrics endpoint..."
     sleep 5
     if kubectl get pods -n "$TRIVY_NAMESPACE" -l app=trivy-exporter \
@@ -150,9 +146,7 @@ deploy_trivy() {
     fi
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  MAIN
-# ─────────────────────────────────────────────────────────────────────────────
 security() {
     print_section "SECURITY TOOLS DEPLOYMENT" "🔒"
 
@@ -172,7 +166,7 @@ security() {
 
     print_divider
 
-    # ── HIGH-VISIBILITY ACCESS INFO ──────────────────────────────────────────
+    # HIGH-VISIBILITY ACCESS INFO
     print_access_box "TRIVY METRICS ACCESS" "🛡" \
         "CMD:Step 1 — Start port-forward:|kubectl port-forward -n ${TRIVY_NAMESPACE} svc/trivy-exporter 8080:8080" \
         "BLANK:" \
@@ -197,7 +191,7 @@ security() {
     print_divider
 }
 
-# ── Direct execution ──────────────────────────────────────────────────────────
+# Direct execution
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     security
 fi

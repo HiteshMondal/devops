@@ -4,24 +4,24 @@
 
 set -euo pipefail
 
-# ── SAFETY: must not be sourced ──────────────────────────────────────────────
+# SAFETY: must not be sourced
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     echo "ERROR: This script must be executed, not sourced"
     return 1 2>/dev/null || exit 1
 fi
 
-# ── Resolve PROJECT_ROOT ONCE ────────────────────────────────────────────────
+# Resolve PROJECT_ROOT ONCE
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 fi
 
-# ── FREEZE PROJECT_ROOT (CRITICAL) ───────────────────────────────────────────
+# FREEZE PROJECT_ROOT (CRITICAL)
 readonly PROJECT_ROOT
 
-# ── Now it is safe to source libraries ───────────────────────────────────────
+# Now it is safe to source libraries
 source "${PROJECT_ROOT}/lib/bootstrap.sh"
 
-# ── Defaults ──────────────────────────────────────────────────────────────────
+# Defaults
 : "${PROMETHEUS_ENABLED:=true}"
 : "${PROMETHEUS_NAMESPACE:=monitoring}"
 : "${PROMETHEUS_RETENTION:=15d}"
@@ -52,16 +52,14 @@ export DEPLOY_TARGET
 export PROMETHEUS_CPU_REQUEST PROMETHEUS_CPU_LIMIT PROMETHEUS_MEMORY_REQUEST PROMETHEUS_MEMORY_LIMIT
 export GRAFANA_CPU_REQUEST GRAFANA_CPU_LIMIT GRAFANA_MEMORY_REQUEST GRAFANA_MEMORY_LIMIT
 
-# ── CI mode detection ─────────────────────────────────────────────────────────
+# CI mode detection
 if [[ "${CI:-false}" == "true" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ -n "${GITLAB_CI:-}" ]]; then
     CI_MODE=true
 else
     CI_MODE=false
 fi
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  KUBERNETES DISTRIBUTION DETECTION
-# ─────────────────────────────────────────────────────────────────────────────
 detect_k8s_distribution() {
     print_subsection "Detecting Kubernetes Distribution"
 
@@ -154,9 +152,7 @@ get_monitoring_url() {
     esac
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  YAML PROCESSING
-# ─────────────────────────────────────────────────────────────────────────────
 substitute_env_vars() {
     local file=$1
     local temp_file="${file}.tmp"
@@ -183,9 +179,7 @@ substitute_env_vars() {
     mv "$temp_file" "$file"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  HELM SETUP
-# ─────────────────────────────────────────────────────────────────────────────
 setup_helm() {
     print_subsection "Helm Setup"
 
@@ -305,9 +299,7 @@ process_yaml_files() {
     done
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  MAIN MONITORING DEPLOYMENT
-# ─────────────────────────────────────────────────────────────────────────────
 deploy_monitoring() {
     sleep 2   # Let previous deployments settle
 
@@ -326,7 +318,7 @@ deploy_monitoring() {
     setup_helm
     deploy_node_exporter
 
-    # ── Working directory (SAFE) ─────────────────────────────────────────────
+    # Working directory (SAFE)
     WORK_DIR="$(mktemp -d /tmp/monitoring-deployment.XXXXXX)"
     readonly WORK_DIR
 
@@ -370,12 +362,12 @@ deploy_monitoring() {
 
     print_divider
 
-    # ── Namespace ────────────────────────────────────────────────────────────
+    # Namespace
     print_subsection "Setting Up Namespace"
     kubectl create namespace "$PROMETHEUS_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
     print_success "Namespace ready: ${BOLD}${PROMETHEUS_NAMESPACE}${RESET}"
 
-    # ── ConfigMaps ───────────────────────────────────────────────────────────
+    # ConfigMaps
     print_subsection "Creating ConfigMaps"
 
     if [[ -f "$PROJECT_ROOT/monitoring/prometheus/prometheus.yml" ]]; then
@@ -395,7 +387,7 @@ deploy_monitoring() {
 
     print_divider
 
-    # ── Prometheus ───────────────────────────────────────────────────────────
+    # Prometheus
     print_subsection "Deploying Prometheus"
 
     require_file "$WORK_DIR/monitoring/prometheus.yaml" "prometheus.yaml not found in work dir"
@@ -420,7 +412,7 @@ deploy_monitoring() {
 
     print_divider
 
-    # ── Grafana ──────────────────────────────────────────────────────────────
+    # Grafana
     if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
         print_subsection "Deploying Grafana"
 
@@ -449,13 +441,13 @@ deploy_monitoring() {
 
     print_divider
 
-    # ── Status ───────────────────────────────────────────────────────────────
+    # Status
     print_subsection "Monitoring Components Status"
     kubectl get all -n "$PROMETHEUS_NAMESPACE" -o wide
 
     print_divider
 
-    # ── HIGH-VISIBILITY ACCESS INFO ──────────────────────────────────────────
+    # HIGH-VISIBILITY ACCESS INFO
     echo ""
     print_section "MONITORING ACCESS" "📊"
 
@@ -519,13 +511,13 @@ deploy_monitoring() {
         esac
     fi
 
-    # ── Dashboard IDs ────────────────────────────────────────────────────────
+    # Dashboard IDs
     print_access_box "GRAFANA DASHBOARD IDs  (import via Dashboards → Import)" "📋" \
         "CRED:Node Exporter Full:1860" \
         "CRED:Kubernetes Cluster (Prometheus):6417" \
         "CRED:kube-state-metrics v2:13332"
 
-    # ── Monitored targets ────────────────────────────────────────────────────
+    # Monitored targets
     print_subsection "Monitored Targets"
     print_target "Kubernetes API Server"
     print_target "Kubernetes Nodes  (via node-exporter)"
@@ -536,7 +528,7 @@ deploy_monitoring() {
     print_divider
 }
 
-# ── Direct execution ──────────────────────────────────────────────────────────
+# Direct execution
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     deploy_monitoring
 fi

@@ -5,7 +5,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-# ── Bootstrap ─────────────────────────────────────────────────────────────────
+# Bootstrap
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fi
@@ -17,7 +17,7 @@ done
 
 [[ -z "${APP_NAME:-}" ]] && [[ -f "$PROJECT_ROOT/.env" ]] && source "$PROJECT_ROOT/.env"
 
-# ── Defaults ──────────────────────────────────────────────────────────────────
+# Defaults
 : "${LOKI_ENABLED:=true}"
 : "${LOKI_NAMESPACE:=loki}"
 : "${LOKI_VERSION:=2.9.3}"
@@ -34,7 +34,7 @@ export LOKI_ENABLED LOKI_NAMESPACE LOKI_VERSION LOKI_RETENTION_PERIOD \
        LOKI_CPU_REQUEST LOKI_CPU_LIMIT \
        LOKI_MEMORY_REQUEST LOKI_MEMORY_LIMIT
 
-# ── Distribution detection (lightweight) ─────────────────────────────────────
+# Distribution detection (lightweight)
 detect_k8s_distribution() {
     [[ -n "${K8S_DISTRIBUTION:-}" ]] && return 0
 
@@ -71,9 +71,7 @@ get_loki_url() {
     esac
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  MAIN
-# ─────────────────────────────────────────────────────────────────────────────
 deploy_loki() {
     print_section "LOKI LOG AGGREGATION" "📜"
 
@@ -91,7 +89,7 @@ deploy_loki() {
 
     local workdir="/tmp/loki-deploy-$$"
     mkdir -p "$workdir"
-    trap 'rm -rf "$workdir"' EXIT
+    trap 'rm -rf "${workdir:-}"' EXIT
 
     print_subsection "Preparing Manifests"
     cp "$PROJECT_ROOT/monitoring/Loki/loki-deployment.yaml" "$workdir/"
@@ -121,7 +119,7 @@ deploy_loki() {
 
     print_divider
 
-    # ── HIGH-VISIBILITY ACCESS INFO ──────────────────────────────────────────
+    # HIGH-VISIBILITY ACCESS INFO
     local url
     url=$(get_loki_url)
 
@@ -149,7 +147,7 @@ deploy_loki() {
     print_divider
 }
 
-# ── Direct execution ──────────────────────────────────────────────────────────
+# Direct execution
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     deploy_loki
 fi

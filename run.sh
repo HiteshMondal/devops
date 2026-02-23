@@ -49,47 +49,47 @@ load_libraries
 # ─────────────────────────────────────────────────────────────────────────────
 
 deploy_kubernetes() {
-    "$PROJECT_ROOT/kubernetes/deploy_kubernetes.sh" "$@"
+    bash "$PROJECT_ROOT/kubernetes/deploy_kubernetes.sh" "$@"
 }
 
 deploy_monitoring() {
-    "$PROJECT_ROOT/monitoring/deploy_monitoring.sh"
+    bash "$PROJECT_ROOT/monitoring/deploy_monitoring.sh"
 }
 
 deploy_loki() {
-    "$PROJECT_ROOT/monitoring/deploy_loki.sh"
+    bash "$PROJECT_ROOT/monitoring/deploy_loki.sh"
 }
 
 security() {
-    "$PROJECT_ROOT/Security/security.sh"
+    bash "$PROJECT_ROOT/Security/security.sh"
 }
 
 deploy_infra() {
-    "$PROJECT_ROOT/infra/deploy_infra.sh"
+    bash "$PROJECT_ROOT/infra/deploy_infra.sh"
 }
 
 deploy_argo() {
-    "$PROJECT_ROOT/cicd/argo/deploy_argo.sh"
+    bash "$PROJECT_ROOT/cicd/argo/deploy_argo.sh"
 }
 
 configure_git_github() {
-    "$PROJECT_ROOT/cicd/github/configure_git_github.sh"
+    bash "$PROJECT_ROOT/cicd/github/configure_git_github.sh"
 }
 
 configure_gitlab() {
-    "$PROJECT_ROOT/cicd/gitlab/configure_gitlab.sh"
+    bash "$PROJECT_ROOT/cicd/gitlab/configure_gitlab.sh"
 }
 
 build_and_push_image() {
-    "$PROJECT_ROOT/app/build_and_push_image.sh"
+    bash "$PROJECT_ROOT/app/build_and_push_image.sh"
 }
 
 build_and_push_image_podman() {
-    "$PROJECT_ROOT/app/build_and_push_image_podman.sh"
+    bash "$PROJECT_ROOT/app/build_and_push_image_podman.sh"
 }
 
 configure_dockerhub_username() {
-    "$PROJECT_ROOT/app/configure_dockerhub_username.sh"
+    bash "$PROJECT_ROOT/app/configure_dockerhub_username.sh"
 }
 
 print_section "DevOps Project — Deployment Runner" "🚀"

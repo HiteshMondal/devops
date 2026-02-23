@@ -13,7 +13,9 @@ stages:
   - deploy-local
   - deploy-prod
   - monitoring
-  - cicd-tools
+  - loki
+  - security
+  - cleanup
 
 include:
   - local: cicd/gitlab/.gitlab-ci.yml

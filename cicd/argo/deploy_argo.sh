@@ -5,12 +5,12 @@
 
 set -euo pipefail
 
-# ── Resolve PROJECT_ROOT ──────────────────────────────────────────────────────
+# Resolve PROJECT_ROOT
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fi
 
-# ── Load .env if APP_NAME not already set ─────────────────────────────────────
+# Load .env if APP_NAME not already set
 if [[ -z "${APP_NAME:-}" ]]; then
     ENV_FILE="$PROJECT_ROOT/.env"
     if [[ -f "$ENV_FILE" ]]; then
@@ -20,7 +20,7 @@ fi
 
 source "${PROJECT_ROOT}/lib/bootstrap.sh"
 
-# ── Defaults ──────────────────────────────────────────────────────────────────
+# Defaults
 : "${ARGOCD_NAMESPACE:=argocd}"
 : "${ARGOCD_VERSION:=v2.10.0}"
 : "${ARGOCD_ADMIN_PASSWORD:=}"
@@ -38,7 +38,7 @@ source "${PROJECT_ROOT}/lib/bootstrap.sh"
 ARGOCD_LOCAL_PORT=8080
 export ARGOCD_LOCAL_PORT
 
-# ── Git repo auto-detection ───────────────────────────────────────────────────
+# Git repo auto-detection
 if [[ -z "${GIT_REPO_URL:-}" ]]; then
     GIT_REPO_URL="$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null || echo '')"
 fi
@@ -54,9 +54,7 @@ export INGRESS_ENABLED INGRESS_HOST
 export GIT_REPO_URL GIT_REPO_BRANCH
 export GIT_REPO_PATH_APP GIT_REPO_PATH_MONITORING GIT_REPO_PATH_LOKI GIT_REPO_PATH_SECURITY
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  INSTALL ARGO CD CLI
-# ─────────────────────────────────────────────────────────────────────────────
 install_argocd_cli() {
     if command -v argocd >/dev/null 2>&1; then
         print_success "ArgoCD CLI already installed: $(argocd version --client --short 2>/dev/null | head -1)"
@@ -86,9 +84,7 @@ install_argocd_cli() {
     fi
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  INSTALL ARGO CD ON CLUSTER
-# ─────────────────────────────────────────────────────────────────────────────
 install_argocd_server() {
     print_subsection "Installing Argo CD on Cluster"
 
@@ -123,9 +119,7 @@ argocd_is_installed() {
     kubectl get deployment argocd-server -n "$ARGOCD_NAMESPACE" >/dev/null 2>&1
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  LOGIN TO ARGOCD
-# ─────────────────────────────────────────────────────────────────────────────
 argocd_login() {
     print_subsection "Logging in to Argo CD"
 
@@ -197,9 +191,7 @@ argocd_login() {
     export ARGOCD_ADMIN_PASS="$admin_pass"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  GENERATE APPLICATION MANIFESTS
-# ─────────────────────────────────────────────────────────────────────────────
 generate_argocd_apps() {
     local required_vars=(
         GIT_REPO_URL GIT_REPO_BRANCH DEPLOY_TARGET APP_NAME
@@ -228,9 +220,7 @@ generate_argocd_apps() {
     print_success "Generated: ${BOLD}${GENERATED_DIR}/apps.yaml${RESET}"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  REGISTER GIT REPO
-# ─────────────────────────────────────────────────────────────────────────────
 argocd_add_repo() {
     print_subsection "Registering Git Repository with Argo CD"
 
@@ -266,9 +256,7 @@ argocd_add_repo() {
     print_success "Repository registered: ${BOLD}${REPO_URL}${RESET}"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  APPLY & SYNC APPLICATIONS
-# ─────────────────────────────────────────────────────────────────────────────
 apply_argocd_apps() {
     print_subsection "Applying Argo CD Applications"
 
@@ -322,9 +310,7 @@ wait_for_apps() {
     print_success "All apps are healthy!"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  DISPLAY ACCESS INFORMATION  ← high-visibility section
-# ─────────────────────────────────────────────────────────────────────────────
 show_argocd_access() {
     local EXTERNAL_IP EXTERNAL_HOST SERVICE_PORT
 
@@ -369,7 +355,7 @@ show_argocd_access() {
     print_divider
 }
 
-# ── Cleanup ───────────────────────────────────────────────────────────────────
+# Cleanup
 cleanup_portforward() {
     if [[ -n "${ARGOCD_PF_PID:-}" ]]; then
         kill "$ARGOCD_PF_PID" 2>/dev/null || true
@@ -377,9 +363,7 @@ cleanup_portforward() {
     fi
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  MAIN — deploy_argo (called by run.sh)
-# ─────────────────────────────────────────────────────────────────────────────
+# MAIN — deploy_argo (called by run.sh)
 deploy_argo() {
     print_section "ARGO CD DEPLOYMENT" "🐙"
 
@@ -425,7 +409,7 @@ deploy_argo() {
         print_info "CI mode — skipping health wait (ArgoCD will auto-sync)"
     fi
 
-    # ── HIGH-VISIBILITY ACCESS INFO ──────────────────────────────────────────
+    # HIGH-VISIBILITY ACCESS INFO
     show_argocd_access
 
     print_section "ARGO CD DEPLOYMENT COMPLETE" "✅"
@@ -435,7 +419,7 @@ deploy_argo() {
     print_divider
 }
 
-# ── Direct execution ──────────────────────────────────────────────────────────
+# Direct execution
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     deploy_argo
 fi

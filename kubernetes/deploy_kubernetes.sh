@@ -10,26 +10,24 @@
 
 set -euo pipefail
 
-# ── SAFETY: must not be sourced ──────────────────────────────────────────────
+# SAFETY: must not be sourced
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     echo "ERROR: This script must be executed, not sourced"
     return 1 2>/dev/null || exit 1
 fi
 
-# ── Resolve PROJECT_ROOT ONCE ────────────────────────────────────────────────
+# Resolve PROJECT_ROOT ONCE
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 fi
 
-# ── FREEZE PROJECT_ROOT (CRITICAL) ───────────────────────────────────────────
+# FREEZE PROJECT_ROOT (CRITICAL)
 readonly PROJECT_ROOT
 
-# ── Now it is safe to source libraries ───────────────────────────────────────
+# Now it is safe to source libraries
 source "${PROJECT_ROOT}/lib/bootstrap.sh"
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  KUBERNETES DISTRIBUTION DETECTION
-# ─────────────────────────────────────────────────────────────────────────────
 detect_k8s_distribution() {
     print_subsection "Detecting Kubernetes Distribution"
 
@@ -155,18 +153,14 @@ get_access_url() {
     esac
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  ENVIRONMENT DETECTION
-# ─────────────────────────────────────────────────────────────────────────────
 if [[ "${CI:-false}" == "true" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ -n "${GITLAB_CI:-}" ]]; then
     CI_MODE=true
 else
     CI_MODE=false
 fi
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  VALIDATE REQUIRED VARS
-# ─────────────────────────────────────────────────────────────────────────────
 validate_required_vars() {
     print_subsection "Validating Required Environment Variables"
 
@@ -193,9 +187,7 @@ validate_required_vars() {
     print_success "All required variables are present"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  KUSTOMIZE OVERLAY PATCHING (Kustomize v5 compatible)
-# ─────────────────────────────────────────────────────────────────────────────
 patch_overlay_for_direct_mode() {
     local work_overlay_dir="$1"
     local environment="$2"
@@ -204,7 +196,7 @@ patch_overlay_for_direct_mode() {
 
     local kustomization_file="$work_overlay_dir/kustomization.yaml"
 
-    # ── Image patch ──────────────────────────────────────────────────────────
+    # Image patch
     if command -v python3 >/dev/null 2>&1; then
         python3 - "$kustomization_file" "$DOCKERHUB_USERNAME" "$APP_NAME" "$DOCKER_IMAGE_TAG" <<'PYEOF'
 import sys, re
@@ -242,7 +234,7 @@ PYEOF
 
     print_success "Image: ${BOLD}${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}${RESET}"
 
-    # ── ConfigMap patch ──────────────────────────────────────────────────────
+    # ConfigMap patch
     cat > "$work_overlay_dir/configmap-patch.yaml" <<EOF
 apiVersion: v1
 kind: ConfigMap
@@ -259,7 +251,7 @@ data:
   DB_NAME: "${DB_NAME:-devops_db}"
 EOF
 
-    # ── Secrets patch ────────────────────────────────────────────────────────
+    # Secrets patch
     cat > "$work_overlay_dir/secrets-patch.yaml" <<EOF
 apiVersion: v1
 kind: Secret
@@ -275,7 +267,7 @@ stringData:
   SESSION_SECRET: "${SESSION_SECRET:-changeme-session-secret}"
 EOF
 
-    # ── Register patches (Kustomize v5 `patches: - path:` syntax) ────────────
+    # Register patches (Kustomize v5 `patches: - path:` syntax)
     python3 - "$kustomization_file" <<'PYEOF'
 import sys, re
 
@@ -310,9 +302,7 @@ PYEOF
     print_success "Overlay patched with runtime values"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 #  MAIN DEPLOYMENT
-# ─────────────────────────────────────────────────────────────────────────────
 deploy_kubernetes() {
     local environment=${1:-local}
 
@@ -335,7 +325,7 @@ deploy_kubernetes() {
 
     export REPLICAS MIN_REPLICAS MAX_REPLICAS INGRESS_ENABLED INGRESS_HOST INGRESS_CLASS PROMETHEUS_NAMESPACE
 
-    # ── Working directory (SAFE) ─────────────────────────────────────────────
+    # Working directory (SAFE)
     WORK_DIR="$(mktemp -d /tmp/k8s-deployment.XXXXXX)"
     readonly WORK_DIR
 
@@ -360,7 +350,7 @@ deploy_kubernetes() {
         print_success "Copied overlay manifests"
     fi
 
-    # ── Patch overlay ────────────────────────────────────────────────────────
+    # Patch overlay
     local work_overlay="$WORK_DIR/overlays/$environment"
     if [[ -d "$work_overlay" ]]; then
         patch_overlay_for_direct_mode "$work_overlay" "$environment"
@@ -370,14 +360,14 @@ deploy_kubernetes() {
 
     print_divider
 
-    # ── Namespace ────────────────────────────────────────────────────────────
+    # Namespace
     print_subsection "Setting Up Namespace"
     kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
     print_success "Namespace ready: ${BOLD}${NAMESPACE}${RESET}"
 
     print_divider
 
-    # ── Deploy ───────────────────────────────────────────────────────────────
+    # Deploy
     print_subsection "Deploying via Kustomize"
 
     local apply_target
@@ -393,7 +383,7 @@ deploy_kubernetes() {
 
     print_divider
 
-    # ── Rollout wait ─────────────────────────────────────────────────────────
+    # Rollout wait
     print_subsection "Waiting for Deployment"
     if kubectl rollout status deployment/"$APP_NAME" -n "$NAMESPACE" --timeout=300s; then
         print_success "Deployment is ready!"
@@ -411,7 +401,7 @@ deploy_kubernetes() {
         exit 1
     fi
 
-    # ── Status summary ───────────────────────────────────────────────────────
+    # Status summary
     print_divider
     print_subsection "Deployment Status"
     echo ""
@@ -426,7 +416,7 @@ deploy_kubernetes() {
 
     print_divider
 
-    # ── HIGH-VISIBILITY ACCESS INFO ──────────────────────────────────────────
+    # HIGH-VISIBILITY ACCESS INFO
     local app_url
     app_url=$(get_access_url "${APP_NAME}-service" "$NAMESPACE")
 
@@ -452,7 +442,7 @@ deploy_kubernetes() {
             ;;
     esac
 
-    # ── Ingress info ─────────────────────────────────────────────────────────
+    # Ingress info
     if [[ "${INGRESS_ENABLED}" == "true" ]]; then
         local hosts_entry=""
         case "$K8S_DISTRIBUTION" in
@@ -485,7 +475,7 @@ deploy_kubernetes() {
     print_divider
 }
 
-# ── Direct execution ──────────────────────────────────────────────────────────
+# Direct execution
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     deploy_kubernetes "${1:-local}"
 fi
