@@ -1,27 +1,20 @@
-#/monitoring/prometheus/prometheus.yml
+# /monitoring/prometheus/prometheus.yml
+# ArgoCD-compatible: all shell variable placeholders replaced with hardcoded values.
+# The ${1} references in relabel_configs are Prometheus regex capture groups — NOT
+# shell variables — and must be kept as-is.
 
 global:
-  scrape_interval: ${PROMETHEUS_SCRAPE_INTERVAL}
-  scrape_timeout: ${PROMETHEUS_SCRAPE_TIMEOUT}
+  scrape_interval: 15s
+  scrape_timeout: 10s
   evaluation_interval: 15s
   external_labels:
-    cluster: '${DEPLOY_TARGET}'
-    environment: '${DEPLOY_TARGET}'
+    cluster: 'local'
+    environment: 'local'
 
-# Alertmanager configuration (optional)
-# alerting:
-#   alertmanagers:
-#     - static_configs:
-#         - targets:
-#           - alertmanager:9093
-
-# Load rules once and periodically evaluate them
 rule_files:
   - '/etc/prometheus/rules/*.yml'
 
-# Scrape configurations
 scrape_configs:
-  # PROMETHEUS SELF-MONITORING
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
@@ -29,7 +22,6 @@ scrape_configs:
           app: 'prometheus'
           component: 'monitoring'
 
-  # KUBERNETES API SERVER
   - job_name: 'kubernetes-apiservers'
     kubernetes_sd_configs:
       - role: endpoints
@@ -42,7 +34,6 @@ scrape_configs:
         action: keep
         regex: default;kubernetes;https
 
-  # KUBERNETES NODES (kubelet)
   - job_name: 'kubelet'
     kubernetes_sd_configs:
       - role: node
@@ -59,9 +50,8 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_node_name]
         regex: (.+)
         target_label: __metrics_path__
-        replacement: /api/v1/nodes/${1}/proxy/metrics
+        replacement: /api/v1/nodes/$1/proxy/metrics
 
-  # KUBERNETES CADVISOR (container metrics)
   - job_name: 'kubelet-cadvisor'
     kubernetes_sd_configs:
       - role: node
@@ -78,97 +68,69 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_node_name]
         regex: (.+)
         target_label: __metrics_path__
-        replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+        replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
     metric_relabel_configs:
-      # Only keep container metrics
       - source_labels: [__name__]
         regex: 'container_(cpu|memory|network|fs).*'
         action: keep
 
-  # KUBERNETES SERVICE ENDPOINTS
   - job_name: 'kubernetes-service-endpoints'
     kubernetes_sd_configs:
       - role: endpoints
     relabel_configs:
-      # Keep only endpoints with prometheus.io/scrape annotation set to true
       - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
         action: keep
         regex: true
-      
-      # Use custom scrape path if specified
       - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
         action: replace
         target_label: __metrics_path__
         regex: (.+)
-      
-      # Use custom port if specified
       - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
         action: replace
         regex: ([^:]+)(?::\d+)?;(\d+)
         replacement: $1:$2
         target_label: __address__
-      
-      # Use custom scheme if specified
       - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
         action: replace
         target_label: __scheme__
         regex: (https?)
-      
-      # Add Kubernetes labels as Prometheus labels
       - action: labelmap
         regex: __meta_kubernetes_service_label_(.+)
-      
       - source_labels: [__meta_kubernetes_namespace]
         target_label: kubernetes_namespace
-      
       - source_labels: [__meta_kubernetes_service_name]
         target_label: kubernetes_service_name
-      
       - source_labels: [__meta_kubernetes_pod_name]
         target_label: kubernetes_pod_name
 
-  # KUBERNETES PODS (with prometheus.io/scrape annotation)
   - job_name: 'kubernetes-pods'
     kubernetes_sd_configs:
       - role: pod
     relabel_configs:
-      # Keep only pods with prometheus.io/scrape annotation set to true
       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
         action: keep
         regex: true
-      
-      # Use custom scrape path if specified
       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
         action: replace
         target_label: __metrics_path__
         regex: (.+)
-      
-      # Use custom port if specified
       - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
         action: replace
         regex: ([^:]+)(?::\d+)?;(\d+)
         replacement: $1:$2
         target_label: __address__
-      
-      # Use custom scheme if specified
       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scheme]
         action: replace
         target_label: __scheme__
         regex: (https?)
-      
-      # Add Kubernetes labels as Prometheus labels
       - action: labelmap
         regex: __meta_kubernetes_pod_label_(.+)
-      
       - source_labels: [__meta_kubernetes_namespace]
         target_label: kubernetes_namespace
-      
       - source_labels: [__meta_kubernetes_pod_name]
         target_label: kubernetes_pod_name
-      
       - source_labels: [__meta_kubernetes_pod_node_name]
         target_label: kubernetes_node_name
-      
       - source_labels: [__meta_kubernetes_pod_container_name]
         target_label: kubernetes_container_name
 
@@ -181,50 +143,38 @@ scrape_configs:
     kubernetes_sd_configs:
       - role: endpoints
     relabel_configs:
-      - source_labels:
-          [__meta_kubernetes_service_label_app_kubernetes_io_name]
+      - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
         action: keep
         regex: prometheus-node-exporter
 
-  # APPLICATION-SPECIFIC SCRAPE (devops-app)
-  - job_name: '${APP_NAME}'
+  - job_name: 'devops-app'
     kubernetes_sd_configs:
       - role: pod
         namespaces:
           names:
-            - ${NAMESPACE}
+            - devops-app
     relabel_configs:
-      # Keep only pods with app=${APP_NAME} label
       - source_labels: [__meta_kubernetes_pod_label_app]
         action: keep
-        regex: ${APP_NAME}
-      
-      # Check if custom path is specified, otherwise use /metrics
+        regex: devops-app
       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
         action: replace
         target_label: __metrics_path__
         regex: (.+)
-      
-      # Use custom port if specified, otherwise use container port
       - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
         action: replace
         regex: ([^:]+)(?::\d+)?;(\d+)
         replacement: $1:$2
         target_label: __address__
-      
-      # Add labels
       - action: labelmap
         regex: __meta_kubernetes_pod_label_(.+)
-      
       - source_labels: [__meta_kubernetes_namespace]
         target_label: namespace
-      
       - source_labels: [__meta_kubernetes_pod_name]
         target_label: pod
-      
       - source_labels: [__meta_kubernetes_pod_node_name]
         target_label: node
 
   - job_name: 'trivy'
     static_configs:
-      - targets: ['trivy-exporter.${TRIVY_NAMESPACE}.svc.cluster.local:8080']
+      - targets: ['trivy-exporter.trivy-system.svc.cluster.local:8080']

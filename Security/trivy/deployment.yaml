@@ -1,11 +1,11 @@
 # /Security/trivy/deployment.yaml
+# ArgoCD-compatible: all ${VAR} placeholders replaced with hardcoded values.
 
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: trivy-exporter
-  namespace: ${TRIVY_NAMESPACE}
+  namespace: trivy-system
   labels:
     app: trivy-exporter
 spec:
@@ -24,7 +24,7 @@ spec:
     spec:
       containers:
       - name: exporter
-        image: ${DOCKERHUB_USERNAME}/trivy-exporter:${TRIVY_IMAGE_TAG}
+        image: hiteshmondaldocker/trivy-exporter:1.0
         env:
         - name: TRIVY_REPORTS_DIR
           value: "/reports"
@@ -63,13 +63,12 @@ spec:
       - name: scan-reports
         persistentVolumeClaim:
           claimName: trivy-reports-pvc
-
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: trivy-exporter
-  namespace: ${TRIVY_NAMESPACE}
+  namespace: trivy-system
   labels:
     app: trivy-exporter
   annotations:

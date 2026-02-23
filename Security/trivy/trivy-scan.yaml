@@ -1,10 +1,12 @@
-# Security/trivy/trivy-scan.yaml - Container vulnerability scanning
+# /Security/trivy/trivy-scan.yaml
+# ArgoCD-compatible: all ${VAR} placeholders replaced with hardcoded values.
+# Default values match security.sh defaults.
 
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: trivy-operator
-  namespace: ${TRIVY_NAMESPACE}
+  namespace: trivy-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -31,7 +33,6 @@ rules:
   - jobs
   - cronjobs
   verbs: ["get", "list", "watch"]
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -44,69 +45,61 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: trivy-operator
-  namespace: ${TRIVY_NAMESPACE}
+  namespace: trivy-system
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: trivy-config
-  namespace: ${TRIVY_NAMESPACE}
+  namespace: trivy-system
 data:
   trivy.yaml: |
-    # Trivy scan configuration
     scanners:
       - vuln
       - config
       - secret
-    
     vulnerability:
       severities:
         - CRITICAL
         - HIGH
         - MEDIUM
-      
     report:
       format: json
-      
     cache:
       dir: /tmp/trivy/.cache
-    
     timeout: 5m
 ---
-
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: trivy-cache-pvc
-  namespace: ${TRIVY_NAMESPACE}
+  namespace: trivy-system
 spec:
   accessModes:
     - ReadWriteMany
   resources:
     requests:
       storage: 2Gi
-
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: trivy-reports-pvc
-  namespace: ${TRIVY_NAMESPACE}
+  namespace: trivy-system
 spec:
   accessModes:
     - ReadWriteMany
   resources:
     requests:
       storage: 1Gi
-
 ---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: trivy-scan
-  namespace: ${TRIVY_NAMESPACE}
+  namespace: trivy-system
 spec:
-  schedule: "${TRIVY_SCAN_SCHEDULE}"
+  schedule: "0 16-22 * * *"
   timeZone: "Asia/Kolkata"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
@@ -119,35 +112,35 @@ spec:
           restartPolicy: OnFailure
           containers:
           - name: trivy
-            image: ${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}
+            image: hiteshmondaldocker/trivy-runner:1.0
             env:
-              - name: TRIVY_SEVERITY
-                value: "${TRIVY_SEVERITY}"
+            - name: TRIVY_SEVERITY
+              value: "HIGH,CRITICAL"
             resources:
               requests:
                 cpu: 500m
                 memory: 512Mi
               limits:
-                cpu: 2
+                cpu: 2000m
                 memory: 2Gi
             volumeMounts:
-              - name: scan-reports
-                mountPath: /reports
-              - name: trivy-cache
-                mountPath: /tmp/trivy/.cache
-          volumes:
             - name: scan-reports
-              persistentVolumeClaim:
-                claimName: trivy-reports-pvc
+              mountPath: /reports
             - name: trivy-cache
-              persistentVolumeClaim:
-                claimName: trivy-cache-pvc
+              mountPath: /tmp/trivy/.cache
+          volumes:
+          - name: scan-reports
+            persistentVolumeClaim:
+              claimName: trivy-reports-pvc
+          - name: trivy-cache
+            persistentVolumeClaim:
+              claimName: trivy-cache-pvc
 ---
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: trivy-initial-scan
-  namespace: ${TRIVY_NAMESPACE}
+  namespace: trivy-system
   labels:
     app: trivy
 spec:
@@ -161,33 +154,24 @@ spec:
       restartPolicy: Never
       containers:
       - name: trivy
-        image: ${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}
+        image: hiteshmondaldocker/trivy-runner:1.0
         command:
         - sh
         - -c
         - |
           echo "Running initial Trivy scan..."
-          echo "Updating vulnerability database..."
           trivy image --download-db-only --timeout 10m || true
-          
-          echo "Scanning application image: $DOCKERHUB_USERNAME/$APP_NAME:$DOCKER_IMAGE_TAG"
+          echo "Scanning application image: hiteshmondaldocker/devops-app:latest"
           trivy image \
             --scanners vuln \
             --severity HIGH,CRITICAL \
             --format json \
-            --output /reports/initial-$APP_NAME.json \
-            $DOCKERHUB_USERNAME/$APP_NAME:$DOCKER_IMAGE_TAG
-          
+            --output /reports/initial-devops-app.json \
+            hiteshmondaldocker/devops-app:latest
           echo "Initial scan complete"
         env:
         - name: TRIVY_NO_PROGRESS
           value: "true"
-        - name: DOCKERHUB_USERNAME
-          value: "${DOCKERHUB_USERNAME}"
-        - name: APP_NAME
-          value: "${APP_NAME}"
-        - name: DOCKER_IMAGE_TAG
-          value: "${DOCKER_IMAGE_TAG}"
         resources:
           requests:
             cpu: 500m

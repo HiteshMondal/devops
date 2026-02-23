@@ -1,10 +1,12 @@
-#/monitoring/prometheus_grafana/grafana.yaml
+# /monitoring/prometheus_grafana/grafana.yaml
+# ArgoCD-compatible: all ${VAR} placeholders replaced with hardcoded values.
+# Default values match deploy_monitoring.sh defaults.
 
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-datasources
-  namespace: ${PROMETHEUS_NAMESPACE}
+  namespace: monitoring
 data:
   prometheus.yaml: |
     apiVersion: 1
@@ -20,29 +22,29 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: grafana-pvc
-  namespace: ${PROMETHEUS_NAMESPACE}
+  namespace: monitoring
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: ${GRAFANA_STORAGE_SIZE}
+      storage: 5Gi
 ---
 apiVersion: v1
 kind: Secret
 metadata:
   name: grafana-secrets
-  namespace: ${PROMETHEUS_NAMESPACE}
+  namespace: monitoring
 type: Opaque
 stringData:
-  admin-user: ${GRAFANA_ADMIN_USER}
-  admin-password: ${GRAFANA_ADMIN_PASSWORD}
+  admin-user: admin
+  admin-password: admin123
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: grafana
-  namespace: ${PROMETHEUS_NAMESPACE}
+  namespace: monitoring
   labels:
     app: grafana
 spec:
@@ -84,11 +86,11 @@ spec:
           value: "http://localhost:3000"
         resources:
           requests:
-            cpu: ${GRAFANA_CPU_REQUEST}
-            memory: ${GRAFANA_MEMORY_REQUEST}
+            cpu: 100m
+            memory: 256Mi
           limits:
-            cpu: ${GRAFANA_CPU_LIMIT}
-            memory: ${GRAFANA_MEMORY_LIMIT}
+            cpu: 500m
+            memory: 1Gi
         volumeMounts:
         - name: grafana-storage
           mountPath: /var/lib/grafana
@@ -128,7 +130,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: grafana
-  namespace: ${PROMETHEUS_NAMESPACE}
+  namespace: monitoring
   labels:
     app: grafana
 spec:
@@ -145,7 +147,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-dashboard-provider
-  namespace: ${PROMETHEUS_NAMESPACE}
+  namespace: monitoring
 data:
   dashboards.yaml: |
     apiVersion: 1

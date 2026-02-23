@@ -1,23 +1,26 @@
-#/monitoring/prometheus_grafana/prometheus.yaml
+# /monitoring/prometheus_grafana/prometheus.yaml
+# ArgoCD-compatible: all ${VAR} placeholders replaced with hardcoded values.
+# Direct mode: deploy_monitoring.sh processes this via envsubst on a working copy.
+# Default values match deploy_monitoring.sh defaults.
 
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ${PROMETHEUS_NAMESPACE}
+  name: monitoring
   labels:
-    name: ${PROMETHEUS_NAMESPACE}
+    name: monitoring
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: prometheus-pvc
-  namespace: ${PROMETHEUS_NAMESPACE}
+  namespace: monitoring
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: ${PROMETHEUS_STORAGE_SIZE}
+      storage: 10Gi
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -44,7 +47,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: prometheus
-  namespace: ${PROMETHEUS_NAMESPACE}
+  namespace: monitoring
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -57,13 +60,13 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: prometheus
-  namespace: ${PROMETHEUS_NAMESPACE}
+  namespace: monitoring
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: prometheus
-  namespace: ${PROMETHEUS_NAMESPACE}
+  namespace: monitoring
   labels:
     app: prometheus
 spec:
@@ -90,7 +93,7 @@ spec:
         args:
           - '--config.file=/etc/prometheus/prometheus.yml'
           - '--storage.tsdb.path=/prometheus'
-          - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION}'
+          - '--storage.tsdb.retention.time=15d'
           - '--web.console.libraries=/usr/share/prometheus/console_libraries'
           - '--web.console.templates=/usr/share/prometheus/consoles'
           - '--web.enable-lifecycle'
@@ -99,11 +102,11 @@ spec:
           containerPort: 9090
         resources:
           requests:
-            cpu: ${PROMETHEUS_CPU_REQUEST}
-            memory: ${PROMETHEUS_MEMORY_REQUEST}
+            cpu: 500m
+            memory: 1Gi
           limits:
-            cpu: ${PROMETHEUS_CPU_LIMIT}
-            memory: ${PROMETHEUS_MEMORY_LIMIT}
+            cpu: 2000m
+            memory: 4Gi
         volumeMounts:
         - name: prometheus-config
           mountPath: /etc/prometheus
@@ -142,7 +145,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: prometheus
-  namespace: ${PROMETHEUS_NAMESPACE}
+  namespace: monitoring
   labels:
     app: prometheus
 spec:
