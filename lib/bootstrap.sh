@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lib/bootstrap.sh
+# lib/bootstrap.sh — Load all shared libraries in correct order
 
 set -euo pipefail
 
