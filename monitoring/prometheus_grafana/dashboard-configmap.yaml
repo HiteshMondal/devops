@@ -1,10 +1,11 @@
-#/monitoring/prometheus_grafana/dashboard-configmap.yaml
+# /monitoring/prometheus_grafana/dashboard-configmap.yaml
+# ArgoCD-compatible: namespace hardcoded to 'monitoring' (no ${VAR} placeholders).
 
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-dashboards
-  namespace: ${PROMETHEUS_NAMESPACE}
+  namespace: monitoring
   labels:
     grafana_dashboard: "1"
 data:
