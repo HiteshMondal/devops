@@ -345,7 +345,6 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: devops-app-config
-  namespace: ${NAMESPACE}
 data:
   APP_NAME: "${APP_NAME}"
   APP_PORT: "${APP_PORT}"
@@ -362,7 +361,6 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: devops-app-secrets
-  namespace: ${NAMESPACE}
 type: Opaque
 stringData:
   DB_USERNAME: "${DB_USERNAME:-devops_user}"
@@ -372,33 +370,29 @@ stringData:
   SESSION_SECRET: "${SESSION_SECRET:-changeme-session-secret}"
 EOF
 
-    # ── Namespace patch (set correct name from .env) ─────────────────────────
-    cat > "$work_overlay_dir/namespace-patch.yaml" <<EOF
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ${NAMESPACE}
-  labels:
-    name: ${NAMESPACE}
-    environment: ${environment}
-    managed-by: kustomize
-EOF
+    # NOTE: No namespace patch — namespace.yaml is not in base/kustomization.yaml resources.
+    # The namespace is created by `kubectl create namespace` before kustomize runs.
+    # Adding a namespace patch here would fail with "no matches for Id Namespace".
 
     # ── Register the new patches in the working overlay kustomization ────────
     python3 - "$kustomization_file" <<'PYEOF'
-import sys, re
+import sys
 
 filepath = sys.argv[1]
 with open(filepath) as f:
     content = f.read()
 
+# Register configmap and secrets as patchesStrategicMerge (separate from patches: block).
+# IMPORTANT: Do NOT add these to the `patches:` block — that block uses inline patches
+# with `target:` selectors. Path-based entries in `patches:` without a `target:` cause
+# kustomize to error with "no matches for Id Namespace..." because it can't auto-detect
+# the target resource. patchesStrategicMerge auto-detects the target from kind+name
+# in the patch file, which is exactly what we need for full-resource patch files.
 patches_to_add = [
     'configmap-patch.yaml',
     'secrets-patch.yaml',
-    'namespace-patch.yaml',
 ]
 
-# Append to patchesStrategicMerge block, or add it if missing
 for patch in patches_to_add:
     if patch not in content:
         if 'patchesStrategicMerge:' in content:
@@ -407,7 +401,8 @@ for patch in patches_to_add:
                 f'patchesStrategicMerge:\n  - {patch}'
             )
         else:
-            content += f'\npatchesStrategicMerge:\n  - {patch}\n'
+            # Add as a new patchesStrategicMerge section at the end
+            content += f'patchesStrategicMerge:\n  - {patch}\n'
 
 with open(filepath, 'w') as f:
     f.write(content)
