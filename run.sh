@@ -23,16 +23,10 @@ if [[ "$PROJECT_ROOT" == "/" || "$PROJECT_ROOT" == "$HOME" || "$PROJECT_ROOT" ==
     echo "FATAL: PROJECT_ROOT resolves to an unsafe path: $PROJECT_ROOT"
     exit 99
 fi
+
 # LOAD SHARED LIBRARIES (SAFE TO SOURCE)
-
 load_libraries() {
-    # Defensive checks
-    [[ -n "${PROJECT_ROOT:-}" ]] || {
-        echo "FATAL: PROJECT_ROOT not set"
-        exit 1
-    }
-
-    # Pure libraries only — NO side effects allowed
+    [[ -n "${PROJECT_ROOT:-}" ]] || { echo "FATAL: PROJECT_ROOT not set"; exit 1; }
     source "$PROJECT_ROOT/lib/colors.sh"
     source "$PROJECT_ROOT/lib/logging.sh"
     source "$PROJECT_ROOT/lib/guards.sh"
@@ -60,7 +54,11 @@ security() {
 }
 
 deploy_infra() {
-    bash "$PROJECT_ROOT/infra/deploy_infra.sh"
+    # Pass INFRA_ACTION and CLOUD_PROVIDER as positional args to the script
+    # These are set interactively below (prod mode) or from .env defaults
+    bash "$PROJECT_ROOT/infra/deploy_infra.sh" \
+        "${INFRA_ACTION:-plan}" \
+        "${CLOUD_PROVIDER:-aws}"
 }
 
 deploy_argo() {
@@ -92,7 +90,7 @@ print_section "DevOps Project — Deployment Runner" "🚀"
 print_kv "Project Root" "${PROJECT_ROOT}"
 print_kv "Supports"     "Minikube · Kind · K3s · K8s · EKS · GKE · AKS · MicroK8s"
 
-#  LOAD & VALIDATE .env
+# LOAD & VALIDATE .env
 print_subsection "Loading Environment Configuration"
 
 ENV_FILE="$PWD/.env"
@@ -142,7 +140,7 @@ else
     exit 1
 fi
 
-#  HELPER FUNCTIONS
+# HELPER FUNCTIONS
 is_interactive() {
     [[ -t 0 && -z "${CI:-}" ]]
 }
@@ -154,18 +152,13 @@ ask() {
     shift 3
     local options=("$@")
     local is_bool=false
-
-    # Detect boolean question automatically if options not provided
     if [[ "${#options[@]}" -eq 0 ]]; then
         options=("true" "false")
         is_bool=true
     fi
-
     while true; do
         echo ""
         echo -e "  ${BOLD}${WHITE}${prompt}${RESET}"
-
-        # Print options if not boolean (or always for clarity)
         if [[ "$is_bool" == true ]]; then
             echo -e "  ${ACCENT_KEY}Options:${RESET} true/false"
         else
@@ -178,14 +171,9 @@ ask() {
                 ((i++))
             done
         fi
-
-        # Prompt user
         local input
         read -rp "$(echo -e "  ${BOLD}Enter choice [${default}]:${RESET} ")" input
-
         input="${input:-$default}"
-
-        # If numeric, map to option
         if [[ "$input" =~ ^[0-9]+$ ]] && [[ "$is_bool" == false ]]; then
             if (( input >= 1 && input <= ${#options[@]} )); then
                 input="${options[$((input-1))]}"
@@ -194,8 +182,6 @@ ask() {
                 continue
             fi
         fi
-
-        # Validate input
         for opt in "${options[@]}"; do
             if [[ "$input" == "$opt" ]]; then
                 export "$var_name=$input"
@@ -203,25 +189,38 @@ ask() {
                 return
             fi
         done
-
         print_error "Invalid option. Choose from the listed options."
     done
 }
 
-#  INTERACTIVE DEPLOYMENT OPTIONS
+# INTERACTIVE DEPLOYMENT OPTIONS
 if is_interactive; then
     print_subsection "Deployment Configuration"
     echo ""
-    ask DEPLOY_TARGET "Target environment" "${DEPLOY_TARGET:-local}" local prod
-    ask DEPLOY_MODE   "Deployment mode"    "${DEPLOY_MODE:-direct}" argocd direct
-    ask BUILD_PUSH    "Push image to registry?" "${BUILD_PUSH:-true}"
-    ask DRY_RUN       "Enable dry-run mode?"    "${DRY_RUN:-false}"
+    ask DEPLOY_TARGET "Target environment"       "${DEPLOY_TARGET:-local}" local prod
+    ask DEPLOY_MODE   "Deployment mode"          "${DEPLOY_MODE:-direct}"  argocd direct
+    ask BUILD_PUSH    "Push image to registry?"  "${BUILD_PUSH:-true}"
+    ask DRY_RUN       "Enable dry-run mode?"     "${DRY_RUN:-false}"
+
+    # Cloud provider + infra action — only relevant when deploying to prod
+    if [[ "${DEPLOY_TARGET}" == "prod" ]]; then
+        print_divider
+        print_subsection "Production Infrastructure Options"
+        echo ""
+        ask CLOUD_PROVIDER "Cloud provider / IaC tool" "${CLOUD_PROVIDER:-aws}" aws oci
+        ask INFRA_ACTION   "Infrastructure action"     "${INFRA_ACTION:-plan}"  plan apply destroy
+    fi
+
     export CI=false
 else
     print_info "Non-interactive / CI mode — using .env values"
+    # In CI, CLOUD_PROVIDER and INFRA_ACTION must come from .env or environment
+    : "${CLOUD_PROVIDER:=aws}"
+    : "${INFRA_ACTION:=plan}"
+    export CLOUD_PROVIDER INFRA_ACTION
 fi
 
-#  PREREQUISITES
+# PREREQUISITES
 print_subsection "Checking Prerequisites"
 
 # Sudo check
@@ -273,7 +272,7 @@ fi
 
 export CONTAINER_RUNTIME
 
-#  KUBERNETES CLUSTER DETECTION
+# KUBERNETES CLUSTER DETECTION
 detect_k8s_cluster() {
     print_subsection "Detecting Kubernetes Cluster"
 
@@ -322,11 +321,15 @@ detect_k8s_cluster
 : "${DEPLOY_MODE:?Set DEPLOY_MODE in .env  (argocd or direct)}"
 
 echo ""
-print_kv "Deploy Target" "${DEPLOY_TARGET}"
-print_kv "Deploy Mode"   "${DEPLOY_MODE}"
+print_kv "Deploy Target"   "${DEPLOY_TARGET}"
+print_kv "Deploy Mode"     "${DEPLOY_MODE}"
+if [[ "${DEPLOY_TARGET}" == "prod" ]]; then
+    print_kv "Cloud Provider"  "${CLOUD_PROVIDER:-aws}"
+    print_kv "Infra Action"    "${INFRA_ACTION:-plan}"
+fi
 echo ""
 
-#  LOCAL CLUSTER SETUP  (Minikube, Kind, K3s, MicroK8s)
+# LOCAL CLUSTER SETUP  (Minikube, Kind, K3s, MicroK8s)
 setup_local_cluster() {
     case "$K8S_DISTRIBUTION" in
         minikube)
@@ -372,7 +375,7 @@ setup_local_cluster() {
     esac
 }
 
-#  IMAGE BUILD
+# IMAGE BUILD
 build_image() {
     print_subsection "Container Image"
 
@@ -397,7 +400,7 @@ build_image() {
     fi
 }
 
-#  SHOW DIRECT-MODE ACCESS INFO  (after deploy_kubernetes + stack)
+# SHOW DIRECT-MODE ACCESS INFO
 show_direct_access_info() {
     echo ""
     print_section "APPLICATION ACCESS" "🌐"
@@ -410,27 +413,22 @@ show_direct_access_info() {
             ip=$(minikube ip 2>/dev/null || echo "localhost")
             node_port=$(kubectl get svc "${APP_NAME}-service" -n "$NAMESPACE" \
                 -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-
             if [[ -n "$node_port" ]]; then
                 print_access_box "APPLICATION" "🚀" \
                     "URL:Application URL:http://${ip}:${node_port}"
             fi
-
             print_access_box "MINIKUBE DASHBOARD" "📊" \
                 "CMD:Open Kubernetes Dashboard:|minikube dashboard"
             ;;
-
         kind)
             local node_port
             node_port=$(kubectl get svc "${APP_NAME}-service" -n "$NAMESPACE" \
                 -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-
             if [[ -n "$node_port" ]]; then
                 print_access_box "APPLICATION" "🚀" \
                     "URL:Application URL:http://localhost:${node_port}"
             fi
             ;;
-
         k3s|microk8s)
             local node_ip node_port
             node_ip=$(kubectl get nodes \
@@ -438,20 +436,17 @@ show_direct_access_info() {
                 2>/dev/null || echo "localhost")
             node_port=$(kubectl get svc "${APP_NAME}-service" -n "$NAMESPACE" \
                 -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-
             if [[ -n "$node_port" ]]; then
                 print_access_box "APPLICATION" "🚀" \
                     "URL:Application URL:http://${node_ip}:${node_port}"
             fi
             ;;
-
         eks|gke|aks)
             print_access_box "APPLICATION" "🚀" \
                 "CMD:Get external IP/hostname:|kubectl get svc ${APP_NAME}-service -n ${NAMESPACE}" \
                 "BLANK:" \
                 "CMD:Get ingress address:|kubectl get ingress -n ${NAMESPACE}"
             ;;
-
         *)
             print_access_box "APPLICATION" "🚀" \
                 "CMD:Step 1 — Start port-forward:|kubectl port-forward svc/${APP_NAME}-service ${APP_PORT}:80 -n ${NAMESPACE}" \
@@ -459,10 +454,9 @@ show_direct_access_info() {
                 "URL:Step 2 — Open in browser:http://localhost:${APP_PORT}"
             ;;
     esac
-
 }
 
-#  DEPLOYMENT: LOCAL
+# DEPLOYMENT: LOCAL
 if [[ "$DEPLOY_TARGET" == "local" ]]; then
     print_section "DEPLOYING TO LOCAL KUBERNETES" "🖥"
 
@@ -472,25 +466,32 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     if [[ "$DEPLOY_MODE" == "argocd" ]]; then
         deploy_argo
         configure_gitlab || true
-
     else
-        # Legacy direct mode
         print_subsection "Direct Mode Deployment"
         deploy_kubernetes local
         deploy_monitoring
         deploy_loki
         security
         configure_gitlab
-
         show_direct_access_info
     fi
 
-#  DEPLOYMENT: PRODUCTION
+# DEPLOYMENT: PRODUCTION
 elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
     print_section "DEPLOYING TO PRODUCTION (CLOUD)" "☁"
+    print_kv "Cloud Provider" "${CLOUD_PROVIDER:-aws}"
+    print_kv "Infra Action"   "${INFRA_ACTION:-plan}"
+    echo ""
 
     if [[ "$DEPLOY_MODE" == "argocd" ]]; then
+        # Provision / update cloud infrastructure first
         deploy_infra
+
+        # Guard: only continue past 'plan' if action was apply
+        if [[ "${INFRA_ACTION:-plan}" == "plan" ]]; then
+            print_info "Infra action was 'plan' — review the plan above, then re-run with INFRA_ACTION=apply"
+            exit 0
+        fi
 
         case "$K8S_DISTRIBUTION" in
             eks)
@@ -526,8 +527,13 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
         configure_gitlab || true
 
     else
-        # Legacy direct mode
+        # Direct mode
         deploy_infra
+
+        if [[ "${INFRA_ACTION:-plan}" == "plan" ]]; then
+            print_info "Infra action was 'plan' — review the plan above, then re-run with INFRA_ACTION=apply"
+            exit 0
+        fi
 
         case "$K8S_DISTRIBUTION" in
             eks) require_command aws    "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html" ;;
@@ -554,7 +560,8 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
         configure_gitlab
 
         print_section "PRODUCTION DEPLOYMENT COMPLETE" "✅"
-        print_kv "Cluster" "${K8S_DISTRIBUTION}"
+        print_kv "Cluster"        "${K8S_DISTRIBUTION}"
+        print_kv "Cloud Provider" "${CLOUD_PROVIDER:-aws}"
         echo ""
         print_access_box "VERIFY DEPLOYMENT" "🔍" \
             "CMD:Check services:|kubectl get svc -n ${NAMESPACE}" \

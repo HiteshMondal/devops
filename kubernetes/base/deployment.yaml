@@ -108,18 +108,19 @@ spec:
           limits:
             cpu: 500m
             memory: 512Mi
-        # ALTERNATIVE: TCP-based health checks (works even without /health endpoint)
         livenessProbe:
-          tcpSocket:
-            port: http
+          httpGet:
+            path: /health
+            port: 3000
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
           successThreshold: 1
           failureThreshold: 3
         readinessProbe:
-          tcpSocket:
-            port: http
+          httpGet:
+            path: /ready
+            port: 3000
           initialDelaySeconds: 10
           periodSeconds: 5
           timeoutSeconds: 3

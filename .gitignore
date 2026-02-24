@@ -1,19 +1,27 @@
-# Terraform
-**/.terraform/*
+# Terraform / OpenTofu
+# Local state files
 *.tfstate
 *.tfstate.*
-*.tfplan
-*.tfvars
-!*.tfvars.example
+# Crash logs
 crash.log
 crash.*.log
+# CLI working directory
+.terraform/
+.tofu/
+# Variable files (often contain secrets)
+*.tfvars
+*.tfvars.json
+# Override files
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+*.tfplan
+*tfplan
+# CLI config files
 .terraformrc
 terraform.rc
-terraform.tfstate
+.tofurc
 
 # Kubernetes temporary files
 *.tmp

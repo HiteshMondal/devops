@@ -1,146 +1,233 @@
-# infra/OpenTofu/eks.tf - EKS cluster and node groups
+###############################################################################
+# opentofu_eks.tf — Oracle Kubernetes Engine (OKE) Cluster & Node Pool
+# Always Free: VM.Standard.A1.Flex — 4 OCPU + 24 GB RAM total
+# Region: ap-mumbai-1 (Mumbai)
+###############################################################################
 
-resource "aws_iam_role" "eks_cluster" {
-  name = "${local.cluster_name}-cluster-role"
-  
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
-      Principal = {
-        Service = "eks.amazonaws.com"
-      }
-    }]
-  })
-  
-  tags = local.common_tags
+#------------------------------------------------------------------------------
+# SSH Key for Node Access
+#------------------------------------------------------------------------------
+data "local_file" "ssh_public_key" {
+  filename = pathexpand(var.ssh_public_key_path)
 }
 
-resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
-  role       = aws_iam_role.eks_cluster.name
+# Alternatively generate one if none exists
+resource "tls_private_key" "node_ssh" {
+  count     = fileexists(pathexpand(var.ssh_public_key_path)) ? 0 : 1
+  algorithm = "RSA"
+  rsa_bits  = 4096
 }
 
-resource "aws_iam_role_policy_attachment" "eks_vpc_resource_controller" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController"
-  role       = aws_iam_role.eks_cluster.name
+locals {
+  ssh_public_key = fileexists(pathexpand(var.ssh_public_key_path)) ? (
+    data.local_file.ssh_public_key.content
+  ) : tls_private_key.node_ssh[0].public_key_openssh
 }
 
-resource "aws_security_group" "eks_cluster" {
-  name_prefix = "${local.cluster_name}-cluster-sg"
-  vpc_id      = aws_vpc.main.id
-  
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+#------------------------------------------------------------------------------
+# OKE Cluster
+#------------------------------------------------------------------------------
+resource "oci_containerengine_cluster" "main" {
+  compartment_id     = oci_identity_compartment.main.id
+  name               = local.cluster_name
+  vcn_id             = oci_core_vcn.main.id
+  kubernetes_version = var.kubernetes_version
+  type               = "BASIC_CLUSTER" # ENHANCED_CLUSTER adds cost
+
+  endpoint_config {
+    is_public_ip_enabled = true # Public API endpoint (needed for kubectl access)
+    subnet_id            = oci_core_subnet.public.id
+    nsg_ids              = [oci_core_network_security_group.lb.id]
   }
-  
-  tags = merge(
-    local.common_tags,
-    {
-      Name = "${local.cluster_name}-cluster-sg"
+
+  options {
+    service_lb_subnet_ids = [oci_core_subnet.public.id]
+
+    add_ons {
+      is_kubernetes_dashboard_enabled = false
+      is_tiller_enabled               = false
     }
-  )
-}
 
-resource "aws_eks_cluster" "main" {
-  name     = local.cluster_name
-  role_arn = aws_iam_role.eks_cluster.arn
-  version  = var.kubernetes_version
-  
-  vpc_config {
-    subnet_ids              = concat(aws_subnet.public[*].id, aws_subnet.private[*].id)
-    security_group_ids      = [aws_security_group.eks_cluster.id]
-    endpoint_private_access = true
-    endpoint_public_access  = true
+    kubernetes_network_config {
+      pods_cidr     = "172.16.0.0/16"
+      services_cidr = "172.20.0.0/16"
+    }
+
+    admission_controller_options {
+      is_pod_security_policy_enabled = false
+    }
+
+    # Persistent Volume Encryption
+    persistent_volume_config {
+      freeform_tags = local.freeform_tags
+    }
+
+    service_lb_config {
+      freeform_tags = local.freeform_tags
+    }
   }
-  
-  enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
-  
-  tags = local.common_tags
-  
-  depends_on = [
-    aws_iam_role_policy_attachment.eks_cluster_policy,
-    aws_iam_role_policy_attachment.eks_vpc_resource_controller,
-  ]
+
+  # Cluster-level image policy
+  image_policy_config {
+    is_policy_enabled = false # Enable for production with signed images
+  }
+
+  freeform_tags = local.freeform_tags
 }
 
-resource "aws_iam_role" "eks_node_group" {
-  name = "${local.cluster_name}-node-group-role"
-  
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
-      Principal = {
-        Service = "ec2.amazonaws.com"
+#------------------------------------------------------------------------------
+# OKE Node Pool — ARM Ampere A1.Flex (Always Free)
+# Total Always Free allocation: 4 OCPU, 24 GB RAM
+# Config: 2 nodes × (2 OCPU + 12 GB RAM) = exactly the free limit
+#------------------------------------------------------------------------------
+resource "oci_containerengine_node_pool" "main" {
+  compartment_id     = oci_identity_compartment.main.id
+  cluster_id         = oci_containerengine_cluster.main.id
+  name               = "${local.cluster_name}-arm-nodes"
+  kubernetes_version = var.kubernetes_version
+
+  # ARM Ampere A1 — Always Free
+  node_shape = var.node_shape
+  node_shape_config {
+    ocpus         = var.node_ocpus
+    memory_in_gbs = var.node_memory_gb
+  }
+
+  # OKE-optimized Oracle Linux image (ARM)
+  node_source_details {
+    source_type             = "IMAGE"
+    image_id                = data.oci_core_images.oke_arm.images[0].id
+    boot_volume_size_in_gbs = var.node_boot_volume_gb
+  }
+
+  # SSH access to nodes
+  ssh_public_key = local.ssh_public_key
+
+  # Distribute nodes across availability domains
+  node_config_details {
+    size = var.node_count
+
+    dynamic "placement_configs" {
+      for_each = data.oci_identity_availability_domains.ads.availability_domains
+      content {
+        availability_domain = placement_configs.value.name
+        subnet_id           = oci_core_subnet.private_nodes.id
       }
-    }]
-  })
-  
-  tags = local.common_tags
-}
+    }
 
-resource "aws_iam_role_policy_attachment" "eks_worker_node_policy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
-  role       = aws_iam_role.eks_node_group.name
-}
+    # Node pool-level NSG
+    nsg_ids = []
 
-resource "aws_iam_role_policy_attachment" "eks_cni_policy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-  role       = aws_iam_role.eks_node_group.name
-}
+    # OKE VCN-native pod networking
+    node_pool_pod_network_option_details {
+      cni_type          = "OCI_VCN_IP_NATIVE"
+      pod_subnet_ids    = [oci_core_subnet.private_pods.id]
+      pod_nsg_ids       = []
+      max_pods_per_node = 31
+    }
 
-resource "aws_iam_role_policy_attachment" "eks_container_registry_policy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-  role       = aws_iam_role.eks_node_group.name
-}
-
-resource "aws_eks_node_group" "main" {
-  cluster_name    = aws_eks_cluster.main.name
-  node_group_name = "${local.cluster_name}-node-group"
-  node_role_arn   = aws_iam_role.eks_node_group.arn
-  subnet_ids      = aws_subnet.private[*].id
-  
-  instance_types = var.node_instance_types
-  
-  scaling_config {
-    desired_size = var.node_desired_size
-    max_size     = var.node_max_size
-    min_size     = var.node_min_size
+    freeform_tags = local.freeform_tags
   }
-  
-  update_config {
-    max_unavailable = 1
+
+  # Node lifecycle — prevent accidental termination
+  node_metadata = {
+    "user_data" = base64encode(<<-EOT
+      #!/bin/bash
+      # Node bootstrap script
+      echo "Node initialised: $(hostname)" >> /var/log/node-init.log
+    EOT
+    )
   }
-  
-  labels = {
-    Environment = var.environment
-    ManagedBy   = "OpenTofu"
+
+  freeform_tags = local.freeform_tags
+}
+
+#------------------------------------------------------------------------------
+# Find latest OKE-compatible ARM image
+#------------------------------------------------------------------------------
+data "oci_core_images" "oke_arm" {
+  compartment_id           = var.tenancy_ocid
+  operating_system         = "Oracle Linux"
+  operating_system_version = "8"
+  shape                    = var.node_shape
+  sort_by                  = "TIMECREATED"
+  sort_order               = "DESC"
+  state                    = "AVAILABLE"
+
+  filter {
+    name   = "display_name"
+    values = ["Oracle-Linux-8.*-aarch64-.*-OKE-.*"]
+    regex  = true
   }
-  
-  tags = local.common_tags
-  
+}
+
+#------------------------------------------------------------------------------
+# Get kubeconfig for the cluster
+#------------------------------------------------------------------------------
+data "oci_containerengine_cluster_kube_config" "main" {
+  cluster_id = oci_containerengine_cluster.main.id
+
   depends_on = [
-    aws_iam_role_policy_attachment.eks_worker_node_policy,
-    aws_iam_role_policy_attachment.eks_cni_policy,
-    aws_iam_role_policy_attachment.eks_container_registry_policy,
+    oci_containerengine_cluster.main,
+    oci_containerengine_node_pool.main,
   ]
 }
 
-# OIDC provider for IRSA (IAM Roles for Service Accounts)
-data "tls_certificate" "eks" {
-  url = aws_eks_cluster.main.identity[0].oidc[0].issuer
+resource "local_file" "kubeconfig" {
+  content  = data.oci_containerengine_cluster_kube_config.main.content
+  filename = "${path.module}/kubeconfig"
+
+  file_permission = "0600"
 }
 
-resource "aws_iam_openid_connect_provider" "eks" {
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint]
-  url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
-  
-  tags = local.common_tags
+#------------------------------------------------------------------------------
+# OCI Load Balancer for Ingress (Always Free: 1 × 10 Mbps)
+#------------------------------------------------------------------------------
+resource "oci_load_balancer_load_balancer" "main" {
+  compartment_id = oci_identity_compartment.main.id
+  display_name   = "${var.project_name}-${var.environment}-lb"
+  shape          = "flexible"
+
+  shape_details {
+    minimum_bandwidth_in_mbps = 10
+    maximum_bandwidth_in_mbps = 10 # Always Free limit
+  }
+
+  subnet_ids     = [oci_core_subnet.public.id]
+  is_private     = false
+  network_security_group_ids = [oci_core_network_security_group.lb.id]
+
+  ip_mode = "IPV4"
+
+  freeform_tags = local.freeform_tags
+}
+
+# Backend set for HTTP
+resource "oci_load_balancer_backend_set" "http" {
+  name             = "http-backend-set"
+  load_balancer_id = oci_load_balancer_load_balancer.main.id
+  policy           = "ROUND_ROBIN"
+
+  health_checker {
+    protocol            = "HTTP"
+    url_path            = "/health"
+    port                = 3000
+    return_code         = 200
+    interval_ms         = 30000
+    timeout_in_millis   = 3000
+    retries             = 3
+  }
+}
+
+# HTTP listener
+resource "oci_load_balancer_listener" "http" {
+  name                     = "http-listener"
+  load_balancer_id         = oci_load_balancer_load_balancer.main.id
+  default_backend_set_name = oci_load_balancer_backend_set.http.name
+  port                     = 80
+  protocol                 = "HTTP"
+
+  connection_configuration {
+    idle_timeout_in_seconds = 300
+  }
 }
