@@ -381,8 +381,6 @@ deploy_kubernetes() {
 
     kubectl apply -k "$apply_target"
 
-    print_divider
-
     # Rollout wait
     print_subsection "Waiting for Deployment"
     if kubectl rollout status deployment/"$APP_NAME" -n "$NAMESPACE" --timeout=300s; then

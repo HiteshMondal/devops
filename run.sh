@@ -86,11 +86,11 @@ build_and_push_image_podman() {
 configure_dockerhub_username() {
     bash "$PROJECT_ROOT/app/configure_dockerhub_username.sh"
 }
-
+clear
+print_divider
 print_section "DevOps Project — Deployment Runner" "🚀"
 print_kv "Project Root" "${PROJECT_ROOT}"
 print_kv "Supports"     "Minikube · Kind · K3s · K8s · EKS · GKE · AKS · MicroK8s"
-print_divider
 
 #  LOAD & VALIDATE .env
 print_subsection "Loading Environment Configuration"
@@ -208,8 +208,6 @@ ask() {
     done
 }
 
-print_divider
-
 #  INTERACTIVE DEPLOYMENT OPTIONS
 if is_interactive; then
     print_subsection "Deployment Configuration"
@@ -222,8 +220,6 @@ if is_interactive; then
 else
     print_info "Non-interactive / CI mode — using .env values"
 fi
-
-print_divider
 
 #  PREREQUISITES
 print_subsection "Checking Prerequisites"
@@ -277,8 +273,6 @@ fi
 
 export CONTAINER_RUNTIME
 
-print_divider
-
 #  KUBERNETES CLUSTER DETECTION
 detect_k8s_cluster() {
     print_subsection "Detecting Kubernetes Cluster"
@@ -331,7 +325,6 @@ echo ""
 print_kv "Deploy Target" "${DEPLOY_TARGET}"
 print_kv "Deploy Mode"   "${DEPLOY_MODE}"
 echo ""
-print_divider
 
 #  LOCAL CLUSTER SETUP  (Minikube, Kind, K3s, MicroK8s)
 setup_local_cluster() {
@@ -467,7 +460,6 @@ show_direct_access_info() {
             ;;
     esac
 
-    print_divider
 }
 
 #  DEPLOYMENT: LOCAL
@@ -568,7 +560,6 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
             "CMD:Check services:|kubectl get svc -n ${NAMESPACE}" \
             "CMD:Check ingress:|kubectl get ingress -n ${NAMESPACE}" \
             "CMD:Check pods:|kubectl get pods -n ${NAMESPACE}"
-        print_divider
     fi
 
 else
@@ -576,3 +567,5 @@ else
     print_info "Valid values:  ${ACCENT_CMD}local${RESET}  or  ${ACCENT_CMD}prod${RESET}"
     exit 1
 fi
+
+print_divider

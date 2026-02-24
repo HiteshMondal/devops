@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # lib/logging.sh -- Structured logging primitives
 # Requires: colors.sh to be sourced first
-#
 # Pure ASCII separators (= and -) for maximum terminal compatibility.
 # No vertical lines, no box-drawing or Unicode characters.
 
