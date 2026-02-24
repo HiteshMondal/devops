@@ -129,6 +129,13 @@ argocd_login() {
     else
         admin_pass=$(kubectl -n "$ARGOCD_NAMESPACE" get secret argocd-initial-admin-secret \
             -o jsonpath="{.data.password}" 2>/dev/null | base64 -d 2>/dev/null || echo "")
+        # ALWAYS show Argo CD default admin credentials
+        echo ""
+        print_access_box "ARGO CD DEFAULT ADMIN CREDENTIALS" "🔐" \
+            "CRED:Username:admin" \
+            "CRED:Password:${admin_pass}" \
+            "BLANK:" \
+            "TEXT:Password retrieved from argocd-initial-admin-secret"
         if [[ -z "$admin_pass" ]]; then
             print_error "Could not retrieve ArgoCD initial admin password"
             print_info "Set ARGOCD_ADMIN_PASSWORD in your .env file"
@@ -347,7 +354,7 @@ show_argocd_access() {
             "URL:Step 2 — Open ArgoCD UI:https://localhost:${ARGOCD_LOCAL_PORT}" \
             "SEP:" \
             "CRED:Username:admin" \
-            "CRED:Password:${CI:+<see argocd-initial-admin-secret>}${CI:-${ARGOCD_ADMIN_PASS}}" \
+            "CRED:Password:${ARGOCD_ADMIN_PASS}" \
             "BLANK:" \
             "TEXT:Push commits to '${GIT_REPO_BRANCH}' — ArgoCD auto-syncs on every push."
     fi
@@ -387,8 +394,11 @@ deploy_argo() {
         install_argocd_server
     fi
 
-    print_subsection "Step 3 — Login"
+    print_subsection "Step 3 — Login and Access"
     argocd_login
+
+    # HIGH-VISIBILITY ACCESS INFO
+    show_argocd_access
 
     print_subsection "Step 4 — Register Git Repository"
     argocd_add_repo
@@ -408,9 +418,6 @@ deploy_argo() {
     else
         print_info "CI mode — skipping health wait (ArgoCD will auto-sync)"
     fi
-
-    # HIGH-VISIBILITY ACCESS INFO
-    show_argocd_access
 
     print_section "ARGO CD DEPLOYMENT COMPLETE" "✅"
     print_info "Argo CD is now managing your deployments."

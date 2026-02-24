@@ -25,16 +25,20 @@ metadata:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
-
+  info:
+    - name: Loki Endpoint (Internal)
+      value: http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100
+    - name: Grafana Datasource URL
+      value: http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100
+    - name: Recommended Grafana Dashboard
+      value: "14055 (Loki Logs)"
   source:
     repoURL: ${GIT_REPO_URL}
     targetRevision: ${GIT_REPO_BRANCH}
     path: monitoring/Loki
-
   destination:
     server: https://kubernetes.default.svc
     namespace: ${LOKI_NAMESPACE}
-
   syncPolicy:
     automated:
       prune: true
@@ -51,7 +55,6 @@ spec:
         duration: 10s
         factor: 2
         maxDuration: 3m
-
   ignoreDifferences:
     - group: apps
       kind: DaemonSet
@@ -76,16 +79,31 @@ metadata:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
-
+  info:
+    - name: Prometheus (Universal Access)
+      value: |
+        kubectl port-forward svc/prometheus 9090:9090 -n ${PROMETHEUS_NAMESPACE}
+        Open: http://localhost:9090
+    - name: Grafana (Universal Access)
+      value: |
+        kubectl port-forward svc/grafana 3000:3000 -n ${PROMETHEUS_NAMESPACE}
+        Open: http://localhost:3000
+    - name: Grafana Credentials
+      value: |
+        Username: ${GRAFANA_ADMIN_USER}
+        Password: <from secret or env>
+    - name: Grafana Dashboards
+      value: |
+        Node Exporter Full: 1860
+        Kubernetes Cluster: 6417
+        kube-state-metrics: 13332
   source:
     repoURL: ${GIT_REPO_URL}
     targetRevision: ${GIT_REPO_BRANCH}
     path: monitoring/prometheus_grafana
-
   destination:
     server: https://kubernetes.default.svc
     namespace: ${PROMETHEUS_NAMESPACE}
-
   syncPolicy:
     automated:
       prune: true
@@ -96,20 +114,18 @@ spec:
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
-      - ServerSideApply=true   # Needed for large ConfigMaps (Grafana dashboards)
+      - ServerSideApply=true
     retry:
       limit: 3
       backoff:
         duration: 15s
         factor: 2
         maxDuration: 5m
-
   ignoreDifferences:
     - group: apps
       kind: Deployment
       jsonPointers:
         - /spec/replicas
-
 ---
 
 apiVersion: argoproj.io/v1alpha1
@@ -128,7 +144,16 @@ metadata:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
-
+  info:
+    - name: Trivy Metrics Endpoint
+      value: http://trivy-exporter.${TRIVY_NAMESPACE}.svc.cluster.local:8081/metrics
+    - name: Prometheus Target
+      value: Status → Targets → trivy-exporter
+    - name: Recommended Dashboards
+      value: |
+        Trivy Workload Vulnerabilities: 17046
+        Trivy Operator: 16337
+        Trivy Operator Overview: 21398
   source:
     repoURL: ${GIT_REPO_URL}
     targetRevision: ${GIT_REPO_BRANCH}
@@ -159,7 +184,7 @@ spec:
     - group: batch
       kind: CronJob
       jsonPointers:
-        - /spec/schedule  # Allow schedule to be changed without ArgoCD flagging out-of-sync
+        - /spec/schedule
 
 ---
 
@@ -178,7 +203,15 @@ metadata:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
-
+  info:
+    - name: Deployment Environment
+      value: ${DEPLOY_TARGET}
+    - name: Namespace
+      value: ${NAMESPACE}
+    - name: Git Repository
+      value: ${GIT_REPO_URL}
+    - name: Auto Sync
+      value: Enabled (prune + selfHeal)
   source:
     repoURL: ${GIT_REPO_URL}
     targetRevision: ${GIT_REPO_BRANCH}
@@ -187,11 +220,10 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: ${NAMESPACE}
-
   syncPolicy:
     automated:
-      prune: true          # Remove resources deleted from Git
-      selfHeal: true       # Revert manual cluster changes
+      prune: true
+      selfHeal: true
       allowEmpty: false
     syncOptions:
       - CreateNamespace=true
@@ -204,9 +236,8 @@ spec:
         duration: 10s
         factor: 2
         maxDuration: 3m
-
   ignoreDifferences:
     - group: apps
       kind: Deployment
       jsonPointers:
-        - /spec/replicas   # Ignore HPA-managed replica count diffs
+        - /spec/replicas
