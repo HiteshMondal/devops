@@ -1,6 +1,6 @@
 #!/bin/bash
 # Security/security.sh — Deploy security tools (Trivy with Metrics Exporter)
-# Usage: ./security.sh  or  source it in run.sh
+# Usage: ./security.sh
 
 set -euo pipefail
 
@@ -38,11 +38,12 @@ source "$PROJECT_ROOT/lib/bootstrap.sh"
 : "${TRIVY_METRICS_ENABLED:=true}"
 : "${TRIVY_BUILD_IMAGES:=true}"
 : "${TRIVY_IMAGE_TAG:=1.0}"
+: "${TRIVY_METRICS_PORT:=8081}"
 
 export TRIVY_ENABLED TRIVY_NAMESPACE TRIVY_VERSION TRIVY_SEVERITY TRIVY_SCAN_SCHEDULE
 export TRIVY_IMAGE_TAG DOCKERHUB_USERNAME
 export TRIVY_CPU_REQUEST TRIVY_CPU_LIMIT TRIVY_MEMORY_REQUEST TRIVY_MEMORY_LIMIT
-export TRIVY_METRICS_ENABLED
+export TRIVY_METRICS_ENABLED TRIVY_METRICS_PORT
 
 # Prerequisite check
 require_command envsubst "Install gettext package (apt-get install gettext / brew install gettext)"
@@ -136,7 +137,7 @@ deploy_trivy() {
 
         if kubectl run curl-test --image=curlimages/curl:latest --rm -i \
             --restart=Never -n "$TRIVY_NAMESPACE" \
-            -- curl -s http://trivy-exporter:8080/metrics 2>/dev/null | grep -q "trivy_"; then
+            -- curl -s http://trivy-exporter:${TRIVY_METRICS_PORT}/metrics 2>/dev/null | grep -q "trivy_"; then
             print_success "Metrics endpoint is responding"
         else
             print_warning "Metrics endpoint not yet ready (may need more time to initialise)"
@@ -155,6 +156,7 @@ security() {
     print_kv "Build Images"         "${TRIVY_BUILD_IMAGES}"
     print_kv "Scan Schedule"        "${TRIVY_SCAN_SCHEDULE}"
     print_kv "Severity Filter"      "${TRIVY_SEVERITY}"
+    print_kv "Metrics Port"         "${TRIVY_METRICS_PORT}"
     echo ""
 
     build_trivy_images
@@ -168,9 +170,9 @@ security() {
 
     # HIGH-VISIBILITY ACCESS INFO
     print_access_box "TRIVY METRICS ACCESS" "🛡" \
-        "CMD:Step 1 — Start port-forward:|kubectl port-forward -n ${TRIVY_NAMESPACE} svc/trivy-exporter 8080:8080" \
+        "CMD:Step 1 — Start port-forward:|kubectl port-forward -n ${TRIVY_NAMESPACE} svc/trivy-exporter ${TRIVY_METRICS_PORT}:${TRIVY_METRICS_PORT}" \
         "BLANK:" \
-        "CMD:Step 2 — Verify metrics endpoint:|curl http://localhost:8080/metrics | grep trivy" \
+        "CMD:Step 2 — Verify metrics endpoint:|curl http://localhost:${TRIVY_METRICS_PORT}/metrics | grep trivy" \
         "BLANK:" \
         "URL:Step 3 — Check Prometheus targets (Status → Targets):http://localhost:9090/targets"
 

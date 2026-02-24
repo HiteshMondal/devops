@@ -23,9 +23,7 @@ if [[ "$PROJECT_ROOT" == "/" || "$PROJECT_ROOT" == "$HOME" || "$PROJECT_ROOT" ==
     echo "FATAL: PROJECT_ROOT resolves to an unsafe path: $PROJECT_ROOT"
     exit 99
 fi
-# ─────────────────────────────────────────────────────────────────────────────
 # LOAD SHARED LIBRARIES (SAFE TO SOURCE)
-# ─────────────────────────────────────────────────────────────────────────────
 
 load_libraries() {
     # Defensive checks
@@ -42,11 +40,8 @@ load_libraries() {
 
 load_libraries
 
-
-# ─────────────────────────────────────────────────────────────────────────────
 # ACTION SCRIPT RUNNERS (ISOLATED EXECUTION)
 # Each runs in its OWN process — no variable / trap leakage
-# ─────────────────────────────────────────────────────────────────────────────
 
 deploy_kubernetes() {
     bash "$PROJECT_ROOT/kubernetes/deploy_kubernetes.sh" "$@"
@@ -96,53 +91,6 @@ print_section "DevOps Project — Deployment Runner" "🚀"
 print_kv "Project Root" "${PROJECT_ROOT}"
 print_kv "Supports"     "Minikube · Kind · K3s · K8s · EKS · GKE · AKS · MicroK8s"
 print_divider
-
-#  HELPER FUNCTIONS
-is_interactive() {
-    [[ -t 0 && -z "${CI:-}" ]]
-}
-
-ask_choice() {
-    local var_name="$1"
-    local prompt="$2"
-    local default="$3"
-    shift 3
-    local options=("$@")
-    while true; do
-        echo ""
-        echo -e "  ${BOLD}${WHITE}${prompt}${RESET}"
-        echo -e "  ${ACCENT_KEY}Options:${RESET}  ${options[*]}"
-        local input
-        read -rp "$(echo -e "  ${BOLD}Enter choice [${default}]:${RESET} ")" input
-        input="${input:-$default}"
-        for opt in "${options[@]}"; do
-            if [[ "$input" == "$opt" ]]; then
-                export "$var_name=$input"
-                print_success "Selected: ${BOLD}${input}${RESET}"
-                return
-            fi
-        done
-        print_error "Invalid option. Choose from: ${options[*]}"
-    done
-}
-
-ask_bool() {
-    local var_name="$1"
-    local prompt="$2"
-    local default="$3"
-    while true; do
-        local input
-        read -rp "$(echo -e "  ${BOLD}${prompt} (true/false) [${default}]:${RESET} ")" input
-        input="${input:-$default}"
-
-        if [[ "$input" == "true" || "$input" == "false" ]]; then
-            export "$var_name=$input"
-            print_success "${var_name}=${input}"
-            return
-        fi
-        print_error "Please enter true or false"
-    done
-}
 
 #  LOAD & VALIDATE .env
 print_subsection "Loading Environment Configuration"
@@ -194,6 +142,71 @@ else
     exit 1
 fi
 
+#  HELPER FUNCTIONS
+is_interactive() {
+    [[ -t 0 && -z "${CI:-}" ]]
+}
+
+ask() {
+    local var_name="$1"
+    local prompt="$2"
+    local default="$3"
+    shift 3
+    local options=("$@")
+    local is_bool=false
+
+    # Detect boolean question automatically if options not provided
+    if [[ "${#options[@]}" -eq 0 ]]; then
+        options=("true" "false")
+        is_bool=true
+    fi
+
+    while true; do
+        echo ""
+        echo -e "  ${BOLD}${WHITE}${prompt}${RESET}"
+
+        # Print options if not boolean (or always for clarity)
+        if [[ "$is_bool" == true ]]; then
+            echo -e "  ${ACCENT_KEY}Options:${RESET} true/false"
+        else
+            echo -e "  ${ACCENT_KEY}Options:${RESET}"
+            local i=1
+            for opt in "${options[@]}"; do
+                local mark=""
+                [[ "$opt" == "$default" ]] && mark="(default)"
+                echo -e "    $i) $opt $mark"
+                ((i++))
+            done
+        fi
+
+        # Prompt user
+        local input
+        read -rp "$(echo -e "  ${BOLD}Enter choice [${default}]:${RESET} ")" input
+
+        input="${input:-$default}"
+
+        # If numeric, map to option
+        if [[ "$input" =~ ^[0-9]+$ ]] && [[ "$is_bool" == false ]]; then
+            if (( input >= 1 && input <= ${#options[@]} )); then
+                input="${options[$((input-1))]}"
+            else
+                print_error "Invalid number. Choose 1-${#options[@]}"
+                continue
+            fi
+        fi
+
+        # Validate input
+        for opt in "${options[@]}"; do
+            if [[ "$input" == "$opt" ]]; then
+                export "$var_name=$input"
+                print_success "Selected: ${BOLD}${input}${RESET}"
+                return
+            fi
+        done
+
+        print_error "Invalid option. Choose from the listed options."
+    done
+}
 
 print_divider
 
@@ -201,10 +214,10 @@ print_divider
 if is_interactive; then
     print_subsection "Deployment Configuration"
     echo ""
-    ask_choice DEPLOY_TARGET  "Target environment"   "${DEPLOY_TARGET:-local}"  local prod
-    ask_choice DEPLOY_MODE    "Deployment mode"      "${DEPLOY_MODE:-argocd}"   argocd direct
-    ask_bool   BUILD_PUSH     "Push image to registry?" "${BUILD_PUSH:-false}"
-    ask_bool   DRY_RUN        "Enable dry-run mode?" "${DRY_RUN:-false}"
+    ask DEPLOY_TARGET "Target environment" "${DEPLOY_TARGET:-local}" local prod
+    ask DEPLOY_MODE   "Deployment mode"    "${DEPLOY_MODE:-direct}" argocd direct
+    ask BUILD_PUSH    "Push image to registry?" "${BUILD_PUSH:-true}"
+    ask DRY_RUN       "Enable dry-run mode?"    "${DRY_RUN:-false}"
     export CI=false
 else
     print_info "Non-interactive / CI mode — using .env values"
