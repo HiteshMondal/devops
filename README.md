@@ -1,3 +1,14 @@
+<div align="center">
+
+```
+██████╗ ███████╗██╗   ██╗ ██████╗ ██████╗ ███████╗
+██╔══██╗██╔════╝██║   ██║██╔═══██╗██╔══██╗██╔════╝
+██║  ██║█████╗  ██║   ██║██║   ██║██████╔╝███████╗
+██║  ██║██╔══╝  ╚██╗ ██╔╝██║   ██║██╔═══╝ ╚════██║
+██████╔╝███████╗ ╚████╔╝ ╚██████╔╝██║     ███████║
+╚═════╝ ╚══════╝  ╚═══╝   ╚═════╝ ╚═╝     ╚══════╝
+```
+
 ## 🚀 End-to-End DevOps Platform
 
 A **production-grade DevOps project** demonstrating the complete lifecycle of a cloud-native application — from containerization and CI/CD to infrastructure provisioning, Kubernetes orchestration, monitoring, and security.
@@ -17,20 +28,57 @@ Everything is automated via:
 
 ```bash
 ./run.sh
+````
+
+The runner interactively guides you through environment, mode, and cloud provider selection — then handles the rest automatically.
+
+---
+
+## Architecture at a Glance
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                        ./run.sh                                │
+│           (Interactive orchestrator — detects everything)      │
+└────────────┬──────────────────────────────────┬────────────────┘
+             │                                  │
+     ┌───────▼───────┐                  ┌───────▼────────┐
+     │  LOCAL TARGET │                  │  PROD TARGET   │
+     │  ─────────────│                  │  ───────────── │
+     │  Minikube     │                  │  AWS EKS       │
+     │  Kind         │                  │  GKE           │
+     │  K3s          │                  │  AKS           │
+     │  MicroK8s     │                  │  OCI OKE       │
+     └───────┬───────┘                  └───────┬────────┘
+             │                                  │
+     ┌───────▼──────────────────────────────────▼────────┐
+     │                  DEPLOYMENT PIPELINE              │
+     │                                                   │
+     │  1. Build & Push Image  (Docker / Podman)         │
+     │  2. Provision Infra     (Terraform / OpenTofu)    │
+     │  3. Deploy to K8s       (Kustomize / ArgoCD)      │
+     │  4. Deploy Monitoring   (Prometheus + Grafana)    │
+     │  5. Deploy Logging      (Loki + Promtail)         │
+     │  6. Security Scan       (Trivy)                   │
+     └───────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🧩 Key Features
+## Key Features
 
-* ⚙️ **One-command deployment pipeline**
-* 🐳 Supports both Docker & Podman
-* ☸️ Kubernetes with Kustomize (base + overlays)
-* 🔁 CI/CD with GitHub Actions & GitLab CI
-* ☁️ Infrastructure as Code using Terraform & OpenTofu
-* 📊 Full observability stack (Prometheus, Grafana, Loki)
-* 🔐 Security scanning (Trivy)
-* 🔄 Multi-cluster compatibility (local + cloud)
+| Category | What's Included |
+|---|---|
+| **Single Command** | Interactive `run.sh` orchestrates the entire pipeline |
+| **Container Runtime** | Docker and Podman both supported, auto-detected |
+| **Kubernetes** | Kustomize base + overlays for local and prod environments |
+| **Deployment Modes** | Direct kubectl apply **or** full GitOps via ArgoCD |
+| **CI/CD** | GitHub Actions and GitLab CI pipelines, ready to use |
+| **Infrastructure** | Terraform (AWS EKS + RDS + VPC) and OpenTofu (Oracle Cloud OKE + ADB) |
+| **Observability** | Prometheus, Grafana, Loki, Promtail, Node Exporter, kube-state-metrics |
+| **Security** | Trivy image vulnerability scanning with Kubernetes integration |
+| **Live Dashboard** | Built-in real-time metrics dashboard at `/` with SSE streaming |
+| **Cluster Detection** | Auto-detects Minikube, Kind, K3s, MicroK8s, EKS, GKE, AKS and adapts accordingly |
 
 ---
 
@@ -62,158 +110,227 @@ sudo usermod -aG docker $USER
 newgrp docker
 ```
 
----
-
-## 🚀 Quick Start
-
-### 1. Configure Environment
+**Passwordless sudo** is required for certain install steps:
 
 ```bash
+# Add to /etc/sudoers via visudo:
+your_username ALL=(ALL) NOPASSWD: /usr/bin/docker, /usr/bin/kubectl
+```
+---
+
+## Quick Start
+
+### 1. Clone and configure
+
+```bash
+git clone <your-repo-url>
+cd devops
+
 cp dotenv_example .env
 nano .env
 ```
+> See [`dotenv_example`](./dotenv_example) for the full reference with every available variable.
 
-Open dotenv_example to see how to configure .env file
-Set required variables like:
-
-```
-APP_NAME=
-NAMESPACE=
-DOCKERHUB_USERNAME=
-DEPLOY_TARGET=local | prod
-```
-
----
-
-### 2. Run Deployment
+### 2. Launch
 
 ```bash
 chmod +x run.sh
 ./run.sh
 ```
 
----
+The runner will prompt you for:
 
-## 🎯 Deployment Modes
+```
+Target environment  →  local | prod
+Deployment mode     →  direct | argocd
+Push image?         →  true | false
+Dry-run mode?       →  true | false
 
-### 🖥️ Local (Minikube / Kind / K3s / MicroK8s)
-
-```bash
-DEPLOY_TARGET=local
+# If prod:
+Cloud provider      →  aws | oci
+Infra action        →  plan | apply | destroy
 ```
 
-* Builds image locally or pushes to DockerHub
-* Deploys Kubernetes resources
-* Sets up monitoring + logging + security
+Then it detects your cluster, validates tools, builds the image, and deploys everything automatically.
 
 ---
 
-### ☁️ Production (Cloud - EKS)
+## Deployment Modes
 
-```bash
-DEPLOY_TARGET=prod
+### Direct Mode (`DEPLOY_MODE=direct`)
+
+Applies Kubernetes manifests directly using `kubectl` and Kustomize. Best for getting started quickly.
+
+```
+run.sh
+ └─ build image
+ └─ kubectl apply -k kubernetes/overlays/local  (or prod)
+ └─ deploy monitoring stack
+ └─ deploy loki
+ └─ run trivy security scan
 ```
 
-* Provisions infrastructure (VPC, EKS, RDS)
-* Builds & pushes container image
-* Deploys to Kubernetes
-* Enables monitoring & security stack
+### GitOps Mode (`DEPLOY_MODE=argocd`)
+
+Installs ArgoCD on the cluster, registers your Git repository, and creates Application manifests. ArgoCD then continuously reconciles the cluster state with your repo.
+
+```
+run.sh
+ └─ install ArgoCD on cluster
+ └─ register Git remote
+ └─ generate + apply Application CRDs
+ └─ ArgoCD watches repo → auto-syncs on every push
+```
+
+After setup, push to your configured branch — the cluster updates automatically.
 
 ---
 
-## ☸️ Kubernetes Features
+## Target Environments
 
-* Namespaces
-* ConfigMaps & Secrets
-* Horizontal Pod Autoscaler (HPA)
-* Ingress Controller
-* Kustomize overlays (local vs prod)
+### Local Kubernetes
+
+Supports all major local distributions. The runner auto-detects which one you're using and configures accordingly:
+
+| Distribution | Ingress | Service Type | Notes |
+|---|---|---|---|
+| Minikube | nginx (addon) | NodePort | Configures Docker env automatically |
+| Kind | nginx (installed) | NodePort | Installs ingress controller if missing |
+| K3s | Traefik (built-in) | NodePort | Uses built-in ingress |
+| MicroK8s | nginx (addon) | NodePort | Enables addons automatically |
+
+### Production Cloud
+
+| Provider | Tool | Cluster | Database | Network |
+|---|---|---|---|---|
+| AWS | Terraform | EKS | RDS (PostgreSQL) | VPC + subnets + security groups |
+| Oracle Cloud | OpenTofu | OKE | Autonomous DB | VCN + subnets |
+
+Cloud deployment flow:
+
+```bash
+INFRA_ACTION=plan   # Review first
+./run.sh
+
+INFRA_ACTION=apply  # Then apply
+./run.sh
+```
+---
+
+## Kubernetes Resources
+
+Managed via Kustomize with base + overlay separation:
+
+**Base** (`kubernetes/base/`):
+
+| Resource | Purpose |
+|---|---|
+| `namespace.yaml` | Dedicated namespace isolation |
+| `deployment.yaml` | App deployment with resource limits |
+| `service.yaml` | ClusterIP / NodePort / LoadBalancer (auto-selected) |
+| `ingress.yaml` | Ingress with configurable host and class |
+| `hpa.yaml` | Horizontal Pod Autoscaler (min 2, max 10 replicas) |
+| `configmap.yaml` | Runtime configuration injection |
+| `secrets.yaml` | DB credentials, JWT secret, API key |
+
+**Prod overlay** adds:
+
+- `NetworkPolicy` — restricts pod-to-pod traffic
+- `PodDisruptionBudget` — ensures availability during node drains
 
 ---
 
-## 📊 Monitoring & Observability
+## Observability Stack
 
-Includes:
+### Prometheus + Grafana
 
-* **Prometheus** → Metrics collection
-* **Grafana** → Dashboards
-* **Loki** → Log aggregation
-* **Node Exporter + kube-state-metrics**
+Deployed to the `monitoring` namespace. Includes:
 
+- Prometheus with custom scrape config targeting the app's `/metrics` endpoint
+- Alerting rules for high error rate, high latency, and pod unavailability
+- Grafana with pre-loaded dashboards
+- kube-state-metrics for cluster-level resource visibility
+- Node Exporter (via Helm) for host-level metrics
+
+**Grafana access** after deployment:
+
+```bash
+kubectl port-forward svc/grafana 3000:3000 -n monitoring
+# Open: http://localhost:3000  (admin / admin123)
+```
+
+**Recommended dashboard IDs** (import via Dashboards → Import):
+
+| Dashboard | ID |
+|---|---|
+| Node Exporter Full | 1860 |
+| Kubernetes Cluster | 6417 |
+| kube-state-metrics v2 | 13332 |
+| Loki Logs | 14055 |
+
+### Loki + Promtail
+
+Deployed to the `loki` namespace. Promtail runs as a DaemonSet and ships all pod logs to Loki. Add Loki as a datasource in Grafana:
+
+```
+http://loki.loki.svc.cluster.local:3100
+```
 ---
 
-## 🔐 Security
+## CI/CD Pipelines
 
-* **Trivy** → Image vulnerability scanning
+### GitHub Actions (`.github/workflows/prod.yml`)
 
-> ⚠️ Demo setup — not production hardened
-> For production:
-
-* Use Secrets Manager / Vault
-* Enable RBAC + Network Policies
-
----
-
-## 🔁 CI/CD Pipelines
-
-Supports:
-
-* GitHub Actions (`.github/workflows/`)
-* GitLab CI (`.gitlab-ci.yml`)
-
-Pipeline stages:
+Triggers on push to `main`. Pipeline stages:
 
 1. Build container image
-2. Push to registry
-3. Deploy to Kubernetes
+2. Push to DockerHub
+3. Deploy to Kubernetes (via kubectl or ArgoCD sync)
+
+Configure secrets in **Settings → Secrets and Variables → Actions**:
+
+```
+DOCKERHUB_USERNAME
+DOCKERHUB_TOKEN
+KUBECONFIG          ← base64-encoded kubeconfig for your cluster
+```
+
+### GitLab CI (`.gitlab-ci.yml`)
+
+Same stages, configured via **Settings → CI/CD → Variables**.
 
 ---
 
-## 🧨 Reset & Cleanup
+## Security
+
+**Trivy** is deployed as a Kubernetes-native scanner that runs image vulnerability scans and exposes results as Prometheus metrics.
+
+```bash
+# Run standalone scan
+./Security/security.sh
+```
+---
+
+## Cleanup
+
+To fully tear down a local environment:
 
 ```bash
 ./clean_reset_all.sh
 ```
-
 ⚠️ Deletes:
-
 * Containers
 * Kubernetes cluster state (local)
 * Networks
 
 ---
 
-## 📌 DevOps Concepts Demonstrated
+## Author
 
-* Infrastructure as Code (Terraform / OpenTofu)
-* Containerization (Docker / Podman)
-* CI/CD Pipelines
-* Kubernetes Orchestration
-* Observability (Prometheus + Grafana + Loki)
-* Security (Trivy)
-* Multi-environment deployments
+**Hitesh Mondal** — DevOps · Cloud · Cybersecurity
 
 ---
 
-## 📈 Future Improvements
-
-* GitOps (ArgoCD / Flux)
-* Helm charts
-* Secrets management (Vault / AWS Secrets Manager)
-* Canary / Blue-Green deployments
-* Service mesh (Istio)
-* Distributed tracing (Jaeger)
-
----
-
-## 👨‍💻 Author
-
-**Hitesh Mondal**
-DevOps • Cloud • Cybersecurity
-
----
-
-## 📄 License
+## License
 
 Open for learning and demonstration purposes.
-

@@ -113,9 +113,7 @@ variables:
   TRIVY_BUILD_IMAGES: ${TRIVY_BUILD_IMAGES:-true}
   TRIVY_IMAGE_TAG: ${TRIVY_IMAGE_TAG:-1.0}
 
-# ============================================================================
 # VALIDATION STAGE
-# ============================================================================
 validate:variables:
   stage: validate
   image: debian:11
@@ -172,9 +170,7 @@ validate:tools:
   rules:
     - if: '$CI_COMMIT_BRANCH || $CI_COMMIT_TAG'
 
-# ============================================================================
 # BUILD STAGE
-# ============================================================================
 build-docker-image:
   stage: build
   image: docker:24
@@ -213,9 +209,7 @@ build-docker-image-local:
   rules:
     - if: '$BUILD_PUSH=="false"'
 
-# ============================================================================
 # DEPLOY LOCAL STAGE (Minikube, Kind, K3s, etc.)
-# ============================================================================
 deploy-local:
   stage: deploy-local
   image: debian:11
@@ -277,9 +271,7 @@ deploy-local:
   rules:
     - if: '$DEPLOY_TARGET == "local"'
 
-# ============================================================================
 # DEPLOY PRODUCTION STAGE (EKS, GKE, AKS)
-# ============================================================================
 deploy:terraform-infrastructure:
   stage: deploy-prod
   image: 
@@ -424,9 +416,7 @@ deploy:production:
   tags:
     - kubernetes
 
-# ============================================================================
 # MONITORING STAGE
-# ============================================================================
 deploy-monitoring:
   stage: monitoring
   image: docker:24
@@ -464,9 +454,7 @@ deploy-monitoring:
   rules:
     - if: '$PROMETHEUS_ENABLED == "true"'
 
-# ============================================================================
 # LOKI STAGE
-# ============================================================================
 deploy-loki:
   stage: loki
   image: docker:24
@@ -503,9 +491,7 @@ deploy-loki:
   rules:
     - if: '$LOKI_ENABLED == "true"'
 
-# ============================================================================
 # SECURITY STAGE
-# ============================================================================
 deploy-security:
   stage: security
   image: docker:24
@@ -545,9 +531,7 @@ deploy-security:
   rules:
     - if: '$TRIVY_ENABLED == "true"'
 
-# ============================================================================
 # CLEANUP JOBS
-# ============================================================================
 cleanup:local:
   stage: cleanup
   image: debian:11
