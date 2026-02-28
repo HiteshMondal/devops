@@ -44,7 +44,7 @@ trivy_images_scanned = Gauge(
 # Configuration
 REPORTS_DIR = os.getenv('TRIVY_REPORTS_DIR', '/reports')
 SCAN_INTERVAL = int(os.getenv('SCAN_INTERVAL', '300'))  # 5 minutes
-METRICS_PORT = int(os.getenv('METRICS_PORT', '8080'))
+METRICS_PORT = int(os.getenv('METRICS_PORT', '8081'))
 
 
 def parse_trivy_report(report_path):
