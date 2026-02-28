@@ -227,6 +227,7 @@ print_subsection "Checking Prerequisites"
 if command -v sudo >/dev/null 2>&1; then
     if ! sudo -n true 2>/dev/null; then
         print_error "Passwordless sudo is required for some steps"
+        print_info "Type: sudo visudo"
         print_info "Add to sudoers:  ${ACCENT_CMD}$USER ALL=(ALL) NOPASSWD: /usr/bin/docker, /usr/bin/kubectl${RESET}"
         exit 1
     fi
