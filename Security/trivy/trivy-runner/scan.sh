@@ -21,19 +21,19 @@ if [[ ${#image_array[@]} -eq 0 ]]; then
 fi
 
 echo "Found ${#image_array[@]} unique image reference(s)"
-
 echo "Updating Trivy database..."
-trivy image --download-db-only --timeout 5m || true
+
+/usr/local/bin/trivy image --download-db-only --timeout 5m || true
 
 scanned=0
 skipped=0
 
 for image in "${image_array[@]}"; do
-    # skip digest-only references — trivy cannot resolve them
+    # Skip digest-only references — trivy cannot resolve them
     # without a registry name prefix and they carry no actionable scan info.
     if [[ "$image" == sha256:* ]]; then
         echo "⏭  Skipping digest-only reference: ${image:0:32}..."
-        (( skipped++ )) || true
+        skipped=$((skipped + 1))
         continue
     fi
 
@@ -43,10 +43,11 @@ for image in "${image_array[@]}"; do
     safe_filename=$(echo "$image" | tr '/:@' '_' | tr -d ' ')
     safe_filename="${safe_filename:-unknown_image}"
 
-    if ! trivy image \
+    if ! /usr/local/bin/trivy image \
         --severity "${TRIVY_SEVERITY}" \
         --format json \
         --output "/reports/${safe_filename}.json" \
+        --timeout 10m \
         "$image"; then
         echo "⚠️  Failed to scan $image — creating minimal placeholder report"
         # Minimal valid JSON so the exporter doesn't crash on malformed files
@@ -54,7 +55,7 @@ for image in "${image_array[@]}"; do
             > "/reports/${safe_filename}.json"
     fi
 
-    (( scanned++ )) || true
+    scanned=$((scanned + 1))
 done
 
 echo "Scan complete. Scanned: ${scanned}  Skipped (digest-only): ${skipped}"

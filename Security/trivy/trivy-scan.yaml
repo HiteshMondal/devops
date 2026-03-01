@@ -113,6 +113,10 @@ spec:
       template:
         spec:
           serviceAccountName: trivy-operator
+          securityContext:
+            fsGroup: 1001
+            runAsUser: 1001
+            runAsNonRoot: true
           restartPolicy: OnFailure
           containers:
           - name: trivy
@@ -156,18 +160,23 @@ spec:
         app: trivy
     spec:
       serviceAccountName: trivy-operator
+      securityContext:
+        fsGroup: 1001
+        runAsUser: 1001
+        runAsNonRoot: true
       restartPolicy: Never
       containers:
       - name: trivy
         image: hiteshmondaldocker/trivy-runner:1.0
         command:
-        - sh
+        - /bin/sh
         - -c
         - |
+          set -e
           echo "Running initial Trivy scan..."
-          trivy image --download-db-only --timeout 10m || true
+          /usr/local/bin/trivy image --download-db-only --timeout 10m || true
           echo "Scanning application image: hiteshmondaldocker/devops-app:latest"
-          trivy image \
+          /usr/local/bin/trivy image \
             --scanners vuln \
             --severity HIGH,CRITICAL \
             --format json \

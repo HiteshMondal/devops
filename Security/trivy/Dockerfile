@@ -10,15 +10,9 @@ WORKDIR /app
 # Install dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir prometheus-client==0.20.0
-
-# Create non-root user
-RUN useradd --create-home --shell /bin/bash exporter
-
-COPY trivy-exporter.py /app/
-
+RUN useradd -u 1000 --create-home --shell /bin/bash exporter \
+    && chown -R exporter:exporter /app
+COPY --chown=exporter:exporter trivy-exporter.py /app/
 USER exporter
-
 EXPOSE 8082
-
 CMD ["python", "/app/trivy-exporter.py"]
-

@@ -1,44 +1,8 @@
 #!/usr/bin/env python3
 """
+# /Security/trivy/trivy-exporter.py
 Trivy Metrics Exporter for Prometheus
 Reads Trivy JSON scan reports and exposes metrics.
-
-FIXES:
-  Bug 6 — Replaced prometheus_client.Info with Gauge for vulnerability details.
-
-           Two problems with the original Info usage:
-             a) prometheus_client.Info does NOT have a .clear() method.
-                Calling trivy_vulnerability_id.clear() on every update_metrics()
-                invocation raises AttributeError and crashes the entire update
-                cycle, meaning metrics are NEVER refreshed after the first run.
-             b) Info is designed for static build/version metadata, not for
-                per-vulnerability time series. Using Info with labels
-                (vulnerability_id, image, package, severity) creates a new
-                Prometheus time series for every unique vulnerability across
-                every scan — potentially thousands of series per image. This
-                is a cardinality bomb that can exhaust Prometheus memory.
-
-           Fix: vulnerability detail is now exposed as a labelled Gauge
-           (value=1, labels carry the metadata). Gauge.clear() works correctly,
-           cardinality is controlled, and the data is queryable in PromQL.
-
-  Bug 7 — Moved `from datetime import datetime` to module-level imports.
-           The original code imported datetime inside the for-loop on every
-           iteration for every report file. Python caches module imports after
-           the first load, so this is not a correctness bug, but it is wasteful
-           and misleading — imports belong at the top of the module per PEP 8.
-
-  Bug 8 — Added /-/healthy and /-/ready HTTP endpoints to the same server.
-           deployment.yaml's liveness/readiness probes previously targeted
-           /metrics (fixed in deployment.yaml). This file adds the actual
-           health routes those probes now expect:
-             /-/healthy  → always 200 while the process is alive (liveness)
-             /-/ready    → 200 only after at least one successful metrics update
-                           cycle completes (readiness)
-
-  Dead code — Removed the commented-out triple-quoted block at the end of
-              update_metrics(). It was unreachable, served no documentation
-              purpose, and would confuse future maintainers.
 """
 
 import json

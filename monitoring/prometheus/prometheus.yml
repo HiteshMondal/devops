@@ -1,14 +1,6 @@
 # /monitoring/prometheus/prometheus.yml
 # This file is processed through envsubst by create_prometheus_configmap() in
 # deploy_monitoring.sh before being loaded into the prometheus-config ConfigMap.
-#
-# Variables substituted at deploy time:
-#   PROMETHEUS_SCRAPE_INTERVAL, PROMETHEUS_SCRAPE_TIMEOUT,
-#   DEPLOY_TARGET, NAMESPACE, APP_NAME, TRIVY_NAMESPACE
-#
-# IMPORTANT: ${1} and ${2} inside relabel replacement: values are Prometheus
-# regex capture groups — NOT shell variables. envsubst only replaces
-# ${UPPER_CASE} patterns so these are left untouched safely.
 
 global:
   scrape_interval: ${PROMETHEUS_SCRAPE_INTERVAL}
@@ -184,4 +176,4 @@ scrape_configs:
 
   - job_name: 'trivy'
     static_configs:
-      - targets: ['trivy-exporter.${TRIVY_NAMESPACE}.svc.cluster.local:8080']
+      - targets: ['trivy-exporter.${TRIVY_NAMESPACE}.svc.cluster.local:8082']

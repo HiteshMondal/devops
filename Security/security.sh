@@ -57,22 +57,16 @@ build_trivy_images() {
 
     print_subsection "Building Trivy Images"
 
-    # read ~/.docker/config.json directly. If an auth entry exists for
-    # index.docker.io (Docker Hub's registry), the user is logged in.
-    # This is version-agnostic, fast, and matches what `docker push` checks.
-    # Fall back to a token-less registry ping if the config is absent.
     local docker_config="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
     local logged_in=false
 
     if [[ -f "$docker_config" ]]; then
-        # Check for credential store entry OR base64 auth entry for Docker Hub
         if python3 -c "
 import json, sys
 cfg = json.load(open('$docker_config'))
 stores = cfg.get('credHelpers', {})
 auths  = cfg.get('auths', {})
 hubs   = ['https://index.docker.io/v1/', 'index.docker.io']
-# credStore delegates to an external helper — assume logged in if configured
 if cfg.get('credsStore'):
     sys.exit(0)
 for hub in hubs:
@@ -93,6 +87,7 @@ sys.exit(1)
 
     print_step "Building trivy-runner..."
     docker build \
+        --no-cache \
         --build-arg TRIVY_VERSION="${TRIVY_VERSION}" \
         -t "${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}" \
         "$PROJECT_ROOT/Security/trivy/trivy-runner" \
@@ -106,6 +101,7 @@ sys.exit(1)
 
     print_step "Building trivy-exporter..."
     docker build \
+        --no-cache \
         --build-arg TRIVY_VERSION="${TRIVY_VERSION}" \
         -t "${DOCKERHUB_USERNAME}/trivy-exporter:${TRIVY_IMAGE_TAG}" \
         "$PROJECT_ROOT/Security/trivy" \
@@ -119,25 +115,12 @@ sys.exit(1)
 }
 
 #  IMMUTABILITY HELPERS
-#
-# Kubernetes enforces immutability on two resource types we manage:
-#
-#   PersistentVolumeClaims — spec (including accessModes) is frozen once bound.
-#   Jobs                   — spec.template is frozen after creation.
-#
-# `kubectl apply` cannot patch these fields and exits non-zero, which aborts the
-# entire deployment under `set -euo pipefail`. The helpers below detect the
-# existing state, decide whether recreation is needed, and handle it safely.
 
-# Recreate a PVC only if its accessMode differs from what we want.
-# Safe: deletes only when the PVC is not currently mounted (no Running pods
-# in the namespace hold a volumeMount referencing it).
 reconcile_pvc() {
     local name="$1"
     local namespace="$2"
-    local wanted_mode="$3"   # e.g. ReadWriteOnce
+    local wanted_mode="$3"
 
-    # PVC does not exist yet — nothing to reconcile
     kubectl get pvc "$name" -n "$namespace" &>/dev/null || return 0
 
     local current_mode
@@ -152,7 +135,6 @@ reconcile_pvc() {
     print_warning "PVC ${name}: accessMode is '${current_mode}', need '${wanted_mode}'"
     print_warning "PVC spec is immutable after creation — will delete and recreate"
 
-    # Safety: refuse to delete if any Running pod is using this PVC
     local users
     users=$(kubectl get pods -n "$namespace" \
         -o jsonpath="{range .items[*]}{.metadata.name}{' '}{range .spec.volumes[*]}{.persistentVolumeClaim.claimName}{' '}{end}{end}" \
@@ -171,31 +153,42 @@ reconcile_pvc() {
     print_success "PVC ${name} deleted"
 }
 
-# Recreate the trivy-initial-scan Job when its spec has changed.
-# Jobs are immutable after creation — any spec change requires delete + recreate.
-# Skip recreation if the Job already completed successfully (no point re-running).
 reconcile_initial_scan_job() {
     local namespace="$1"
     local job_name="trivy-initial-scan"
+    local expected_image="${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}"
 
     kubectl get job "$job_name" -n "$namespace" &>/dev/null || return 0
 
-    # If already succeeded, leave it alone
     local succeeded
     succeeded=$(kubectl get job "$job_name" -n "$namespace" \
         -o jsonpath='{.status.succeeded}' 2>/dev/null || echo "0")
-    if [[ "${succeeded:-0}" -ge 1 ]]; then
-        print_info "Job ${job_name} already completed successfully — skipping recreation"
+
+    local current_image
+    current_image=$(kubectl get job "$job_name" -n "$namespace" \
+        -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
+
+    if [[ "${succeeded:-0}" -ge 1 ]] && [[ "$current_image" == "$expected_image" ]]; then
+        print_info "Job ${job_name} already completed successfully with the correct image — skipping recreation"
         return 0
     fi
 
-    print_warning "Job ${job_name} exists with a different spec — must delete and recreate (Jobs are immutable)"
+    if [[ "${succeeded:-0}" -ge 1 ]] && [[ "$current_image" != "$expected_image" ]]; then
+        print_warning "Job ${job_name} completed but with a different image:"
+        print_warning "  current:  ${current_image}"
+        print_warning "  expected: ${expected_image}"
+        print_warning "Recreating so the fixed image runs"
+    else
+        print_warning "Job ${job_name} exists but has not completed — spec may have changed"
+        print_warning "Deleting and recreating (Jobs are immutable)"
+    fi
+
     print_step "Deleting existing Job ${job_name}..."
     kubectl delete job "$job_name" -n "$namespace" --wait=true 2>/dev/null || true
     print_success "Job ${job_name} deleted — will be recreated by apply"
 }
 
-#  DEPLOY TRIVY TO CLUSTER 
+#  DEPLOY TRIVY TO CLUSTER
 deploy_trivy() {
     if [[ "${TRIVY_ENABLED}" != "true" ]]; then
         print_info "Skipping Trivy deployment (TRIVY_ENABLED=false)"
@@ -207,27 +200,12 @@ deploy_trivy() {
     print_step "Creating namespace: ${BOLD}${TRIVY_NAMESPACE}${RESET}"
     kubectl create namespace "$TRIVY_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
-    #  Pre-apply immutability reconciliation
-    #
-    # Handle resources whose spec is frozen by Kubernetes after first creation.
-    # Must run BEFORE kubectl apply so the apply never hits an immutability error.
-    #
-    # Why this happens:
-    #   The previous deployment created these PVCs with accessModes: ReadWriteMany
-    #   (the bug that was fixed). Kubernetes bound them. Changing accessModes on a
-    #   bound PVC via kubectl apply is rejected with:
-    #     "spec: Forbidden: spec is immutable after creation"
-    #
-    #   Similarly, a Job's spec.template is immutable after creation — adding
-    #   activeDeadlineSeconds or changing the image triggers the same error.
-
     print_step "Reconciling PVCs (handling immutability)..."
     reconcile_pvc "trivy-cache-pvc"   "$TRIVY_NAMESPACE" "ReadWriteOnce"
     reconcile_pvc "trivy-reports-pvc" "$TRIVY_NAMESPACE" "ReadWriteOnce"
 
     print_step "Reconciling initial scan Job (handling immutability)..."
     reconcile_initial_scan_job "$TRIVY_NAMESPACE"
-    #  End pre-apply reconciliation 
 
     print_step "Applying Trivy scan CronJob..."
     envsubst < "$PROJECT_ROOT/Security/trivy/trivy-scan.yaml" | kubectl apply -f -
@@ -274,7 +252,7 @@ deploy_trivy() {
     fi
 }
 
-#  MAIN 
+#  MAIN
 security() {
     print_section "SECURITY TOOLS DEPLOYMENT" "🔒"
 
@@ -295,7 +273,6 @@ security() {
 
     print_divider
 
-    # HIGH-VISIBILITY ACCESS INFO
     print_access_box "TRIVY METRICS ACCESS" "🛡" \
         "CMD:Step 1 — Start port-forward:|kubectl port-forward -n ${TRIVY_NAMESPACE} svc/trivy-exporter ${TRIVY_METRICS_PORT}:${TRIVY_METRICS_PORT}" \
         "BLANK:" \
@@ -320,7 +297,6 @@ security() {
     print_divider
 }
 
-# Direct execution
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     security
 fi
