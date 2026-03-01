@@ -1,13 +1,20 @@
-#/monitoring/kube-state-metrics/service.yaml
+# /monitoring/kube-state-metrics/service.yaml
 
 apiVersion: v1
 kind: Service
 metadata:
   name: kube-state-metrics
   namespace: kube-system
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
 spec:
   selector:
     app: kube-state-metrics
   ports:
-  - port: 8080
+  - name: http-metrics
+    port: 8080
     targetPort: 8080
+  - name: telemetry
+    port: 8081
+    targetPort: 8081

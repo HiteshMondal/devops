@@ -1,6 +1,8 @@
 # /monitoring/prometheus_grafana/grafana.yaml
-# ArgoCD-compatible: all ${VAR} placeholders replaced with hardcoded values.
-# Default values match deploy_monitoring.sh defaults.
+# ─────────────────────────────────────────────────────────────────────────────
+# ARGOCD / DIRECT APPLY — hardcoded defaults. Never contains ${} placeholders.
+# For shell-based deployment (deploy_monitoring.sh), grafana.yaml.tpl is used.
+# ─────────────────────────────────────────────────────────────────────────────
 
 apiVersion: v1
 kind: ConfigMap
@@ -13,19 +15,21 @@ data:
     datasources:
     - name: Prometheus
       type: prometheus
-      # uid required by Grafana 10.x for stable dashboard datasource
-      # references. Without this, imported community dashboards show
-      # "Datasource not found" because they reference the datasource by UID.
       uid: prometheus
       access: proxy
       url: http://prometheus:9090
       isDefault: true
       editable: true
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      # Cluster-internal DNS — works on all k8s distributions without
+      # any external exposure of Loki. Matches loki Service in loki namespace.
+      url: http://loki.loki.svc.cluster.local:3100
+      isDefault: false
+      editable: true
 ---
-# grafana-dashboard-provider moved here — BEFORE the Deployment —
-# so the ConfigMap exists when Kubernetes schedules the pod and mounts the volume.
-# Previously defined after the Deployment, which risks a mount failure on
-# sequential apply (ArgoCD sync, kubectl apply with --server-side, etc.).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -109,11 +113,6 @@ spec:
           value: /etc/grafana/provisioning
         - name: GF_AUTH_ANONYMOUS_ENABLED
           value: "false"
-        # FIX Bug 2: was hardcoded to "http://localhost:3000" which breaks
-        # redirect-based features (OAuth, share links, alert notification URLs)
-        # in every environment except port-forward.
-        # Grafana's self-referencing template resolves correctly regardless of
-        # whether the service is accessed via NodePort, LoadBalancer, or Ingress.
         - name: GF_SERVER_ROOT_URL
           value: "%(protocol)s://%(domain)s:%(http_port)s/"
         resources:

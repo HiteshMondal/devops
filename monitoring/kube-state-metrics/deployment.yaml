@@ -1,4 +1,4 @@
-#/monitoring/kube-state-metrics/deployment.yaml
+# /monitoring/kube-state-metrics/deployment.yaml
 
 apiVersion: apps/v1
 kind: Deployment
@@ -16,6 +16,10 @@ spec:
         app: kube-state-metrics
     spec:
       serviceAccountName: kube-state-metrics
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
       containers:
       - name: kube-state-metrics
         image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.10.1
@@ -24,9 +28,6 @@ spec:
           name: http-metrics
         - containerPort: 8081
           name: telemetry
-        # resource limits prevent unbounded consumption that causes
-        # node pressure and starves other monitoring pods in constrained clusters
-        # (Minikube, Kind). Values sized conservatively for a typical cluster.
         resources:
           requests:
             cpu: 100m
@@ -34,9 +35,6 @@ spec:
           limits:
             cpu: 500m
             memory: 512Mi
-        # health probes added — kube-state-metrics exposes /healthz
-        # and /readyz on port 8080. Without probes, a broken pod stays in
-        # rotation and Prometheus silently stops receiving cluster-state metrics.
         livenessProbe:
           httpGet:
             path: /healthz
@@ -48,7 +46,7 @@ spec:
         readinessProbe:
           httpGet:
             path: /readyz
-            port: 8081
+            port: telemetry
           initialDelaySeconds: 5
           periodSeconds: 5
           timeoutSeconds: 5

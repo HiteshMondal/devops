@@ -1,15 +1,22 @@
 # /monitoring/prometheus/prometheus.yml
-# ArgoCD-compatible: all shell variable placeholders replaced with hardcoded values.
-# The ${1} references in relabel_configs are Prometheus regex capture groups — NOT
-# shell variables — and must be kept as-is.
+# This file is processed through envsubst by create_prometheus_configmap() in
+# deploy_monitoring.sh before being loaded into the prometheus-config ConfigMap.
+#
+# Variables substituted at deploy time:
+#   PROMETHEUS_SCRAPE_INTERVAL, PROMETHEUS_SCRAPE_TIMEOUT,
+#   DEPLOY_TARGET, NAMESPACE, APP_NAME, TRIVY_NAMESPACE
+#
+# IMPORTANT: ${1} and ${2} inside relabel replacement: values are Prometheus
+# regex capture groups — NOT shell variables. envsubst only replaces
+# ${UPPER_CASE} patterns so these are left untouched safely.
 
 global:
-  scrape_interval: 15s
-  scrape_timeout: 10s
-  evaluation_interval: 15s
+  scrape_interval: ${PROMETHEUS_SCRAPE_INTERVAL}
+  scrape_timeout: ${PROMETHEUS_SCRAPE_TIMEOUT}
+  evaluation_interval: ${PROMETHEUS_SCRAPE_INTERVAL}
   external_labels:
-    cluster: 'local'
-    environment: 'local'
+    cluster: '${DEPLOY_TARGET}'
+    environment: '${DEPLOY_TARGET}'
 
 rule_files:
   - '/etc/prometheus/rules/*.yml'
@@ -152,11 +159,11 @@ scrape_configs:
       - role: pod
         namespaces:
           names:
-            - devops-app
+            - ${NAMESPACE}
     relabel_configs:
       - source_labels: [__meta_kubernetes_pod_label_app]
         action: keep
-        regex: devops-app
+        regex: ${APP_NAME}
       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
         action: replace
         target_label: __metrics_path__
@@ -177,4 +184,4 @@ scrape_configs:
 
   - job_name: 'trivy'
     static_configs:
-      - targets: ['trivy-exporter.trivy-system.svc.cluster.local:8080']
+      - targets: ['trivy-exporter.${TRIVY_NAMESPACE}.svc.cluster.local:8080']

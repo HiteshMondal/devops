@@ -1,7 +1,11 @@
 # /monitoring/prometheus_grafana/prometheus.yaml
-# ArgoCD-compatible: all ${VAR} placeholders replaced with hardcoded values.
-# prometheus-config and prometheus-alerts ConfigMaps are defined HERE so ArgoCD
-# can create them without needing deploy_monitoring.sh's create_prometheus_configmap().
+# ─────────────────────────────────────────────────────────────────────────────
+# ARGOCD / DIRECT APPLY — hardcoded defaults. Never contains ${} placeholders.
+# Applied as-is by ArgoCD from Git, or by kubectl apply directly.
+#
+# For shell-based deployment (deploy_monitoring.sh direct mode), this file is
+# NOT used. The script uses prometheus.yaml.tpl instead (see that file).
+# ─────────────────────────────────────────────────────────────────────────────
 
 apiVersion: v1
 kind: ConfigMap
@@ -10,11 +14,6 @@ metadata:
   namespace: monitoring
 data:
   prometheus.yml: |
-    # /monitoring/prometheus/prometheus.yml
-    # ArgoCD-compatible: all shell variable placeholders replaced with hardcoded values.
-    # The ${1} references in relabel_configs are Prometheus regex capture groups — NOT
-    # shell variables — and must be kept as-is.
-
     global:
       scrape_interval: 15s
       scrape_timeout: 10s
@@ -198,7 +197,6 @@ metadata:
   namespace: monitoring
 data:
   alerts.yml: |
-    # Placeholder — add alerting rules here if needed
     groups: []
 ---
 apiVersion: v1

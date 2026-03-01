@@ -10,15 +10,11 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     return 1 2>/dev/null || exit 1
 fi
 
-# Resolve PROJECT_ROOT ONCE
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
-    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 fi
 
-# FREEZE PROJECT_ROOT (CRITICAL)
 readonly PROJECT_ROOT
-
-# Now it is safe to source libraries
 source "${PROJECT_ROOT}/lib/bootstrap.sh"
 
 # Defaults
@@ -43,8 +39,9 @@ source "${PROJECT_ROOT}/lib/bootstrap.sh"
 : "${GRAFANA_MEMORY_REQUEST:=256Mi}"
 : "${GRAFANA_MEMORY_LIMIT:=1Gi}"
 : "${TRIVY_NAMESPACE:=trivy-system}"
+: "${LOKI_NAMESPACE:=loki}"
 
-export TRIVY_NAMESPACE
+export TRIVY_NAMESPACE LOKI_NAMESPACE
 export PROMETHEUS_ENABLED PROMETHEUS_NAMESPACE PROMETHEUS_RETENTION PROMETHEUS_STORAGE_SIZE
 export PROMETHEUS_SCRAPE_INTERVAL PROMETHEUS_SCRAPE_TIMEOUT
 export GRAFANA_ENABLED GRAFANA_ADMIN_USER GRAFANA_ADMIN_PASSWORD GRAFANA_PORT GRAFANA_STORAGE_SIZE
@@ -59,45 +56,42 @@ else
     CI_MODE=false
 fi
 
-#  KUBERNETES DISTRIBUTION DETECTION
+# KUBERNETES DISTRIBUTION DETECTION
 detect_k8s_distribution() {
     print_subsection "Detecting Kubernetes Distribution"
 
-    local k8s_dist="unknown"
-
-    if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
-        k8s_dist="minikube"
-
-    # Previous logic mixed || and && on continuation lines, creating
-    # operator-precedence ambiguity. The && binds tighter than ||, so the original
-    # expression was: (context contains "kind") OR (node-role check AND kind-check).
-    # This worked accidentally but was misleading and fragile — one misplaced \
-    # would silently change evaluation order.
-    #
-    # Replaced with the same clean node-label JSON probe pattern used in run.sh,
-    # which is unambiguous, consistent, and does not depend on context name format.
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"node-role.kubernetes.io/control-plane"' \
-         && kubectl get nodes --no-headers 2>/dev/null | grep -q "kind-control-plane"; then
-        k8s_dist="kind"
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"eks.amazonaws.com"'; then
-        k8s_dist="eks"
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"cloud.google.com/gke"'; then
-        k8s_dist="gke"
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"kubernetes.azure.com"'; then
-        k8s_dist="aks"
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"k3s.io"'; then
-        k8s_dist="k3s"
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"microk8s.io"'; then
-        k8s_dist="microk8s"
+    # Honour K8S_DISTRIBUTION if already set by run.sh
+    if [[ -n "${K8S_DISTRIBUTION:-}" ]]; then
+        print_info "K8S_DISTRIBUTION already set: ${K8S_DISTRIBUTION} (from parent process)"
     else
-        kubectl cluster-info 2>/dev/null | grep -q "Kubernetes" && k8s_dist="kubernetes"
+        local k8s_dist="unknown"
+
+        if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
+            k8s_dist="minikube"
+        elif kubectl get nodes -o json 2>/dev/null \
+                | grep -q '"node.kubernetes.io/exclude-from-external-load-balancers"' \
+             && kubectl get nodes --no-headers 2>/dev/null | grep -q "kind-"; then
+            k8s_dist="kind"
+        elif kubectl get nodes -o json 2>/dev/null | grep -q '"eks.amazonaws.com"'; then
+            k8s_dist="eks"
+        elif kubectl get nodes -o json 2>/dev/null | grep -q '"cloud.google.com/gke"'; then
+            k8s_dist="gke"
+        elif kubectl get nodes -o json 2>/dev/null | grep -q '"kubernetes.azure.com"'; then
+            k8s_dist="aks"
+        elif kubectl get nodes -o json 2>/dev/null | grep -q '"k3s.io"'; then
+            k8s_dist="k3s"
+        elif kubectl get nodes -o json 2>/dev/null | grep -q '"microk8s.io"'; then
+            k8s_dist="microk8s"
+        else
+            kubectl cluster-info 2>/dev/null | grep -q "Kubernetes" && k8s_dist="kubernetes"
+        fi
+
+        export K8S_DISTRIBUTION="$k8s_dist"
     fi
 
-    export K8S_DISTRIBUTION="$k8s_dist"
+    print_success "Distribution: ${BOLD}${K8S_DISTRIBUTION}${RESET}"
 
-    print_success "Distribution: ${BOLD}${k8s_dist}${RESET}"
-
-    case "$k8s_dist" in
+    case "$K8S_DISTRIBUTION" in
         minikube|kind|microk8s)
             export MONITORING_SERVICE_TYPE="NodePort"
             ;;
@@ -160,12 +154,14 @@ get_monitoring_url() {
     esac
 }
 
-#  YAML PROCESSING
+# YAML PROCESSING
+# Resolves ${VAR} placeholders in a file IN PLACE (operates on WORK_DIR copies only —
+# the repo source files are never modified).
 substitute_env_vars() {
     local file=$1
     local temp_file="${file}.tmp"
 
-    export APP_NAME NAMESPACE PROMETHEUS_NAMESPACE TRIVY_NAMESPACE
+    export APP_NAME NAMESPACE PROMETHEUS_NAMESPACE TRIVY_NAMESPACE LOKI_NAMESPACE
     export PROMETHEUS_SCRAPE_INTERVAL PROMETHEUS_SCRAPE_TIMEOUT
     export PROMETHEUS_CPU_REQUEST PROMETHEUS_CPU_LIMIT
     export PROMETHEUS_MEMORY_REQUEST PROMETHEUS_MEMORY_LIMIT
@@ -187,7 +183,7 @@ substitute_env_vars() {
     mv "$temp_file" "$file"
 }
 
-#  HELM SETUP
+# HELM SETUP
 setup_helm() {
     print_subsection "Helm Setup"
 
@@ -237,6 +233,7 @@ deploy_node_exporter() {
         prometheus-community/prometheus-node-exporter \
         --namespace "$PROMETHEUS_NAMESPACE" \
         --create-namespace \
+        --values "$PROJECT_ROOT/monitoring/node-exporter/values.yaml" \
         --set service.type=ClusterIP \
         --set tolerations[0].operator=Exists \
         --set hostNetwork=true \
@@ -298,18 +295,51 @@ create_alerts_configmap() {
     print_success "Alerts ConfigMap created"
 }
 
-process_yaml_files() {
+# Process all .tpl files in a directory:
+#   1. Copy foo.yaml.tpl → foo.yaml in WORK_DIR
+#   2. Run envsubst on the copy
+# The repo source .yaml files (ArgoCD targets) are never touched.
+process_tpl_files() {
     local dir="$1"
-    print_step "Processing YAML files in $(basename "$dir")"
-    find "$dir" -type f \( -name "*.yaml" -o -name "*.yml" \) 2>/dev/null | while read -r file; do
-        substitute_env_vars "$file"
-        print_success "Processed: $(basename "$file")"
+    print_step "Processing template files in $(basename "$dir")"
+    find "$dir" -type f -name "*.yaml.tpl" 2>/dev/null | while read -r tpl_file; do
+        local out_file="${tpl_file%.tpl}"
+        substitute_env_vars_to_file "$tpl_file" "$out_file"
+        print_success "Rendered: $(basename "$out_file")"
     done
 }
 
-#  MAIN MONITORING DEPLOYMENT
+# Render a single .tpl file → output file (does not modify tpl_file)
+substitute_env_vars_to_file() {
+    local src="$1"
+    local dst="$2"
+    local temp_file="${dst}.tmp"
+
+    export APP_NAME NAMESPACE PROMETHEUS_NAMESPACE TRIVY_NAMESPACE LOKI_NAMESPACE
+    export PROMETHEUS_SCRAPE_INTERVAL PROMETHEUS_SCRAPE_TIMEOUT
+    export PROMETHEUS_CPU_REQUEST PROMETHEUS_CPU_LIMIT
+    export PROMETHEUS_MEMORY_REQUEST PROMETHEUS_MEMORY_LIMIT
+    export PROMETHEUS_RETENTION PROMETHEUS_STORAGE_SIZE
+    export GRAFANA_CPU_REQUEST GRAFANA_CPU_LIMIT
+    export GRAFANA_MEMORY_REQUEST GRAFANA_MEMORY_LIMIT
+    export GRAFANA_STORAGE_SIZE GRAFANA_ADMIN_USER GRAFANA_ADMIN_PASSWORD
+    export GRAFANA_PORT DEPLOY_TARGET K8S_DISTRIBUTION MONITORING_SERVICE_TYPE
+
+    envsubst < "$src" > "$temp_file"
+
+    if grep -qE '\$\{[A-Z_]+\}' "$temp_file"; then
+        print_warning "Unsubstituted variables in $(basename "$src"):"
+        grep -oE '\$\{[A-Z_]+\}' "$temp_file" | sort -u | head -5 | while read -r var; do
+            echo -e "     ${YELLOW}● ${var}${RESET}"
+        done
+    fi
+
+    mv "$temp_file" "$dst"
+}
+
+# MAIN MONITORING DEPLOYMENT
 deploy_monitoring() {
-    sleep 2   # Let previous deployments settle
+    sleep 2
 
     print_section "MONITORING STACK DEPLOYMENT" "📊"
     print_kv "Mode"      "$([ "$CI_MODE" == "true" ] && echo "CI/CD" || echo "Local")"
@@ -326,7 +356,6 @@ deploy_monitoring() {
     setup_helm
     deploy_node_exporter
 
-    # Working directory (SAFE)
     WORK_DIR="$(mktemp -d /tmp/monitoring-deployment.XXXXXX)"
     readonly WORK_DIR
 
@@ -342,16 +371,22 @@ deploy_monitoring() {
         rm -rf -- "$WORK_DIR"
     }
 
-    # Only clean up when executed directly, NEVER when sourced
     if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         trap cleanup_workdir EXIT
     fi
 
     print_subsection "Preparing Manifests"
 
+    # SHELL PATH: copy .tpl files, render via envsubst
+    # .yaml.tpl  → envsubst → .yaml  in WORK_DIR  (used by kubectl apply below)
+    # .yaml      → untouched in repo              (used by ArgoCD directly)
+    #
+    # This keeps the repo .yaml files clean (ArgoCD-safe, hardcoded defaults)
+    # while giving the shell path fully substituted values from .env.
     if [[ -d "$PROJECT_ROOT/monitoring/prometheus_grafana" ]]; then
         cp -r "$PROJECT_ROOT/monitoring/prometheus_grafana/"* "$WORK_DIR/monitoring/" 2>/dev/null || true
-        print_success "Copied prometheus_grafana manifests"
+        process_tpl_files "$WORK_DIR/monitoring"
+        print_success "Rendered prometheus_grafana templates"
     else
         print_warning "prometheus_grafana directory not found"
     fi
@@ -365,8 +400,6 @@ deploy_monitoring() {
         cp -r "$PROJECT_ROOT/monitoring/kube-state-metrics/"* "$WORK_DIR/kube-state-metrics/" 2>/dev/null || true
         print_success "Copied kube-state-metrics manifests"
     fi
-
-    [[ -d "$WORK_DIR/monitoring" ]] && process_yaml_files "$WORK_DIR/monitoring"
 
     print_divider
 
@@ -395,7 +428,7 @@ deploy_monitoring() {
 
     print_divider
 
-    # Prometheus
+    # Prometheus — apply the rendered .yaml (from .tpl), NOT the hardcoded repo .yaml
     print_subsection "Deploying Prometheus"
 
     require_file "$WORK_DIR/monitoring/prometheus.yaml" "prometheus.yaml not found in work dir"
@@ -405,11 +438,6 @@ deploy_monitoring() {
         print_step "Deploying kube-state-metrics"
         kubectl apply -f "$WORK_DIR/kube-state-metrics/" || print_warning "kube-state-metrics had issues"
 
-        # Added post-apply readiness check for kube-state-metrics.
-        # Previously, the script applied manifests and moved on immediately.
-        # If kube-state-metrics failed to start, Prometheus would silently
-        # scrape the static DNS target (kube-state-metrics.kube-system.svc...)
-        # and get connection-refused errors with no operator-visible warning.
         print_step "Waiting for kube-state-metrics rollout..."
         if kubectl rollout status deployment/kube-state-metrics \
                 -n kube-system --timeout=120s 2>/dev/null; then
@@ -438,7 +466,7 @@ deploy_monitoring() {
 
     print_divider
 
-    # Grafana
+    # Grafana — apply the rendered .yaml (from .tpl)
     if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
         print_subsection "Deploying Grafana"
 
@@ -446,7 +474,7 @@ deploy_monitoring() {
             kubectl apply -f "$WORK_DIR/monitoring/grafana.yaml"
             print_success "Grafana manifests applied"
         else
-            print_warning "grafana.yaml not found"
+            print_warning "grafana.yaml not found in work dir"
         fi
 
         if [[ -f "$WORK_DIR/monitoring/dashboard-configmap.yaml" ]]; then
@@ -473,14 +501,11 @@ deploy_monitoring() {
 
     print_divider
 
-    # HIGH-VISIBILITY ACCESS INFO
     echo ""
     print_section "MONITORING ACCESS" "📊"
-
     print_kv "Distribution" "${K8S_DISTRIBUTION}"
     echo ""
 
-    # Prometheus
     local prometheus_url
     prometheus_url=$(get_monitoring_url "prometheus" "$PROMETHEUS_NAMESPACE" "9090")
 
@@ -503,7 +528,6 @@ deploy_monitoring() {
             ;;
     esac
 
-    # Grafana
     if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
         local grafana_url
         grafana_url=$(get_monitoring_url "grafana" "$PROMETHEUS_NAMESPACE" "$GRAFANA_PORT")
@@ -537,13 +561,11 @@ deploy_monitoring() {
         esac
     fi
 
-    # Dashboard IDs
     print_access_box "GRAFANA DASHBOARD IDs  (import via Dashboards → Import)" "📋" \
         "CRED:Node Exporter Full:1860" \
         "CRED:Kubernetes Cluster (Prometheus):6417" \
         "CRED:kube-state-metrics v2:13332"
 
-    # Monitored targets
     print_subsection "Monitored Targets"
     print_target "Kubernetes API Server"
     print_target "Kubernetes Nodes  (via node-exporter)"
@@ -554,7 +576,6 @@ deploy_monitoring() {
     print_divider
 }
 
-# Direct execution
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     deploy_monitoring
 fi
