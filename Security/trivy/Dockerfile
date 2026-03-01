@@ -18,7 +18,7 @@ COPY trivy-exporter.py /app/
 
 USER exporter
 
-EXPOSE 8081
+EXPOSE 8082
 
 CMD ["python", "/app/trivy-exporter.py"]
 

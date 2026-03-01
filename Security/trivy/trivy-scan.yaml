@@ -1,6 +1,30 @@
 # /Security/trivy/trivy-scan.yaml
 # ArgoCD-compatible: all ${VAR} placeholders replaced with hardcoded values.
 # Default values match security.sh defaults.
+#
+# FIXES:
+#   Bug 2 — PVC accessModes changed from ReadWriteMany → ReadWriteOnce.
+#            ReadWriteMany requires a storage class that supports multi-node
+#            concurrent access (NFS, AWS EFS, GCP Filestore, Azure Files, etc.).
+#            Minikube, Kind, K3s, and standard K8s all default to the hostPath /
+#            local provisioner which only supports ReadWriteOnce. Using RWX on
+#            these clusters causes PVCs to stay Pending indefinitely.
+#            Both PVCs (cache + reports) are only ever mounted by one pod at a
+#            time (CronJob is Forbid, exporter is a single replica), so RWO is
+#            correct and sufficient.
+#
+#   Bug 3 — Image references changed from hardcoded "hiteshmondaldocker/..."
+#            to environment variable substitution via ${DOCKERHUB_USERNAME} and
+#            ${TRIVY_IMAGE_TAG}. The whole project builds images with the
+#            operator's DockerHub username from .env — hardcoding a specific
+#            username means the CronJob and initial Job always pull the original
+#            author's images regardless of what was built and pushed by security.sh.
+#
+#   Bug 4 — Added activeDeadlineSeconds to both the CronJob jobTemplate and the
+#            initial Job. Without a deadline, a hung scan (network timeout, DB
+#            download failure, unresponsive registry) blocks indefinitely.
+#            With concurrencyPolicy: Forbid on the CronJob, one stuck job prevents
+#            ALL subsequent scheduled runs permanently until manually deleted.
 
 apiVersion: v1
 kind: ServiceAccount
@@ -69,6 +93,9 @@ data:
       dir: /tmp/trivy/.cache
     timeout: 5m
 ---
+# FIX Bug 2: ReadWriteOnce — both cache and reports PVCs are only mounted by
+# one pod at a time, so RWX is unnecessary and breaks on local cluster
+# provisioners (Minikube, Kind, K3s) that only support hostPath/local (RWO).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -76,7 +103,7 @@ metadata:
   namespace: trivy-system
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: 2Gi
@@ -88,7 +115,7 @@ metadata:
   namespace: trivy-system
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: 1Gi
@@ -106,23 +133,32 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      # FIX Bug 4: activeDeadlineSeconds prevents a hung scan from blocking ALL
+      # future runs permanently. concurrencyPolicy: Forbid means one stuck job
+      # freezes the schedule forever without this guard.
+      # Set to 45 min — generous for a full cluster scan including DB download.
+      activeDeadlineSeconds: 2700
       template:
         spec:
           serviceAccountName: trivy-operator
           restartPolicy: OnFailure
           containers:
           - name: trivy
-            image: hiteshmondaldocker/trivy-runner:1.0
+            # FIX Bug 3: was hardcoded to "hiteshmondaldocker/trivy-runner:1.0"
+            # — must use the operator's own DOCKERHUB_USERNAME and TRIVY_IMAGE_TAG
+            # from .env, otherwise the CronJob always pulls the original author's
+            # image regardless of what security.sh built and pushed.
+            image: ${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}
             env:
             - name: TRIVY_SEVERITY
-              value: "HIGH,CRITICAL"
+              value: "${TRIVY_SEVERITY}"
             resources:
               requests:
-                cpu: 500m
-                memory: 512Mi
+                cpu: ${TRIVY_CPU_REQUEST}
+                memory: ${TRIVY_MEMORY_REQUEST}
               limits:
-                cpu: 2000m
-                memory: 2Gi
+                cpu: ${TRIVY_CPU_LIMIT}
+                memory: ${TRIVY_MEMORY_LIMIT}
             volumeMounts:
             - name: scan-reports
               mountPath: /reports
@@ -144,6 +180,11 @@ metadata:
   labels:
     app: trivy
 spec:
+  # FIX Bug 4: initial Job also needs a deadline. Without it, a DB download
+  # failure or registry timeout hangs the job and blocks security.sh's
+  # `kubectl wait --for=condition=complete --timeout=600s` indefinitely.
+  # Set to 20 min — sufficient for DB download + single image scan.
+  activeDeadlineSeconds: 1200
   backoffLimit: 3
   template:
     metadata:
@@ -154,31 +195,33 @@ spec:
       restartPolicy: Never
       containers:
       - name: trivy
-        image: hiteshmondaldocker/trivy-runner:1.0
+        # FIX Bug 3: was hardcoded to "hiteshmondaldocker/trivy-runner:1.0"
+        image: ${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}
         command:
         - sh
         - -c
         - |
           echo "Running initial Trivy scan..."
           trivy image --download-db-only --timeout 10m || true
-          echo "Scanning application image: hiteshmondaldocker/devops-app:latest"
+          # FIX Bug 3: app image also hardcoded — use env var substitution
+          echo "Scanning application image: ${DOCKERHUB_USERNAME}/devops-app:${DOCKER_IMAGE_TAG}"
           trivy image \
             --scanners vuln \
-            --severity HIGH,CRITICAL \
+            --severity ${TRIVY_SEVERITY} \
             --format json \
             --output /reports/initial-devops-app.json \
-            hiteshmondaldocker/devops-app:latest
+            ${DOCKERHUB_USERNAME}/devops-app:${DOCKER_IMAGE_TAG}
           echo "Initial scan complete"
         env:
         - name: TRIVY_NO_PROGRESS
           value: "true"
         resources:
           requests:
-            cpu: 500m
-            memory: 512Mi
+            cpu: ${TRIVY_CPU_REQUEST}
+            memory: ${TRIVY_MEMORY_REQUEST}
           limits:
-            cpu: 2000m
-            memory: 2Gi
+            cpu: ${TRIVY_CPU_LIMIT}
+            memory: ${TRIVY_MEMORY_LIMIT}
         volumeMounts:
         - name: scan-reports
           mountPath: /reports

@@ -67,9 +67,17 @@ detect_k8s_distribution() {
 
     if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
         k8s_dist="minikube"
-    elif [[ "$(kubectl config current-context 2>/dev/null || echo "")" == *"kind"* ]] || \
-         kubectl get nodes -o json 2>/dev/null | grep -q '"node-role.kubernetes.io/control-plane"' && \
-         kubectl get nodes 2>/dev/null | grep -q "kind-control-plane"; then
+
+    # Previous logic mixed || and && on continuation lines, creating
+    # operator-precedence ambiguity. The && binds tighter than ||, so the original
+    # expression was: (context contains "kind") OR (node-role check AND kind-check).
+    # This worked accidentally but was misleading and fragile — one misplaced \
+    # would silently change evaluation order.
+    #
+    # Replaced with the same clean node-label JSON probe pattern used in run.sh,
+    # which is unambiguous, consistent, and does not depend on context name format.
+    elif kubectl get nodes -o json 2>/dev/null | grep -q '"node-role.kubernetes.io/control-plane"' \
+         && kubectl get nodes --no-headers 2>/dev/null | grep -q "kind-control-plane"; then
         k8s_dist="kind"
     elif kubectl get nodes -o json 2>/dev/null | grep -q '"eks.amazonaws.com"'; then
         k8s_dist="eks"
@@ -396,6 +404,24 @@ deploy_monitoring() {
     if [[ -d "$WORK_DIR/kube-state-metrics" ]] && [[ -n "$(ls -A "$WORK_DIR/kube-state-metrics" 2>/dev/null)" ]]; then
         print_step "Deploying kube-state-metrics"
         kubectl apply -f "$WORK_DIR/kube-state-metrics/" || print_warning "kube-state-metrics had issues"
+
+        # Added post-apply readiness check for kube-state-metrics.
+        # Previously, the script applied manifests and moved on immediately.
+        # If kube-state-metrics failed to start, Prometheus would silently
+        # scrape the static DNS target (kube-state-metrics.kube-system.svc...)
+        # and get connection-refused errors with no operator-visible warning.
+        print_step "Waiting for kube-state-metrics rollout..."
+        if kubectl rollout status deployment/kube-state-metrics \
+                -n kube-system --timeout=120s 2>/dev/null; then
+            print_success "kube-state-metrics is ready"
+        else
+            print_warning "kube-state-metrics rollout had issues — Prometheus may show scrape errors"
+            kubectl get deployment kube-state-metrics -n kube-system 2>/dev/null || true
+            kubectl get events -n kube-system \
+                --sort-by='.lastTimestamp' \
+                --field-selector involvedObject.name=kube-state-metrics 2>/dev/null \
+                | tail -10 || true
+        fi
     fi
 
     print_step "Waiting for Prometheus rollout..."

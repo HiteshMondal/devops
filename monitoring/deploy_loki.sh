@@ -10,10 +10,20 @@ if [[ -z "${PROJECT_ROOT:-}" ]]; then
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fi
 
-for lib in colors logging guards; do
-    [[ -n "$(type -t print_info 2>/dev/null)" ]] && break
-    source "$PROJECT_ROOT/lib/${lib}.sh"
-done
+# Original loop checked for print_info INSIDE the loop body and
+# broke as soon as it was found — which happened after sourcing logging.sh
+# (the second library). This meant guards.sh was NEVER sourced, so
+# require_command, require_file, require_env, require_dir were all undefined
+# when this script ran standalone.
+#
+# Fix: check once BEFORE the loop. If the symbols are already present (because
+# run.sh sourced the libs first), skip the entire loop. Otherwise source all
+# three libraries unconditionally.
+if [[ -z "$(type -t print_info 2>/dev/null)" ]]; then
+    for lib in colors logging guards; do
+        source "$PROJECT_ROOT/lib/${lib}.sh"
+    done
+fi
 
 [[ -z "${APP_NAME:-}" ]] && [[ -f "$PROJECT_ROOT/.env" ]] && source "$PROJECT_ROOT/.env"
 
@@ -34,7 +44,7 @@ export LOKI_ENABLED LOKI_NAMESPACE LOKI_VERSION LOKI_RETENTION_PERIOD \
        LOKI_CPU_REQUEST LOKI_CPU_LIMIT \
        LOKI_MEMORY_REQUEST LOKI_MEMORY_LIMIT
 
-# Distribution detection (lightweight)
+# Distribution detection (lightweight, honours pre-set value from run.sh)
 detect_k8s_distribution() {
     [[ -n "${K8S_DISTRIBUTION:-}" ]] && return 0
 

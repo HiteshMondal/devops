@@ -225,13 +225,12 @@ print_subsection "Checking Prerequisites"
 
 # Sudo check
 if command -v sudo >/dev/null 2>&1; then
-    if ! sudo -n true 2>/dev/null; then
-        print_error "Passwordless sudo is required for some steps"
-        print_info "Type: ${ACCENT_CMD} sudo visudo"
-        print_info "Add to sudoers:  ${ACCENT_CMD}$USER ALL=(ALL) NOPASSWD: /usr/bin/docker, /usr/bin/kubectl${RESET}"
+    if ! id -nG "$USER" | grep -qw docker; then
+        print_info "${ACCENT_CMD} User not in docker group"
+        print_info "Fix with:${ACCENT_CMD}$USER sudo usermod -aG docker $USER && newgrp docker${RESET}"
         exit 1
     fi
-    print_success "Passwordless sudo OK"
+    print_success "Docker group access OK (sudo not required)"
 fi
 
 # Tool versions

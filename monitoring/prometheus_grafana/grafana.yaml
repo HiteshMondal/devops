@@ -13,10 +13,37 @@ data:
     datasources:
     - name: Prometheus
       type: prometheus
+      # uid required by Grafana 10.x for stable dashboard datasource
+      # references. Without this, imported community dashboards show
+      # "Datasource not found" because they reference the datasource by UID.
+      uid: prometheus
       access: proxy
       url: http://prometheus:9090
       isDefault: true
       editable: true
+---
+# grafana-dashboard-provider moved here — BEFORE the Deployment —
+# so the ConfigMap exists when Kubernetes schedules the pod and mounts the volume.
+# Previously defined after the Deployment, which risks a mount failure on
+# sequential apply (ArgoCD sync, kubectl apply with --server-side, etc.).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: monitoring
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+    - name: 'default'
+      orgId: 1
+      folder: ''
+      type: file
+      disableDeletion: false
+      updateIntervalSeconds: 10
+      allowUiUpdates: true
+      options:
+        path: /var/lib/grafana/dashboards
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -82,8 +109,13 @@ spec:
           value: /etc/grafana/provisioning
         - name: GF_AUTH_ANONYMOUS_ENABLED
           value: "false"
+        # FIX Bug 2: was hardcoded to "http://localhost:3000" which breaks
+        # redirect-based features (OAuth, share links, alert notification URLs)
+        # in every environment except port-forward.
+        # Grafana's self-referencing template resolves correctly regardless of
+        # whether the service is accessed via NodePort, LoadBalancer, or Ingress.
         - name: GF_SERVER_ROOT_URL
-          value: "http://localhost:3000"
+          value: "%(protocol)s://%(domain)s:%(http_port)s/"
         resources:
           requests:
             cpu: 100m
@@ -142,22 +174,3 @@ spec:
     port: 3000
     targetPort: 3000
     protocol: TCP
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: grafana-dashboard-provider
-  namespace: monitoring
-data:
-  dashboards.yaml: |
-    apiVersion: 1
-    providers:
-    - name: 'default'
-      orgId: 1
-      folder: ''
-      type: file
-      disableDeletion: false
-      updateIntervalSeconds: 10
-      allowUiUpdates: true
-      options:
-        path: /var/lib/grafana/dashboards
