@@ -1,62 +1,60 @@
 #!/usr/bin/env bash
-# monitoring/deploy_loki.sh — Deploy Loki log aggregation system
-# Safe to source. Executable directly.
+# monitoring/deploy_loki.sh — Universal Loki deployment script
 
 set -euo pipefail
 IFS=$'\n\t'
 
+#######################################
 # Bootstrap
+#######################################
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fi
 
-# Original loop checked for print_info INSIDE the loop body and
-# broke as soon as it was found — which happened after sourcing logging.sh
-# (the second library). This meant guards.sh was NEVER sourced, so
-# require_command, require_file, require_env, require_dir were all undefined
-# when this script ran standalone.
-#
-# Fix: check once BEFORE the loop. If the symbols are already present (because
-# run.sh sourced the libs first), skip the entire loop. Otherwise source all
-# three libraries unconditionally.
+# Load libs safely
 if [[ -z "$(type -t print_info 2>/dev/null)" ]]; then
     for lib in colors logging guards; do
         source "$PROJECT_ROOT/lib/${lib}.sh"
     done
 fi
 
-[[ -z "${APP_NAME:-}" ]] && [[ -f "$PROJECT_ROOT/.env" ]] && source "$PROJECT_ROOT/.env"
+# Load env
+[[ -f "$PROJECT_ROOT/.env" ]] && source "$PROJECT_ROOT/.env"
 
+#######################################
 # Defaults
+#######################################
 : "${LOKI_ENABLED:=true}"
 : "${LOKI_NAMESPACE:=loki}"
-: "${LOKI_VERSION:=2.9.3}"
-: "${LOKI_RETENTION_PERIOD:=168h}"
-: "${LOKI_STORAGE_SIZE:=10Gi}"
-: "${LOKI_SERVICE_TYPE:=ClusterIP}"
-: "${LOKI_CPU_REQUEST:=100m}"
-: "${LOKI_CPU_LIMIT:=1000m}"
-: "${LOKI_MEMORY_REQUEST:=256Mi}"
-: "${LOKI_MEMORY_LIMIT:=1Gi}"
 
-export LOKI_ENABLED LOKI_NAMESPACE LOKI_VERSION LOKI_RETENTION_PERIOD \
-       LOKI_STORAGE_SIZE LOKI_SERVICE_TYPE \
-       LOKI_CPU_REQUEST LOKI_CPU_LIMIT \
-       LOKI_MEMORY_REQUEST LOKI_MEMORY_LIMIT
+#######################################
+# Pre-checks (CRITICAL)
+#######################################
+require_command kubectl
 
-# Distribution detection (lightweight, honours pre-set value from run.sh)
+if ! kubectl cluster-info >/dev/null 2>&1; then
+    print_error "Kubernetes cluster not reachable"
+    exit 1
+fi
+
+#######################################
+# Distribution Detection
+#######################################
 detect_k8s_distribution() {
     [[ -n "${K8S_DISTRIBUTION:-}" ]] && return 0
 
-    if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
+    local nodes
+    nodes="$(kubectl get nodes -o json 2>/dev/null || true)"
+
+    if grep -q "minikube" <<< "$nodes"; then
         K8S_DISTRIBUTION=minikube
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"eks.amazonaws.com"'; then
+    elif grep -q "eks.amazonaws.com" <<< "$nodes"; then
         K8S_DISTRIBUTION=eks
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"cloud.google.com/gke"'; then
+    elif grep -q "cloud.google.com" <<< "$nodes"; then
         K8S_DISTRIBUTION=gke
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"kubernetes.azure.com"'; then
+    elif grep -q "azure" <<< "$nodes"; then
         K8S_DISTRIBUTION=aks
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"k3s.io"'; then
+    elif grep -q "k3s" <<< "$nodes"; then
         K8S_DISTRIBUTION=k3s
     else
         K8S_DISTRIBUTION=kubernetes
@@ -65,99 +63,90 @@ detect_k8s_distribution() {
     export K8S_DISTRIBUTION
 }
 
+#######################################
+# Access URL helper
+#######################################
 get_loki_url() {
-    local port=3100
-    case "$K8S_DISTRIBUTION" in
-        minikube)
-            local ip node_port
-            ip=$(minikube ip 2>/dev/null || echo localhost)
-            node_port=$(kubectl get svc loki -n "$LOKI_NAMESPACE" \
-                -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || true)
-            [[ -n "$node_port" ]] && echo "http://$ip:$node_port" || echo "port-forward:$port"
-            ;;
-        *)
-            echo "port-forward:$port"
-            ;;
-    esac
+    echo "port-forward:3100"
 }
 
-#  MAIN
+# MAIN
 deploy_loki() {
     print_section "LOKI LOG AGGREGATION" "📜"
 
     if [[ "$LOKI_ENABLED" != "true" ]]; then
-        print_info "Skipping Loki deployment (LOKI_ENABLED=false)"
+        print_info "Skipping Loki deployment"
         return 0
     fi
 
     detect_k8s_distribution
-    print_kv "Distribution" "${K8S_DISTRIBUTION}"
-    print_kv "Namespace"    "${LOKI_NAMESPACE}"
-    print_kv "Version"      "${LOKI_VERSION}"
-    print_kv "Retention"    "${LOKI_RETENTION_PERIOD}"
+    print_kv "Distribution" "$K8S_DISTRIBUTION"
+    print_kv "Namespace" "$LOKI_NAMESPACE"
     echo ""
 
-    local workdir="/tmp/loki-deploy-$$"
-    mkdir -p "$workdir"
-    trap 'rm -rf "${workdir:-}"' EXIT
+    # Prepare
+    local workdir
+    workdir="$(mktemp -d -t loki-deploy-XXXXXX)"
 
-    print_subsection "Preparing Manifests"
-    cp "$PROJECT_ROOT/monitoring/Loki/loki-deployment.yaml" "$workdir/"
-    envsubst < "$workdir/loki-deployment.yaml" > "$workdir/loki.yaml"
-    print_success "Manifests prepared"
+    trap '[[ -n "${workdir:-}" && -d "$workdir" ]] && rm -rf "$workdir"' EXIT
 
-    print_subsection "Creating Namespace"
+    require_file "$PROJECT_ROOT/monitoring/Loki/loki-deployment.yaml"
+
+    cp "$PROJECT_ROOT/monitoring/Loki/loki-deployment.yaml" "$workdir/loki.yaml"
+
+    # Namespace
+    print_subsection "Namespace"
     kubectl create namespace "$LOKI_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-    print_success "Namespace ready: ${BOLD}${LOKI_NAMESPACE}${RESET}"
 
+    # Deploy
     print_subsection "Deploying Loki & Promtail"
     kubectl apply -f "$workdir/loki.yaml"
 
-    print_step "Waiting for Loki rollout..."
-    kubectl rollout status deployment/loki -n "$LOKI_NAMESPACE" --timeout=300s \
-        || print_warning "Loki rollout had issues"
+    # Wait for Loki (StatefulSet FIX)
+    print_step "Waiting for Loki StatefulSet..."
 
-    print_step "Waiting for Promtail rollout..."
-    kubectl rollout status daemonset/promtail -n "$LOKI_NAMESPACE" --timeout=120s \
-        || print_warning "Promtail rollout had issues"
+    kubectl rollout status statefulset/loki -n "$LOKI_NAMESPACE" --timeout=300s
 
-    print_success "Loki & Promtail deployed successfully"
+    # Wait for Promtail
+    print_step "Waiting for Promtail DaemonSet..."
 
+    kubectl rollout status daemonset/promtail -n "$LOKI_NAMESPACE" --timeout=180s
+
+    # Health check (NEW)
+    print_step "Verifying Loki readiness..."
+
+    kubectl wait --for=condition=ready pod \
+        -l app=loki \
+        -n "$LOKI_NAMESPACE" \
+        --timeout=120s
+
+    print_success "Loki is ready"
+
+    # Status
     print_divider
-    print_subsection "Loki Resource Status"
     kubectl get all -n "$LOKI_NAMESPACE"
-
     print_divider
 
-    # HIGH-VISIBILITY ACCESS INFO
+    # Access Info
     local url
     url=$(get_loki_url)
 
-    if [[ "$url" == port-forward:* ]]; then
-        local port="${url#port-forward:}"
-        print_access_box "LOKI ACCESS" "📜" \
-            "CMD:Step 1 — Start port-forward:|kubectl port-forward svc/loki ${port}:${port} -n ${LOKI_NAMESPACE}" \
-            "BLANK:" \
-            "URL:Step 2 — Loki endpoint:http://localhost:${port}" \
-            "SEP:" \
-            "TEXT:Grafana Datasource URL (cluster-internal):" \
-            "URL:Add this in Grafana → Connections → Datasources:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
-            "SEP:" \
-            "CRED:Recommended Grafana Dashboard ID:14055"
-    else
-        print_access_box "LOKI ACCESS" "📜" \
-            "URL:Loki endpoint:${url}" \
-            "SEP:" \
-            "TEXT:Grafana Datasource URL (cluster-internal):" \
-            "URL:Add this in Grafana → Connections → Datasources:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
-            "SEP:" \
-            "CRED:Recommended Grafana Dashboard ID:14055"
-    fi
+    local port="${url#port-forward:}"
+
+    print_access_box "LOKI ACCESS" "📜" \
+        "CMD:Start port-forward:|kubectl port-forward svc/loki ${port}:${port} -n ${LOKI_NAMESPACE}" \
+        "BLANK:" \
+        "URL:Loki endpoint:http://localhost:${port}" \
+        "SEP:" \
+        "TEXT:Grafana Datasource:" \
+        "URL:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
+        "SEP:" \
+        "CRED:Dashboard ID:14055"
 
     print_divider
 }
 
-# Direct execution
+# Entry
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     deploy_loki
 fi

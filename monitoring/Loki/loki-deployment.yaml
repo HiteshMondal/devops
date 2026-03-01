@@ -1,7 +1,3 @@
-# /monitoring/Loki/loki-deployment.yaml
-# ArgoCD-compatible: all ${VAR} placeholders replaced with hardcoded values.
-# Default values match deploy_loki.sh defaults.
-
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -22,37 +18,46 @@ data:
 
     common:
       path_prefix: /loki
-      storage:
-        filesystem:
-          chunks_directory: /loki/chunks
-          rules_directory: /loki/rules
       replication_factor: 1
       ring:
-        instance_addr: 127.0.0.1
         kvstore:
           store: inmemory
 
     schema_config:
       configs:
         - from: 2023-01-01
-          store: boltdb-shipper
+          store: tsdb
           object_store: filesystem
-          schema: v11
+          schema: v12
           index:
             prefix: index_
             period: 24h
 
-    ruler:
-      alertmanager_url: http://localhost:9093
+    storage_config:
+      tsdb_shipper:
+        active_index_directory: /loki/index
+        cache_location: /loki/cache
+      filesystem:
+        directory: /loki/chunks
 
-    analytics:
-      reporting_enabled: false
+    ingester:
+      wal:
+        enabled: true
+        dir: /loki/wal
+
+    compactor:
+      working_directory: /loki/compactor
+      shared_store: filesystem
+      retention_enabled: true
 
     limits_config:
       retention_period: 168h
       ingestion_rate_mb: 10
       ingestion_burst_size_mb: 20
       max_query_series: 1000
+
+    analytics:
+      reporting_enabled: false
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -67,13 +72,12 @@ spec:
       storage: 10Gi
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: loki
   namespace: loki
-  labels:
-    app: loki
 spec:
+  serviceName: loki
   replicas: 1
   selector:
     matchLabels:
@@ -85,76 +89,75 @@ spec:
     spec:
       securityContext:
         fsGroup: 10001
-        runAsUser: 10001
-        runAsNonRoot: true
       containers:
       - name: loki
         image: grafana/loki:2.9.3
         args:
           - -config.file=/etc/loki/loki.yaml
         ports:
-        - name: http-metrics
+        - name: http
           containerPort: 3100
-          protocol: TCP
         - name: grpc
           containerPort: 9096
-          protocol: TCP
-        livenessProbe:
-          httpGet:
-            path: /ready
-            port: http-metrics
-          initialDelaySeconds: 45
-          periodSeconds: 10
-          timeoutSeconds: 1
-          failureThreshold: 3
+
         readinessProbe:
           httpGet:
             path: /ready
-            port: http-metrics
-          initialDelaySeconds: 45
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 10
+
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 30
           periodSeconds: 10
-          timeoutSeconds: 1
-          failureThreshold: 3
+
         resources:
           requests:
             cpu: 100m
             memory: 256Mi
           limits:
-            cpu: 1000m
+            cpu: 1
             memory: 1Gi
+
         volumeMounts:
         - name: config
           mountPath: /etc/loki
         - name: storage
           mountPath: /loki
+
       volumes:
       - name: config
         configMap:
           name: loki-config
-      - name: storage
-        persistentVolumeClaim:
-          claimName: loki-pvc
+  volumeClaimTemplates:
+  - metadata:
+      name: storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 10Gi
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: loki
   namespace: loki
-  labels:
-    app: loki
 spec:
   type: ClusterIP
-  ports:
-  - port: 3100
-    targetPort: http-metrics
-    protocol: TCP
-    name: http-metrics
-  - port: 9096
-    targetPort: grpc
-    protocol: TCP
-    name: grpc
   selector:
     app: loki
+  ports:
+  - name: http
+    port: 3100
+    targetPort: http
+  - name: grpc
+    port: 9096
+    targetPort: grpc
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -169,11 +172,9 @@ metadata:
 rules:
 - apiGroups: [""]
   resources:
-  - nodes
-  - nodes/proxy
-  - services
-  - endpoints
-  - pods
+    - pods
+    - nodes
+    - namespaces
   verbs: ["get", "watch", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -198,56 +199,43 @@ data:
   promtail.yaml: |
     server:
       http_listen_port: 9080
-      grpc_listen_port: 0
 
     positions:
-      filename: /tmp/positions.yaml
+      filename: /run/promtail/positions.yaml
 
     clients:
-      - url: http://loki:3100/loki/api/v1/push
+      - url: http://loki.loki.svc.cluster.local:3100/loki/api/v1/push
 
     scrape_configs:
-    - job_name: kubernetes-pods
-      kubernetes_sd_configs:
-      - role: pod
-      relabel_configs:
-      - source_labels: [__meta_kubernetes_pod_node_name]
-        target_label: __host__
-      - action: labelmap
-        regex: __meta_kubernetes_pod_label_(.+)
-      - action: replace
-        replacement: $1
-        separator: /
-        source_labels:
-        - __meta_kubernetes_namespace
-        - __meta_kubernetes_pod_name
-        target_label: job
-      - action: replace
-        source_labels:
-        - __meta_kubernetes_namespace
-        target_label: namespace
-      - action: replace
-        source_labels:
-        - __meta_kubernetes_pod_name
-        target_label: pod
-      - action: replace
-        source_labels:
-        - __meta_kubernetes_pod_container_name
-        target_label: container
-      - replacement: /var/log/pods/*$1/*.log
-        separator: /
-        source_labels:
-        - __meta_kubernetes_pod_uid
-        - __meta_kubernetes_pod_container_name
-        target_label: __path__
+      - job_name: kubernetes-pods
+
+        pipeline_stages:
+          - docker: {}
+
+        kubernetes_sd_configs:
+          - role: pod
+
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            target_label: container
+
+          - action: replace
+            replacement: /var/log/pods/*$1/*.log
+            separator: /
+            source_labels:
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            target_label: __path__
 ---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: promtail
   namespace: loki
-  labels:
-    app: promtail
 spec:
   selector:
     matchLabels:
@@ -258,19 +246,27 @@ spec:
         app: promtail
     spec:
       serviceAccountName: promtail
+
       containers:
       - name: promtail
         image: grafana/promtail:2.9.3
         args:
           - -config.file=/etc/promtail/promtail.yaml
+
         ports:
-        - containerPort: 9080
-          name: http-metrics
-        env:
-        - name: HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: spec.nodeName
+        - name: http
+          containerPort: 9080
+
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: http
+
         resources:
           requests:
             cpu: 50m
@@ -278,14 +274,19 @@ spec:
           limits:
             cpu: 200m
             memory: 256Mi
+
         volumeMounts:
         - name: config
           mountPath: /etc/promtail
         - name: varlog
           mountPath: /var/log
-        - name: varlibdockercontainers
-          mountPath: /var/lib/docker/containers
           readOnly: true
+        - name: pods
+          mountPath: /var/log/pods
+          readOnly: true
+        - name: positions
+          mountPath: /run/promtail
+
       volumes:
       - name: config
         configMap:
@@ -293,10 +294,13 @@ spec:
       - name: varlog
         hostPath:
           path: /var/log
-      - name: varlibdockercontainers
+      - name: pods
         hostPath:
-          path: /var/lib/docker/containers
+          path: /var/log/pods
+      - name: positions
+        hostPath:
+          path: /run/promtail
+          type: DirectoryOrCreate
+
       tolerations:
-      - effect: NoSchedule
-        key: node-role.kubernetes.io/master
-        operator: Exists
+      - operator: Exists
