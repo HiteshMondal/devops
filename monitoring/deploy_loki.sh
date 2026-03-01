@@ -111,15 +111,61 @@ deploy_loki() {
     print_success "Namespace ready: ${BOLD}${LOKI_NAMESPACE}${RESET}"
 
     print_subsection "Deploying Loki & Promtail"
+
+    # A previous Helm or manual install may have left a StatefulSet named
+    # 'loki' in the namespace. Its pod (loki-0) matches the Service selector
+    # app=loki, so kubectl port-forward via the Service can land on loki-0 which
+    # has no named ports — causing:
+    #   "Pod 'loki-0' does not have a named port 'http-metrics'"
+    # Delete any conflicting StatefulSet before applying the Deployment.
+    # The --ignore-not-found flag makes this a no-op on clean clusters.
+    if kubectl get statefulset loki -n "$LOKI_NAMESPACE" >/dev/null 2>&1; then
+        print_step "Removing conflicting Loki StatefulSet (leftover from previous install)..."
+        kubectl delete statefulset loki -n "$LOKI_NAMESPACE" --ignore-not-found
+        # Wait for loki-0 pod to terminate so the selector is clean before apply
+        kubectl wait pod -l app=loki -n "$LOKI_NAMESPACE" \
+            --for=delete --timeout=60s 2>/dev/null || true
+        print_success "StatefulSet removed"
+    fi
+
     kubectl apply -f "$workdir/loki.yaml"
 
     print_step "Waiting for Loki rollout..."
-    kubectl rollout status deployment/loki -n "$LOKI_NAMESPACE" --timeout=300s \
-        || print_warning "Loki rollout had issues"
+    if kubectl rollout status deployment/loki -n "$LOKI_NAMESPACE" --timeout=300s; then
+        print_success "Loki Deployment is rolled out"
+    else
+        print_warning "Loki rollout had issues — check: kubectl describe pod -l app=loki -n ${LOKI_NAMESPACE}"
+    fi
+
+    # Verify Loki HTTP endpoint is actually accepting connections before Promtail
+    # initContainer unblocks. Promtail's initContainer polls /ready itself, but
+    # confirming here gives clear script output and catches misconfigurations early.
+    print_step "Verifying Loki HTTP endpoint is reachable..."
+    local loki_pod
+    loki_pod=$(kubectl get pod -l app=loki -n "$LOKI_NAMESPACE" \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+
+    if [[ -n "$loki_pod" ]]; then
+        local attempts=0
+        while ! kubectl exec "$loki_pod" -n "$LOKI_NAMESPACE" -- \
+                wget -qO- http://localhost:3100/ready 2>/dev/null | grep -q "ready"; do
+            attempts=$((attempts + 1))
+            if [[ $attempts -ge 24 ]]; then
+                print_warning "Loki /ready did not respond after 120s"
+                break
+            fi
+            print_step "Loki not ready yet... (${attempts}/24)"
+            sleep 5
+        done
+        [[ $attempts -lt 24 ]] && print_success "Loki HTTP endpoint confirmed reachable"
+    fi
 
     print_step "Waiting for Promtail rollout..."
-    kubectl rollout status daemonset/promtail -n "$LOKI_NAMESPACE" --timeout=120s \
-        || print_warning "Promtail rollout had issues"
+    if kubectl rollout status daemonset/promtail -n "$LOKI_NAMESPACE" --timeout=180s; then
+        print_success "Promtail DaemonSet is rolled out"
+    else
+        print_warning "Promtail rollout had issues — check: kubectl logs -l app=promtail -n ${LOKI_NAMESPACE}"
+    fi
 
     print_success "Loki & Promtail deployed successfully"
 
@@ -143,7 +189,10 @@ deploy_loki() {
             "TEXT:Grafana Datasource URL (cluster-internal):" \
             "URL:Add this in Grafana → Connections → Datasources:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
             "SEP:" \
-            "CRED:Recommended Grafana Dashboard ID:14055"
+            "CRED:Recommended Grafana Dashboard ID:" \
+            "CRED: Logs / App: 13639" \
+            "CRED: Container Log Quick Search: 16970" \
+            "CRED: K8s App Logs / Multi Clusters:22874"
     else
         print_access_box "LOKI ACCESS" "📜" \
             "URL:Loki endpoint:${url}" \
@@ -151,7 +200,10 @@ deploy_loki() {
             "TEXT:Grafana Datasource URL (cluster-internal):" \
             "URL:Add this in Grafana → Connections → Datasources:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
             "SEP:" \
-            "CRED:Recommended Grafana Dashboard ID:14055"
+            "CRED:Recommended Grafana Dashboard ID:" \
+            "CRED: Logs / App: 13639" \
+            "CRED: Container Log Quick Search: 16970" \
+            "CRED: K8s App Logs / Multi Clusters:22874"
     fi
 
     print_divider

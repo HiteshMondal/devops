@@ -1,10 +1,9 @@
 # /monitoring/Loki/loki-deployment.yaml
-# envsubst placeholders are resolved by deploy_loki.sh before kubectl apply.
+# envsubst placeholders resolved by deploy_loki.sh before kubectl apply.
 
 apiVersion: v1
 kind: Namespace
 metadata:
-
   name: ${LOKI_NAMESPACE}
 ---
 apiVersion: v1
@@ -19,18 +18,24 @@ data:
     server:
       http_listen_port: 3100
       grpc_listen_port: 9096
+      http_listen_address: 0.0.0.0
+      grpc_listen_address: 0.0.0.0
 
-    common:
-      path_prefix: /loki
-      storage:
-        filesystem:
-          chunks_directory: /loki/chunks
-          rules_directory: /loki/rules
-      replication_factor: 1
-      ring:
-        instance_addr: 127.0.0.1
-        kvstore:
-          store: inmemory
+    ingester:
+      lifecycler:
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+        # Use the pod's actual IP so the ring can route correctly.
+        # ${POD_IP} is injected via the Downward API env var below.
+        address: 0.0.0.0
+        heartbeat_timeout: 1m
+      chunk_idle_period: 5m
+      chunk_retain_period: 30s
+      max_transfer_retries: 0
+      wal:
+        enabled: false
 
     schema_config:
       configs:
@@ -42,19 +47,41 @@ data:
             prefix: index_
             period: 24h
 
-    ruler:
-      alertmanager_url: http://localhost:9093
+    storage_config:
+      boltdb_shipper:
+        active_index_directory: /loki/index
+        cache_location: /loki/cache
+        cache_ttl: 24h
+        shared_store: filesystem
+      filesystem:
+        directory: /loki/chunks
 
-    analytics:
-      reporting_enabled: false
+    compactor:
+      working_directory: /loki/compactor
+      shared_store: filesystem
+      # Retention is enforced by the compactor in Loki 2.x.
+      retention_enabled: true
+      retention_delete_delay: 2h
+      retention_delete_worker_count: 150
 
     limits_config:
-      # FIX: was hardcoded to 168h — LOKI_RETENTION_PERIOD from .env was exported
-      # by deploy_loki.sh but never actually substituted into the file.
       retention_period: ${LOKI_RETENTION_PERIOD}
       ingestion_rate_mb: 10
       ingestion_burst_size_mb: 20
       max_query_series: 1000
+      # Required for retention to work with the compactor.
+      allow_structured_metadata: false
+
+    ruler:
+      storage:
+        type: local
+        local:
+          directory: /loki/rules
+      rule_path: /loki/rules-temp
+      alertmanager_url: http://localhost:9093
+
+    analytics:
+      reporting_enabled: false
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -101,22 +128,31 @@ spec:
         - name: grpc
           containerPort: 9096
           protocol: TCP
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
         livenessProbe:
           httpGet:
             path: /ready
             port: http-metrics
-          initialDelaySeconds: 45
+          # increased from 45s — Loki 2.9.x with boltdb-shipper needs
+          # extra time to compact the WAL and open the index on first start.
+          # 45s was too short on resource-constrained nodes (Minikube 1 CPU),
+          # causing kubelet to kill the pod before it finished initialising.
+          initialDelaySeconds: 60
           periodSeconds: 10
-          timeoutSeconds: 1
-          failureThreshold: 3
+          timeoutSeconds: 5
+          failureThreshold: 5
         readinessProbe:
           httpGet:
             path: /ready
             port: http-metrics
-          initialDelaySeconds: 45
+          initialDelaySeconds: 30
           periodSeconds: 10
-          timeoutSeconds: 1
-          failureThreshold: 3
+          timeoutSeconds: 5
+          failureThreshold: 5
         resources:
           requests:
             cpu: ${LOKI_CPU_REQUEST}
@@ -148,11 +184,11 @@ spec:
   type: ClusterIP
   ports:
   - port: 3100
-    targetPort: http-metrics
+    targetPort: 3100
     protocol: TCP
     name: http-metrics
   - port: 9096
-    targetPort: grpc
+    targetPort: 9096
     protocol: TCP
     name: grpc
   selector:
@@ -206,12 +242,18 @@ data:
       filename: /tmp/positions.yaml
 
     clients:
-      - url: http://loki:3100/loki/api/v1/push
+      - url: http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100/loki/api/v1/push
+        backoff_config:
+          min_period: 500ms
+          max_period: 30s
+          max_retries: 20
 
     scrape_configs:
     - job_name: kubernetes-pods
       kubernetes_sd_configs:
       - role: pod
+      pipeline_stages:
+      - docker: {}
       relabel_configs:
       - source_labels: [__meta_kubernetes_pod_node_name]
         target_label: __host__
@@ -260,6 +302,33 @@ spec:
         app: promtail
     spec:
       serviceAccountName: promtail
+      # Must run as root to read host log files (owned by root).
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      # Promtail and Loki are applied in the same kubectl apply, so Promtail
+      # pods start before Loki's HTTP server accepts connections. The Service
+      # endpoint is only added after Loki passes its readinessProbe (30s delay),
+      # so for ~30-60s the ClusterIP returns "connection refused" — exactly what
+      # the Promtail logs showed. This initContainer blocks Promtail from starting
+      # until Loki is actually responding to /ready, eliminating the error burst.
+      initContainers:
+      - name: wait-for-loki
+        image: busybox:1.36
+        # wget is available in busybox without installing curl or other tools.
+        # Polls /ready every 5s until Loki returns the string "ready".
+        command:
+          - sh
+          - -c
+          - |
+            echo "Waiting for Loki to be ready..."
+            until wget -qO- http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100/ready 2>/dev/null | grep -q "ready"; do
+              echo "Loki not ready yet, retrying in 5s..."
+              sleep 5
+            done
+            echo "Loki is ready. Starting Promtail."
+        securityContext:
+          runAsUser: 0
       containers:
       - name: promtail
         image: grafana/promtail:${LOKI_VERSION}
@@ -285,6 +354,7 @@ spec:
           mountPath: /etc/promtail
         - name: varlog
           mountPath: /var/log
+          readOnly: true
         - name: varlibdockercontainers
           mountPath: /var/lib/docker/containers
           readOnly: true
