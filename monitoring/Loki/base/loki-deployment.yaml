@@ -1,16 +1,12 @@
-# /monitoring/Loki/loki-deployment.yaml
-# envsubst placeholders resolved by deploy_loki.sh before kubectl apply.
+# /monitoring/Loki/base/loki-deployment.yaml
+# Work in all Computers
+# Supports All Kubernetes Tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s
+# Compatible for All Environments: Local, Production, ArgoCD, Direct mode (run.sh)
 
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ${LOKI_NAMESPACE}
----
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: loki-config
-  namespace: ${LOKI_NAMESPACE}
 data:
   loki.yaml: |
     auth_enabled: false
@@ -27,9 +23,6 @@ data:
           kvstore:
             store: inmemory
           replication_factor: 1
-        # Use the pod's actual IP so the ring can route correctly.
-        # ${POD_IP} is injected via the Downward API env var below.
-        address: 0.0.0.0
         heartbeat_timeout: 1m
       chunk_idle_period: 5m
       chunk_retain_period: 30s
@@ -59,17 +52,15 @@ data:
     compactor:
       working_directory: /loki/compactor
       shared_store: filesystem
-      # Retention is enforced by the compactor in Loki 2.x.
       retention_enabled: true
       retention_delete_delay: 2h
       retention_delete_worker_count: 150
 
     limits_config:
-      retention_period: ${LOKI_RETENTION_PERIOD}
+      retention_period: 168h
       ingestion_rate_mb: 10
       ingestion_burst_size_mb: 20
       max_query_series: 1000
-      # Required for retention to work with the compactor.
       allow_structured_metadata: false
 
     ruler:
@@ -78,31 +69,28 @@ data:
         local:
           directory: /loki/rules
       rule_path: /loki/rules-temp
-      alertmanager_url: http://localhost:9093
+      alertmanager_url: http://alertmanager.loki.svc.cluster.local:9093
 
     analytics:
       reporting_enabled: false
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: loki-pvc
-  namespace: ${LOKI_NAMESPACE}
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: ${LOKI_STORAGE_SIZE}
+
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: loki
-  namespace: ${LOKI_NAMESPACE}
   labels:
     app: loki
 spec:
+  serviceName: loki-headless
+  volumeClaimTemplates:
+  - metadata:
+      name: storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 10Gi
   replicas: 1
   selector:
     matchLabels:
@@ -114,13 +102,12 @@ spec:
     spec:
       securityContext:
         fsGroup: 10001
-        runAsUser: 10001
-        runAsNonRoot: true
       containers:
       - name: loki
-        image: grafana/loki:${LOKI_VERSION}
+        image: grafana/loki:2.9.3
         args:
           - -config.file=/etc/loki/loki.yaml
+          - -ingester.lifecycler.address=$(POD_IP)
         ports:
         - name: http-metrics
           containerPort: 3100
@@ -137,10 +124,6 @@ spec:
           httpGet:
             path: /ready
             port: http-metrics
-          # increased from 45s — Loki 2.9.x with boltdb-shipper needs
-          # extra time to compact the WAL and open the index on first start.
-          # 45s was too short on resource-constrained nodes (Minikube 1 CPU),
-          # causing kubelet to kill the pod before it finished initialising.
           initialDelaySeconds: 60
           periodSeconds: 10
           timeoutSeconds: 5
@@ -155,11 +138,11 @@ spec:
           failureThreshold: 5
         resources:
           requests:
-            cpu: ${LOKI_CPU_REQUEST}
-            memory: ${LOKI_MEMORY_REQUEST}
+            cpu: 100m
+            memory: 256Mi
           limits:
-            cpu: ${LOKI_CPU_LIMIT}
-            memory: ${LOKI_MEMORY_LIMIT}
+            cpu: 1000m
+            memory: 1Gi
         volumeMounts:
         - name: config
           mountPath: /etc/loki
@@ -170,14 +153,13 @@ spec:
         configMap:
           name: loki-config
       - name: storage
-        persistentVolumeClaim:
-          claimName: loki-pvc
+        emptyDir: {}    
+
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: loki
-  namespace: ${LOKI_NAMESPACE}
   labels:
     app: loki
 spec:
@@ -198,8 +180,9 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: promtail
-  namespace: ${LOKI_NAMESPACE}
+
 ---
+
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -225,13 +208,14 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: promtail
-  namespace: ${LOKI_NAMESPACE}
+  namespace: loki
+
 ---
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: promtail-config
-  namespace: ${LOKI_NAMESPACE}
 data:
   promtail.yaml: |
     server:
@@ -242,7 +226,7 @@ data:
       filename: /tmp/positions.yaml
 
     clients:
-      - url: http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100/loki/api/v1/push
+      - url: http://loki:3100/loki/api/v1/push
         backoff_config:
           min_period: 500ms
           max_period: 30s
@@ -253,7 +237,7 @@ data:
       kubernetes_sd_configs:
       - role: pod
       pipeline_stages:
-      - docker: {}
+      - cri: {}
       relabel_configs:
       - source_labels: [__meta_kubernetes_pod_node_name]
         target_label: __host__
@@ -289,7 +273,6 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: promtail
-  namespace: ${LOKI_NAMESPACE}
   labels:
     app: promtail
 spec:
@@ -302,36 +285,15 @@ spec:
         app: promtail
     spec:
       serviceAccountName: promtail
-      # Must run as root to read host log files (owned by root).
       securityContext:
         runAsUser: 0
         runAsGroup: 0
-      # Promtail and Loki are applied in the same kubectl apply, so Promtail
-      # pods start before Loki's HTTP server accepts connections. The Service
-      # endpoint is only added after Loki passes its readinessProbe (30s delay),
-      # so for ~30-60s the ClusterIP returns "connection refused" — exactly what
-      # the Promtail logs showed. This initContainer blocks Promtail from starting
-      # until Loki is actually responding to /ready, eliminating the error burst.
-      initContainers:
-      - name: wait-for-loki
-        image: busybox:1.36
-        # wget is available in busybox without installing curl or other tools.
-        # Polls /ready every 5s until Loki returns the string "ready".
-        command:
-          - sh
-          - -c
-          - |
-            echo "Waiting for Loki to be ready..."
-            until wget -qO- http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100/ready 2>/dev/null | grep -q "ready"; do
-              echo "Loki not ready yet, retrying in 5s..."
-              sleep 5
-            done
-            echo "Loki is ready. Starting Promtail."
-        securityContext:
-          runAsUser: 0
       containers:
       - name: promtail
-        image: grafana/promtail:${LOKI_VERSION}
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        image: grafana/promtail:2.9.3
         args:
           - -config.file=/etc/promtail/promtail.yaml
         ports:
@@ -344,7 +306,7 @@ spec:
               fieldPath: spec.nodeName
         resources:
           requests:
-            cpu: 50m
+            cpu: 100m
             memory: 128Mi
           limits:
             cpu: 200m
@@ -354,10 +316,11 @@ spec:
           mountPath: /etc/promtail
         - name: varlog
           mountPath: /var/log
+        - name: pods
+          mountPath: /var/log/pods
           readOnly: true
-        - name: varlibdockercontainers
-          mountPath: /var/lib/docker/containers
-          readOnly: true
+        - name: positions
+          mountPath: /tmp  
       volumes:
       - name: config
         configMap:
@@ -365,9 +328,13 @@ spec:
       - name: varlog
         hostPath:
           path: /var/log
-      - name: varlibdockercontainers
+          type: Directory
+      - name: pods
         hostPath:
-          path: /var/lib/docker/containers
+          path: /var/log/pods
+          type: Directory
+      - name: positions
+        emptyDir: {}       
       tolerations:
       - effect: NoSchedule
         key: node-role.kubernetes.io/master
@@ -375,3 +342,29 @@ spec:
       - effect: NoSchedule
         key: node-role.kubernetes.io/control-plane
         operator: Exists
+        
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki-headless
+spec:
+  clusterIP: None
+  selector:
+    app: loki
+  ports:
+  - port: 3100
+    name: http-metrics
+
+---
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: loki-pdb
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: loki

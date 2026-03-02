@@ -1,0 +1,19 @@
+# monitoring/Loki/base/kustomization.yaml
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - loki-deployment.yaml
+
+# Ensure namespace consistency
+namespace: loki
+
+# Common labels (good for ArgoCD + monitoring)
+commonLabels:
+  app.kubernetes.io/name: loki
+  app.kubernetes.io/part-of: monitoring
+
+# Optional
+generatorOptions:
+  disableNameSuffixHash: true

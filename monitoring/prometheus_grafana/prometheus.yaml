@@ -190,6 +190,7 @@ data:
         static_configs:
           - targets: ['trivy-exporter.trivy-system.svc.cluster.local:8082']
 ---
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -197,7 +198,192 @@ metadata:
   namespace: monitoring
 data:
   alerts.yml: |
-    groups: []
+    groups:
+    # Kubernetes Pod Alerts
+    - name: kubernetes_alerts
+      interval: 30s
+      rules:
+      - alert: PodCrashLooping
+        expr: increase(kube_pod_container_status_restarts_total[1h]) > 3
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pod {{ $labels.pod }} is crash looping"
+          description: |
+            Pod has restarted more than 3 times in the past hour.
+            Current restart count (1h): {{ printf "%.0f" $value }}
+
+      - alert: PodNotReady
+        expr: kube_pod_status_ready{condition="false"} == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pod {{ $labels.pod }} not ready"
+          description: |
+            Pod has been not ready for more than 5 minutes.
+
+    # Container Resource Alerts
+    - name: container_alerts
+      interval: 30s
+      rules:
+      - alert: ContainerHighCPU
+        expr: |
+          sum by (namespace, pod) (
+            rate(container_cpu_usage_seconds_total{container!=""}[5m])
+          ) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.pod }}"
+          description: |
+            Pod is using more than 0.8 CPU cores.
+
+      - alert: ContainerHighMemory
+        expr: |
+          (
+            sum by (namespace, pod) (container_memory_usage_bytes{container!=""})
+            /
+            sum by (namespace, pod) (container_spec_memory_limit_bytes{container!=""} > 0)
+          ) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.pod }}"
+          description: |
+            Pod is using more than 90% of its memory limit.
+
+    # Deployment Alerts
+    - name: deployment_alerts
+      interval: 30s
+      rules:
+      - alert: DeploymentReplicasMismatch
+        expr: |
+          kube_deployment_spec_replicas
+          !=
+          kube_deployment_status_replicas_available
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Deployment replica mismatch"
+          description: |
+            Deployment has unavailable replicas.
+
+    # Application Alerts
+    - name: application_alerts
+      interval: 30s
+      rules:
+      - alert: HighErrorRate
+        expr: |
+          sum by (namespace) (
+            rate(http_requests_total{status=~"5.."}[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High application error rate"
+          description: |
+            High HTTP 5xx error rate detected.
+            Current value: {{ printf "%.2f" $value }}
+
+      - alert: HighResponseTime
+        expr: |
+          histogram_quantile(
+            0.99,
+            rate(http_request_duration_seconds_bucket[5m])
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High response latency"
+          description: |
+            99th percentile latency is above 1 second.
+            Current latency: {{ printf "%.2f" $value }} seconds.
+
+    # Node Alerts
+    - name: node_alerts
+      interval: 30s
+      rules:
+      - alert: NodeHighCPU
+        expr: |
+          100 - (
+            avg by (instance) (
+              rate(node_cpu_seconds_total{mode="idle"}[5m])
+            ) * 100
+          ) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node {{ $labels.instance }} high CPU"
+          description: |
+            CPU usage is above 80%.
+
+      - alert: NodeHighMemory
+        expr: |
+          (
+            node_memory_MemTotal_bytes
+            - node_memory_MemAvailable_bytes
+          )
+          /
+          node_memory_MemTotal_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node {{ $labels.instance }} high memory"
+          description: |
+            Memory usage is above 85%.
+
+      - alert: NodeDiskPressure
+        expr: kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Node {{ $labels.node }} disk pressure"
+          description: |
+            Node is under disk pressure.
+
+    # Prometheus Self Alerts
+    - name: prometheus_alerts
+      interval: 30s
+      rules:
+      - alert: PrometheusConfigReloadFailed
+        expr: prometheus_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus configuration reload failed"
+          description: |
+            Prometheus failed to reload its configuration.
+
+      - alert: PrometheusTooManyRestarts
+        expr: changes(process_start_time_seconds{job="prometheus"}[15m]) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus restarting too frequently"
+          description: |
+            Prometheus has restarted multiple times in the last 15 minutes.
+
+      - alert: PrometheusTargetDown
+        expr: up{job!="prometheus"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus scrape target down"
+          description: |
+            One or more scrape targets are unreachable.
 ---
 apiVersion: v1
 kind: Namespace

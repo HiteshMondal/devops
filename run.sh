@@ -1,7 +1,8 @@
 #!/bin/bash
 # run.sh — DevOps Project Deployment Runner
-# Orchestrates: image build → cluster setup → deploy (ArgoCD or direct)
-# Supports: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s
+# Works in both environments: ArgoCD and direct
+# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s
+# Should work and be compatible with all computers
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -46,7 +47,7 @@ deploy_monitoring() {
 }
 
 deploy_loki() {
-    bash "$PROJECT_ROOT/monitoring/deploy_loki.sh"
+    bash "$PROJECT_ROOT/monitoring/Loki/deploy_loki.sh"
 }
 
 security() {

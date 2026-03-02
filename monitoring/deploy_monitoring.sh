@@ -1,6 +1,8 @@
 #!/bin/bash
 # /monitoring/deploy_monitoring.sh — Universal Monitoring Deployment Script
-# Works with: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, and any Kubernetes distribution
+# Works in both environments: ArgoCD and direct
+# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s
+# Should work and be compatible with all computers
 
 set -euo pipefail
 

@@ -38,6 +38,11 @@ source "${PROJECT_ROOT}/lib/bootstrap.sh"
 ARGOCD_LOCAL_PORT=8080
 export ARGOCD_LOCAL_PORT
 
+ARGOCD_SERVER=""
+ARGOCD_ADMIN_PASS=""
+ARGOCD_USE_GRPC_WEB=false   # set to true by argocd_login when port-forwarding
+export ARGOCD_SERVER ARGOCD_ADMIN_PASS ARGOCD_USE_GRPC_WEB
+
 # Git repo auto-detection
 if [[ -z "${GIT_REPO_URL:-}" ]]; then
     GIT_REPO_URL="$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null || echo '')"
@@ -53,6 +58,44 @@ export PROMETHEUS_NAMESPACE LOKI_NAMESPACE TRIVY_NAMESPACE
 export INGRESS_ENABLED INGRESS_HOST
 export GIT_REPO_URL GIT_REPO_BRANCH
 export GIT_REPO_PATH_APP GIT_REPO_PATH_MONITORING GIT_REPO_PATH_LOKI GIT_REPO_PATH_SECURITY
+
+# argocd CLI wrapper
+argocd_cmd() {
+    if [[ "$ARGOCD_USE_GRPC_WEB" == "true" ]]; then
+        argocd --server "$ARGOCD_SERVER" --grpc-web --insecure "$@"
+    else
+        argocd --server "$ARGOCD_SERVER" "$@"
+    fi
+}
+
+# port-forward health guard
+assert_portforward_alive() {
+    [[ "$ARGOCD_USE_GRPC_WEB" != "true" ]] && return 0   # cloud path: no port-forward
+    if [[ -z "${ARGOCD_PF_PID:-}" ]]; then
+        print_error "Port-forward PID is not set — cannot verify tunnel is alive"
+        exit 1
+    fi
+    if ! kill -0 "$ARGOCD_PF_PID" 2>/dev/null; then
+        print_error "ArgoCD port-forward (PID ${ARGOCD_PF_PID}) died — restarting"
+        # Attempt restart
+        local SERVICE_PORT
+        SERVICE_PORT=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
+            -o jsonpath='{.spec.ports[?(@.name=="https")].port}' 2>/dev/null || echo "443")
+        kubectl port-forward svc/argocd-server -n "$ARGOCD_NAMESPACE" \
+            "${ARGOCD_LOCAL_PORT}:${SERVICE_PORT}" --address 127.0.0.1 >/dev/null 2>&1 &
+        ARGOCD_PF_PID=$!
+        export ARGOCD_PF_PID
+        local ready=false
+        for i in {1..10}; do
+            if curl -4 -sk "https://localhost:${ARGOCD_LOCAL_PORT}" >/dev/null 2>&1; then
+                ready=true; break
+            fi
+            sleep 2
+        done
+        [[ "$ready" != true ]] && { print_error "Port-forward restart failed"; exit 1; }
+        print_success "Port-forward restarted (PID ${ARGOCD_PF_PID})"
+    fi
+}
 
 #  INSTALL ARGO CD CLI
 install_argocd_cli() {
@@ -129,7 +172,6 @@ argocd_login() {
     else
         admin_pass=$(kubectl -n "$ARGOCD_NAMESPACE" get secret argocd-initial-admin-secret \
             -o jsonpath="{.data.password}" 2>/dev/null | base64 -d 2>/dev/null || echo "")
-        # ALWAYS show Argo CD default admin credentials
         echo ""
         print_access_box "ARGO CD DEFAULT ADMIN CREDENTIALS" "🔐" \
             "CRED:Username:admin" \
@@ -144,7 +186,6 @@ argocd_login() {
     fi
 
     # Try external IP first (cloud clusters)
-    local ARGOCD_SERVER
     ARGOCD_SERVER=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
         -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
 
@@ -179,6 +220,8 @@ argocd_login() {
         [[ "$ready" != true ]] && { print_error "Port-forward to ArgoCD failed to become ready"; exit 1; }
 
         ARGOCD_SERVER="localhost:${ARGOCD_LOCAL_PORT}"
+        ARGOCD_USE_GRPC_WEB=true
+        # ARGOCD_OPTS kept for any direct argocd invocations outside argocd_cmd()
         export ARGOCD_OPTS="--grpc-web"
         print_info "gRPC-web mode enabled (all CLI calls tunnel over HTTPS port-forward)"
     fi
@@ -195,7 +238,9 @@ argocd_login() {
     print_success "Logged in to ArgoCD at ${BOLD}${ARGOCD_SERVER}${RESET}"
 
     export ARGOCD_SERVER
-    export ARGOCD_ADMIN_PASS="$admin_pass"
+    export ARGOCD_USE_GRPC_WEB
+    ARGOCD_ADMIN_PASS="$admin_pass"
+    export ARGOCD_ADMIN_PASS
 }
 
 #  GENERATE APPLICATION MANIFESTS
@@ -231,31 +276,37 @@ generate_argocd_apps() {
 argocd_add_repo() {
     print_subsection "Registering Git Repository with Argo CD"
 
+    assert_portforward_alive
+
     local REPO_URL="$GIT_REPO_URL"
 
-    if argocd repo list 2>/dev/null | grep -q "$REPO_URL"; then
+    if argocd_cmd repo list 2>/dev/null | grep -q "$REPO_URL"; then
         print_success "Repository already registered: ${BOLD}${REPO_URL}${RESET}"
         return 0
     fi
 
     if [[ -f "${HOME}/.ssh/id_ed25519" ]]; then
         print_step "Adding repo via SSH key (ed25519)"
-        argocd repo add "$REPO_URL" --ssh-private-key-path "${HOME}/.ssh/id_ed25519" --insecure-ignore-host-key || true
+        argocd_cmd repo add "$REPO_URL" \
+            --ssh-private-key-path "${HOME}/.ssh/id_ed25519" \
+            --insecure-ignore-host-key || true
     elif [[ -f "${HOME}/.ssh/id_rsa" ]]; then
         print_step "Adding repo via SSH key (rsa)"
-        argocd repo add "$REPO_URL" --ssh-private-key-path "${HOME}/.ssh/id_rsa" --insecure-ignore-host-key || true
+        argocd_cmd repo add "$REPO_URL" \
+            --ssh-private-key-path "${HOME}/.ssh/id_rsa" \
+            --insecure-ignore-host-key || true
     elif [[ -n "${GITHUB_TOKEN:-}" ]]; then
         print_step "Adding repo via GitHub token"
-        argocd repo add "$REPO_URL" --username git --password "$GITHUB_TOKEN" || true
+        argocd_cmd repo add "$REPO_URL" --username git --password "$GITHUB_TOKEN" || true
     elif [[ -n "${GITLAB_TOKEN:-}" ]]; then
         print_step "Adding repo via GitLab token"
-        argocd repo add "$REPO_URL" --username oauth2 --password "$GITLAB_TOKEN" || true
+        argocd_cmd repo add "$REPO_URL" --username oauth2 --password "$GITLAB_TOKEN" || true
     else
         print_step "Adding public repo"
-        argocd repo add "$REPO_URL" || true
+        argocd_cmd repo add "$REPO_URL" || true
     fi
 
-    if ! argocd repo list | grep -q "$REPO_URL"; then
+    if ! argocd_cmd repo list | grep -q "$REPO_URL"; then
         print_error "Repository registration failed"
         exit 1
     fi
@@ -277,6 +328,8 @@ apply_argocd_apps() {
 sync_argocd_apps() {
     print_subsection "Syncing Argo CD Applications (ordered)"
 
+    assert_portforward_alive
+
     local apps=(
         "${APP_NAME}-${DEPLOY_TARGET}"
         "${APP_NAME}-monitoring"
@@ -285,9 +338,9 @@ sync_argocd_apps() {
     )
 
     for app in "${apps[@]}"; do
-        if argocd app get "$app" >/dev/null 2>&1; then
+        if argocd_cmd app get "$app" >/dev/null 2>&1; then
             print_step "Syncing: ${BOLD}${app}${RESET}"
-            argocd app sync "$app" --async || print_warning "Sync queued for: $app"
+            argocd_cmd app sync "$app" --async || print_warning "Sync queued for: $app"
         else
             print_warning "App not found yet (will auto-sync): ${app}"
         fi
@@ -299,6 +352,8 @@ sync_argocd_apps() {
 wait_for_apps() {
     print_subsection "Waiting for Applications to Sync & Become Healthy"
 
+    assert_portforward_alive
+
     local apps=(
         "${APP_NAME}-${DEPLOY_TARGET}"
         "${APP_NAME}-monitoring"
@@ -307,9 +362,9 @@ wait_for_apps() {
     )
 
     for app in "${apps[@]}"; do
-        if argocd app get "$app" >/dev/null 2>&1; then
+        if argocd_cmd app get "$app" >/dev/null 2>&1; then
             print_step "Waiting for: ${BOLD}${app}${RESET}  (timeout: 5m)"
-            argocd app wait "$app" --sync --health --timeout 300 \
+            argocd_cmd app wait "$app" --sync --health --timeout 300 \
                 || print_warning "Timeout waiting for ${app} — check ArgoCD UI"
         fi
     done
@@ -317,7 +372,7 @@ wait_for_apps() {
     print_success "All apps are healthy!"
 }
 
-#  DISPLAY ACCESS INFORMATION  ← high-visibility section
+#  DISPLAY ACCESS INFORMATION
 show_argocd_access() {
     local EXTERNAL_IP EXTERNAL_HOST SERVICE_PORT
 

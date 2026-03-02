@@ -1,8 +1,14 @@
 # /Security/trivy/trivy-runner/Dockerfile
 
+# pull trivy binary from official DockerHub image
+
+ARG TRIVY_VERSION=0.57.1
+FROM aquasec/trivy:${TRIVY_VERSION} AS trivy-source
+
+# final runtime image
 FROM alpine:3.19
 
-# Install runtime dependencies
+# Install runtime dependencies for scan.sh
 RUN apk add --no-cache \
     curl \
     bash \
@@ -10,6 +16,8 @@ RUN apk add --no-cache \
     ca-certificates
 
 # kubectl
+# TARGETARCH is set automatically by `docker build` from the host arch,
+# or explicitly via `docker buildx build --platform linux/amd64`.
 ARG TARGETARCH=amd64
 ARG KUBECTL_VERSION=v1.29.0
 
@@ -22,29 +30,11 @@ RUN curl -fsSLo kubectl \
     && rm kubectl kubectl.sha256 \
     && kubectl version --client
 
-# Trivy
+# trivy (copied from stage 1, no CDN involved)
+COPY --from=trivy-source /usr/local/bin/trivy /usr/local/bin/trivy
 
-ARG TRIVY_VERSION=0.48.0
-
-RUN set -eux \
-    # Map Docker TARGETARCH (amd64/arm64) to Trivy's release arch naming
-    && case "${TARGETARCH}" in \
-         amd64)  TRIVY_ARCH="64bit"  ;; \
-         arm64)  TRIVY_ARCH="ARM64"  ;; \
-         *)      echo "Unsupported arch: ${TARGETARCH}"; exit 1 ;; \
-       esac \
-    && TRIVY_TAR="trivy_${TRIVY_VERSION}_Linux-${TRIVY_ARCH}.tar.gz" \
-    && BASE_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}" \
-    && curl -fsSLo "${TRIVY_TAR}" "${BASE_URL}/${TRIVY_TAR}" \
-    && curl -fsSLo "trivy_checksums.txt" "${BASE_URL}/trivy_${TRIVY_VERSION}_checksums.txt" \
-    # Verify integrity against official checksums
-    && grep " ${TRIVY_TAR}$" trivy_checksums.txt | sha256sum -c \
-    # Extract only the trivy binary
-    && tar -xzf "${TRIVY_TAR}" trivy \
-    && install -o root -g root -m 0755 trivy /usr/local/bin/trivy \
-    && rm -f "${TRIVY_TAR}" trivy_checksums.txt trivy \
-    # Smoke-test: confirm binary is present and executes
-    && trivy --version
+# Smoke-test: confirm the binary is present and executes in this image
+RUN trivy --version
 
 WORKDIR /app
 COPY scan.sh /app/scan.sh

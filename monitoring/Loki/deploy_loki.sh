@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# monitoring/deploy_loki.sh — Deploy Loki log aggregation system
-# Safe to source. Executable directly.
+# monitoring/loki/deploy_loki.sh — Deploy Loki log aggregation system
+# Works on all Kubernetes distributions (Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s)
+# Supports all environments: local, production, ArgoCD, direct mode (run.sh)
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -10,12 +11,14 @@ if [[ -z "${PROJECT_ROOT:-}" ]]; then
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fi
 
+# Load helper libs
 if [[ -z "$(type -t print_info 2>/dev/null)" ]]; then
     for lib in colors logging guards; do
         source "$PROJECT_ROOT/lib/${lib}.sh"
     done
 fi
 
+# Load environment
 [[ -z "${APP_NAME:-}" ]] && [[ -f "$PROJECT_ROOT/.env" ]] && source "$PROJECT_ROOT/.env"
 
 # Defaults
@@ -35,7 +38,7 @@ export LOKI_ENABLED LOKI_NAMESPACE LOKI_VERSION LOKI_RETENTION_PERIOD \
        LOKI_CPU_REQUEST LOKI_CPU_LIMIT \
        LOKI_MEMORY_REQUEST LOKI_MEMORY_LIMIT
 
-# Distribution detection (lightweight, honours pre-set value from run.sh)
+# Detect Kubernetes distribution
 detect_k8s_distribution() {
     [[ -n "${K8S_DISTRIBUTION:-}" ]] && return 0
 
@@ -62,6 +65,7 @@ detect_k8s_distribution() {
     export K8S_DISTRIBUTION
 }
 
+# Determine Loki endpoint URL
 get_loki_url() {
     local port=3100
     case "$K8S_DISTRIBUTION" in
@@ -81,7 +85,7 @@ get_loki_url() {
     esac
 }
 
-# MAIN
+# Deploy Loki & Promtail
 deploy_loki() {
     print_section "LOKI LOG AGGREGATION" "📜"
 
@@ -97,69 +101,52 @@ deploy_loki() {
     print_kv "Retention"    "${LOKI_RETENTION_PERIOD}"
     echo ""
 
-    local workdir="/tmp/loki-deploy-$$"
-    mkdir -p "$workdir"
-    trap 'rm -rf "${workdir:-}"' EXIT
-
-    print_subsection "Preparing Manifests"
-    cp "$PROJECT_ROOT/monitoring/Loki/loki-deployment.yaml" "$workdir/"
-    envsubst < "$workdir/loki-deployment.yaml" > "$workdir/loki.yaml"
     print_success "Manifests prepared"
 
+    # Create namespace
     print_subsection "Creating Namespace"
     kubectl create namespace "$LOKI_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
     print_success "Namespace ready: ${BOLD}${LOKI_NAMESPACE}${RESET}"
 
+    # Apply manifests via Kustomize overlay
+    print_step "Checking for existing Promtail DaemonSet conflicts..."
+    kubectl delete daemonset promtail -n "$LOKI_NAMESPACE" --ignore-not-found
     print_subsection "Deploying Loki & Promtail"
+    kubectl apply -k "$PROJECT_ROOT/monitoring/Loki/overlays/${DEPLOY_TARGET}"
 
-    # A previous Helm or manual install may have left a StatefulSet named
-    # 'loki' in the namespace. Its pod (loki-0) matches the Service selector
-    # app=loki, so kubectl port-forward via the Service can land on loki-0 which
-    # has no named ports — causing:
-    #   "Pod 'loki-0' does not have a named port 'http-metrics'"
-    # Delete any conflicting StatefulSet before applying the Deployment.
-    # The --ignore-not-found flag makes this a no-op on clean clusters.
-    if kubectl get statefulset loki -n "$LOKI_NAMESPACE" >/dev/null 2>&1; then
-        print_step "Removing conflicting Loki StatefulSet (leftover from previous install)..."
-        kubectl delete statefulset loki -n "$LOKI_NAMESPACE" --ignore-not-found
-        # Wait for loki-0 pod to terminate so the selector is clean before apply
-        kubectl wait pod -l app=loki -n "$LOKI_NAMESPACE" \
-            --for=delete --timeout=60s 2>/dev/null || true
-        print_success "StatefulSet removed"
-    fi
-
-    kubectl apply -f "$workdir/loki.yaml"
-
+    # Wait for Loki rollout
     print_step "Waiting for Loki rollout..."
-    if kubectl rollout status deployment/loki -n "$LOKI_NAMESPACE" --timeout=300s; then
-        print_success "Loki Deployment is rolled out"
+    if kubectl rollout status statefulset/loki -n "$LOKI_NAMESPACE" --timeout=300s; then
+        print_success "Loki StatefulSet is rolled out"
     else
         print_warning "Loki rollout had issues — check: kubectl describe pod -l app=loki -n ${LOKI_NAMESPACE}"
     fi
 
-    # Verify Loki HTTP endpoint is actually accepting connections before Promtail
-    # initContainer unblocks. Promtail's initContainer polls /ready itself, but
-    # confirming here gives clear script output and catches misconfigurations early.
+    # Verify Loki endpoint
     print_step "Verifying Loki HTTP endpoint is reachable..."
     local loki_pod
     loki_pod=$(kubectl get pod -l app=loki -n "$LOKI_NAMESPACE" \
-        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
     if [[ -n "$loki_pod" ]]; then
-        local attempts=0
-        while ! kubectl exec "$loki_pod" -n "$LOKI_NAMESPACE" -- \
-                wget -qO- http://localhost:3100/ready 2>/dev/null | grep -q "ready"; do
-            attempts=$((attempts + 1))
-            if [[ $attempts -ge 24 ]]; then
-                print_warning "Loki /ready did not respond after 120s"
-                break
-            fi
-            print_step "Loki not ready yet... (${attempts}/24)"
-            sleep 5
-        done
-        [[ $attempts -lt 24 ]] && print_success "Loki HTTP endpoint confirmed reachable"
+      kubectl port-forward svc/loki 3100:3100 -n "$LOKI_NAMESPACE" >/dev/null 2>&1 &
+      local pf_pid=$!
+      sleep 3
+      local attempts=0
+      until curl -sf http://localhost:3100/ready >/dev/null 2>&1; do
+        attempts=$((attempts+1))
+        if [[ $attempts -ge 24 ]]; then
+          print_warning "Loki /ready did not respond after 120s"
+          break
+        fi
+        print_step "Loki not ready yet... (${attempts}/24)"
+        sleep 5
+      done
+      kill "$pf_pid" >/dev/null 2>&1 || true
+      [[ $attempts -lt 24 ]] && print_success "Loki HTTP endpoint confirmed reachable"
     fi
 
+    # Wait for Promtail rollout
     print_step "Waiting for Promtail rollout..."
     if kubectl rollout status daemonset/promtail -n "$LOKI_NAMESPACE" --timeout=180s; then
         print_success "Promtail DaemonSet is rolled out"
@@ -169,13 +156,12 @@ deploy_loki() {
 
     print_success "Loki & Promtail deployed successfully"
 
+    # Show resources & access info
     print_divider
     print_subsection "Loki Resource Status"
     kubectl get all -n "$LOKI_NAMESPACE"
-
     print_divider
 
-    # HIGH-VISIBILITY ACCESS INFO
     local url
     url=$(get_loki_url)
 
@@ -187,9 +173,9 @@ deploy_loki() {
             "URL:Step 2 — Loki endpoint:http://localhost:${port}" \
             "SEP:" \
             "TEXT:Grafana Datasource URL (cluster-internal):" \
-            "URL:Add this in Grafana → Connections → Datasources:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
+            "URL:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
             "SEP:" \
-            "CRED:Recommended Grafana Dashboard ID:" \
+            "CRED:Recommended Grafana Dashboard IDs:" \
             "CRED: Logs / App: 13639" \
             "CRED: Container Log Quick Search: 16970" \
             "CRED: K8s App Logs / Multi Clusters:22874"
@@ -198,14 +184,13 @@ deploy_loki() {
             "URL:Loki endpoint:${url}" \
             "SEP:" \
             "TEXT:Grafana Datasource URL (cluster-internal):" \
-            "URL:Add this in Grafana → Connections → Datasources:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
+            "URL:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
             "SEP:" \
-            "CRED:Recommended Grafana Dashboard ID:" \
+            "CRED:Recommended Grafana Dashboard IDs:" \
             "CRED: Logs / App: 13639" \
             "CRED: Container Log Quick Search: 16970" \
             "CRED: K8s App Logs / Multi Clusters:22874"
     fi
-
     print_divider
 }
 

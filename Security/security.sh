@@ -28,7 +28,7 @@ source "$PROJECT_ROOT/lib/bootstrap.sh"
 : "${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}"
 : "${TRIVY_ENABLED:=true}"
 : "${TRIVY_NAMESPACE:=trivy-system}"
-: "${TRIVY_VERSION:=0.48.0}"
+: "${TRIVY_VERSION:=0.57.1}"
 : "${TRIVY_SEVERITY:=HIGH,CRITICAL}"
 : "${TRIVY_SCAN_SCHEDULE:=0 16-22 * * *}"
 : "${TRIVY_CPU_REQUEST:=500m}"
@@ -283,7 +283,6 @@ security() {
     print_access_box "TRIVY GRAFANA DASHBOARD IDs  (Dashboards → Import)" "📋" \
         "CRED:Trivy Workload Vulnerabilities:17046" \
         "CRED:Trivy Operator — Vulnerabilities:16337" \
-        "CRED:Trivy Operator Dashboard:21398"
 
     print_access_box "VIEW SCAN RESULTS" "🔍" \
         "CMD:View initial scan logs:|kubectl logs -n ${TRIVY_NAMESPACE} job/trivy-initial-scan" \

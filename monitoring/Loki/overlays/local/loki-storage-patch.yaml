@@ -1,0 +1,14 @@
+# /monitoring/Loki/overlays/local/loki-storage-patch.yaml
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki
+spec:
+  volumeClaimTemplates: []
+
+  template:
+    spec:
+      volumes:
+        - name: storage
+          emptyDir: {}

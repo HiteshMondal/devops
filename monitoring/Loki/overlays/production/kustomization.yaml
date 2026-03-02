@@ -1,0 +1,21 @@
+# monitoring/Loki/overlays/production/kustomization.yaml
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# Production-safe settings
+patches:
+  - target:
+      kind: Service
+      name: loki
+    patch: |
+      - op: replace
+        path: /spec/type
+        value: ClusterIP
+
+images:
+  - name: grafana/loki
+    newTag: 2.9.3

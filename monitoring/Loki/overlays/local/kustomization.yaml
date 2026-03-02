@@ -1,0 +1,22 @@
+# /monitoring/Loki/overlays/local/kustomization.yaml
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# Override service type for local access
+patches:
+  - target:
+      kind: Service
+      name: loki
+    patch: |
+      - op: replace
+        path: /spec/type
+        value: NodePort
+
+# Smaller resources for local
+patchesStrategicMerge:
+  - resources-patch.yaml
+  - loki-storage-patch.yaml

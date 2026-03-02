@@ -47,6 +47,12 @@ kubectl delete configmap prometheus-config -n devops-app 2>/dev/null || true
 echo "✅ Monitoring cleanup complete"
 echo ""
 
+# Loki Cleanup
+# Clean up any old PVCs and StatefulSets
+kubectl delete statefulset loki -n loki --ignore-not-found
+kubectl delete pvc -n loki --all
+kubectl delete pod -l app=promtail -n loki --ignore-not-found
+
 # Trivy Security Cleanup
 # Remove Trivy namespaces and resources
 echo "🛡 Cleaning security & Trivy components..."

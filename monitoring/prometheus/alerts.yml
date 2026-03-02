@@ -6,15 +6,15 @@ groups:
   interval: 30s
   rules:
   - alert: PodCrashLooping
-    expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+    expr: increase(kube_pod_container_status_restarts_total[1h]) > 3
     for: 5m
     labels:
       severity: critical
     annotations:
       summary: "Pod {{ $labels.pod }} is crash looping"
       description: |
-        Pod is restarting frequently.
-
+        Pod has restarted more than 3 times in the past hour.
+        Current restart count (1h): {{ printf "%.0f" $value }}
   - alert: PodNotReady
     expr: kube_pod_status_ready{condition="false"} == 1
     for: 5m
@@ -32,7 +32,13 @@ groups:
   - alert: ContainerHighCPU
     expr: |
       sum by (namespace, pod) (
-        rate(container_cpu_usage_seconds_total[5m])
+        # BUG FIX 6a: added container!="" filter.
+        # Without it, cAdvisor emits aggregate rows with container="" for the
+        # pod-level summary and one row per pause (infra) container. These
+        # phantom rows inflate the per-pod CPU sum — a pod using 0.4 cores
+        # could report >0.8 when the pause container's row is included.
+        # container!="" keeps only named application containers.
+        rate(container_cpu_usage_seconds_total{container!=""}[5m])
       ) > 0.8
     for: 5m
     labels:
@@ -45,9 +51,9 @@ groups:
   - alert: ContainerHighMemory
     expr: |
       (
-        sum by (namespace, pod) (container_memory_usage_bytes)
+        sum by (namespace, pod) (container_memory_usage_bytes{container!=""})
         /
-        sum by (namespace, pod) (container_spec_memory_limit_bytes > 0)
+        sum by (namespace, pod) (container_spec_memory_limit_bytes{container!=""} > 0)
       ) > 0.9
     for: 5m
     labels:

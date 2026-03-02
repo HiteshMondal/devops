@@ -49,6 +49,16 @@ data:
       options:
         path: /var/lib/grafana/dashboards
 ---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: monitoring
+data: {}
+
+---
+
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
