@@ -5,10 +5,24 @@ kind: StatefulSet
 metadata:
   name: loki
 spec:
-  volumeClaimTemplates: []
-
+  volumeClaimTemplates: []   # remove PVC
   template:
     spec:
+      securityContext:
+        fsGroup: 10001
+        runAsUser: 10001
+      initContainers:
+      - name: init-loki-dirs
+        image: busybox
+        command:
+          - sh
+          - -c
+          - |
+            mkdir -p /loki/chunks /loki/index /loki/cache /loki/compactor /loki/rules
+            chown -R 10001:10001 /loki
+        volumeMounts:
+          - name: storage
+            mountPath: /loki
       volumes:
         - name: storage
           emptyDir: {}
