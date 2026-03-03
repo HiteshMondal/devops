@@ -1,9 +1,5 @@
 # /monitoring/Loki/base/loki-deployment.yaml
-# Works on all computers
-# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s
-# Compatible with all environments: Local, Production, ArgoCD, Direct mode (run.sh)
 
-# Loki ConfigMap
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -21,9 +17,6 @@ data:
 
     ingester:
       lifecycler:
-        # BUG FIX: -ingester.lifecycler.address CLI flag was removed in Loki 2.6+.
-        # Set the address here in the config file instead. 127.0.0.1 is correct
-        # for single-node inmemory ring — it only needs to be reachable by itself.
         address: 127.0.0.1
         ring:
           kvstore:
@@ -35,10 +28,6 @@ data:
       wal:
         enabled: false
 
-    # BUG FIX: boltdb-shipper + schema v11 is deprecated in Loki 2.8+ and removed in 3.x.
-    # Upgraded to tsdb store + schema v12, which is the recommended config for Loki 2.9.x.
-    # tsdb performs better, has active support, and does not require the boltdb_shipper
-    # storage_config block (which caused "unrecognised store" warnings in 2.9.x).
     schema_config:
       configs:
         - from: 2023-01-01
@@ -61,23 +50,17 @@ data:
     compactor:
       working_directory: /loki/compactor
       shared_store: filesystem
-      # BUG FIX: retention_enabled: true with WAL disabled causes Loki 2.9.x to panic
-      # at startup in some builds. Disabled here for universal compatibility.
-      # To enable retention:
-      #   1. Set retention_enabled: true
-      #   2. Set wal.enabled: true in the ingester section above
-      #   3. Add wal.dir: /loki/wal to ingester and mount it
       retention_enabled: false
 
     limits_config:
       ingestion_rate_mb: 10
       ingestion_burst_size_mb: 20
+      allow_empty_matchers: true
 
     analytics:
       reporting_enabled: false
 
 ---
-# Loki StatefulSet
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -158,12 +141,8 @@ spec:
         - name: config
           configMap:
             name: loki-config
-        # NOTE: "storage" is intentionally absent from volumes[] here.
-        # Production path: provided by volumeClaimTemplates above.
-        # Local path: injected as emptyDir by the JSON6902 patch in the local overlay.
 
 ---
-# Loki ClusterIP Service (for Promtail and Grafana)
 apiVersion: v1
 kind: Service
 metadata:
@@ -186,7 +165,6 @@ spec:
     app: loki
 
 ---
-# Loki Headless Service (required by StatefulSet serviceName)
 apiVersion: v1
 kind: Service
 metadata:
@@ -203,7 +181,6 @@ spec:
       name: http-metrics
 
 ---
-# Loki ServiceAccount
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -211,7 +188,6 @@ metadata:
   namespace: loki
 
 ---
-# Promtail ServiceAccount
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -219,7 +195,6 @@ metadata:
   namespace: loki
 
 ---
-# Promtail RBAC
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -249,7 +224,6 @@ subjects:
     namespace: loki
 
 ---
-# Promtail ConfigMap
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -306,7 +280,6 @@ data:
             target_label: __path__
 
 ---
-# Promtail DaemonSet
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -389,7 +362,6 @@ spec:
           emptyDir: {}
 
 ---
-# PodDisruptionBudget for Loki
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

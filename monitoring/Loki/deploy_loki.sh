@@ -119,9 +119,6 @@ _cleanup_loki_pf() {
         kill "$_LOKI_PF_PID" 2>/dev/null || true
     fi
     _LOKI_PF_PID=""
-    # BUG FIX: Do NOT reset the trap to "-" here. Resetting all traps would silently
-    # swallow EXIT signals if this script is called from a parent (run.sh / deploy_monitoring.sh)
-    # that has its own EXIT handler. Only deregister the specific signals we registered.
     trap - EXIT INT TERM
 }
 
@@ -168,11 +165,6 @@ verify_loki_endpoint() {
 }
 
 # Count volumeClaimTemplates on the live StatefulSet.
-# BUG FIX: The original code used kubectl jsonpath output piped into python3 json.load().
-# kubectl jsonpath returns a Go-formatted string (e.g. "[map[...]]"), NOT valid JSON —
-# json.load() would always raise a JSONDecodeError, so existing_vct_count was always "0",
-# causing spurious StatefulSet deletes on every run when a PVC-backed StatefulSet existed.
-# Fix: use "-o json" to get proper JSON, then parse .spec.volumeClaimTemplates with python3.
 _get_live_vct_count() {
     local namespace="$1"
     kubectl get statefulset loki -n "$namespace" -o json 2>/dev/null \

@@ -14,7 +14,6 @@ patches:
         path: /spec/type
         value: NodePort
   # StatefulSet: reduce resources for local dev machines
-  # BUG FIX: was "resources-patch.yaml" — filename must match the actual file on disk.
   - path: loki-resources-patch.yaml
     target:
       kind: StatefulSet
