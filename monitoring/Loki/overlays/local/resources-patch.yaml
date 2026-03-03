@@ -1,18 +1,20 @@
-# /monitoring/Loki/overlays/local/resources-patch.yaml
-
+# /monitoring/Loki/overlays/local/loki-resources-patch.yaml
+# Reduces Loki resource requests/limits for local development machines.
+# Referenced by the local overlay kustomization.yaml as patchesStrategicMerge.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: loki
+  namespace: loki
 spec:
   template:
     spec:
       containers:
-      - name: loki
-        resources:
-          requests:
-            cpu: 50m
-            memory: 128Mi
-          limits:
-            cpu: 300m
-            memory: 512Mi
+        - name: loki
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 512Mi

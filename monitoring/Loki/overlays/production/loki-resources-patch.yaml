@@ -1,0 +1,20 @@
+# /monitoring/Loki/overlays/production/loki-resources-patch.yaml
+# Production resource allocation for Loki.
+# Sized for moderate log volume — adjust to your cluster's capacity.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki
+  namespace: loki
+spec:
+  template:
+    spec:
+      containers:
+        - name: loki
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi

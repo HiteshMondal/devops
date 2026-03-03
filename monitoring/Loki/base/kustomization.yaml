@@ -1,19 +1,19 @@
-# monitoring/Loki/base/kustomization.yaml
-
+# /monitoring/Loki/base/kustomization.yaml
+# Base layer — ArgoCD and direct-apply safe.
+# Overlays (local / production) extend this base via patches.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
   - loki-deployment.yaml
 
-# Ensure namespace consistency
 namespace: loki
 
-# Common labels (good for ArgoCD + monitoring)
-commonLabels:
-  app.kubernetes.io/name: loki
-  app.kubernetes.io/part-of: monitoring
+labels:
+  - pairs:
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/part-of: monitoring
+    includeSelectors: false
 
-# Optional
 generatorOptions:
   disableNameSuffixHash: true
