@@ -55,7 +55,6 @@ data:
     limits_config:
       ingestion_rate_mb: 10
       ingestion_burst_size_mb: 20
-      allow_empty_matchers: true
 
     analytics:
       reporting_enabled: false

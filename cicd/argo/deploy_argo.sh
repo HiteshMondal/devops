@@ -144,8 +144,15 @@ install_argocd_server() {
             -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
     fi
 
-    print_step "Waiting for ArgoCD server rollout..."
+    print_step "Waiting for ArgoCD core components..."
+
     kubectl rollout status deployment/argocd-server -n "$ARGOCD_NAMESPACE" --timeout=300s
+    kubectl rollout status deployment/argocd-repo-server -n "$ARGOCD_NAMESPACE" --timeout=300s
+    kubectl rollout status deployment/argocd-dex-server -n "$ARGOCD_NAMESPACE" --timeout=300s
+    kubectl rollout status deployment/argocd-applicationset-controller -n "$ARGOCD_NAMESPACE" --timeout=300s
+    kubectl rollout status statefulset/argocd-application-controller -n "$ARGOCD_NAMESPACE" --timeout=300s
+
+    print_success "All ArgoCD core components are ready!"
 
     print_step "Waiting for initial-admin-secret..."
     local count=0 retries=30
