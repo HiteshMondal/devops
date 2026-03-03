@@ -3,9 +3,7 @@
 # Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s
 # Compatible with all environments: Local, Production, ArgoCD, Direct mode (run.sh)
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Loki ConfigMap
-# ─────────────────────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -37,18 +35,22 @@ data:
       wal:
         enabled: false
 
+    # BUG FIX: boltdb-shipper + schema v11 is deprecated in Loki 2.8+ and removed in 3.x.
+    # Upgraded to tsdb store + schema v12, which is the recommended config for Loki 2.9.x.
+    # tsdb performs better, has active support, and does not require the boltdb_shipper
+    # storage_config block (which caused "unrecognised store" warnings in 2.9.x).
     schema_config:
       configs:
         - from: 2023-01-01
-          store: boltdb-shipper
+          store: tsdb
           object_store: filesystem
-          schema: v11
+          schema: v12
           index:
             prefix: index_
             period: 24h
 
     storage_config:
-      boltdb_shipper:
+      tsdb_shipper:
         active_index_directory: /loki/index
         cache_location: /loki/cache
         cache_ttl: 24h
@@ -59,9 +61,9 @@ data:
     compactor:
       working_directory: /loki/compactor
       shared_store: filesystem
-      # BUG FIX: retention_enabled: true with boltdb-shipper and WAL disabled causes
-      # Loki 2.9.x to panic at startup ("compactor retention requires WAL" in some builds).
-      # Disabled here for universal compatibility. To enable retention:
+      # BUG FIX: retention_enabled: true with WAL disabled causes Loki 2.9.x to panic
+      # at startup in some builds. Disabled here for universal compatibility.
+      # To enable retention:
       #   1. Set retention_enabled: true
       #   2. Set wal.enabled: true in the ingester section above
       #   3. Add wal.dir: /loki/wal to ingester and mount it
@@ -75,9 +77,7 @@ data:
       reporting_enabled: false
 
 ---
-# ─────────────────────────────────────────────────────────────────────────────
 # Loki StatefulSet
-# ─────────────────────────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -91,9 +91,6 @@ spec:
   selector:
     matchLabels:
       app: loki
-  # Base uses PVC-backed storage (production path).
-  # The local overlay replaces this with emptyDir via a JSON6902 patch —
-  # strategic-merge cannot remove volumeClaimTemplates entries.
   volumeClaimTemplates:
     - metadata:
         name: storage
@@ -110,9 +107,6 @@ spec:
       serviceAccountName: loki
       securityContext:
         fsGroup: 10001
-        # runAsNonRoot is set on the container, not the pod, so overlays can add
-        # initContainers that run as root (e.g. for volume setup) without being
-        # blocked by the pod-level admission check.
         runAsUser: 10001
       containers:
         - name: loki
@@ -125,11 +119,6 @@ spec:
           image: grafana/loki:2.9.3
           args:
             - -config.file=/etc/loki/loki.yaml
-            # BUG FIX: -ingester.lifecycler.address was removed in Loki 2.6+.
-            # Passing it to 2.9.3 causes immediate exit with:
-            #   "flag provided but not defined: -ingester.lifecycler.address"
-            # The ingester lifecycler address is now set via loki.yaml (ingester.lifecycler.address)
-            # or defaults to the pod IP automatically via the ring configuration.
           ports:
             - name: http-metrics
               containerPort: 3100
@@ -174,9 +163,7 @@ spec:
         # Local path: injected as emptyDir by the JSON6902 patch in the local overlay.
 
 ---
-# ─────────────────────────────────────────────────────────────────────────────
 # Loki ClusterIP Service (for Promtail and Grafana)
-# ─────────────────────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -199,9 +186,7 @@ spec:
     app: loki
 
 ---
-# ─────────────────────────────────────────────────────────────────────────────
 # Loki Headless Service (required by StatefulSet serviceName)
-# ─────────────────────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -218,9 +203,7 @@ spec:
       name: http-metrics
 
 ---
-# ─────────────────────────────────────────────────────────────────────────────
 # Loki ServiceAccount
-# ─────────────────────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -228,9 +211,7 @@ metadata:
   namespace: loki
 
 ---
-# ─────────────────────────────────────────────────────────────────────────────
 # Promtail ServiceAccount
-# ─────────────────────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -238,9 +219,7 @@ metadata:
   namespace: loki
 
 ---
-# ─────────────────────────────────────────────────────────────────────────────
 # Promtail RBAC
-# ─────────────────────────────────────────────────────────────────────────────
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -270,9 +249,7 @@ subjects:
     namespace: loki
 
 ---
-# ─────────────────────────────────────────────────────────────────────────────
 # Promtail ConfigMap
-# ─────────────────────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -329,9 +306,7 @@ data:
             target_label: __path__
 
 ---
-# ─────────────────────────────────────────────────────────────────────────────
 # Promtail DaemonSet
-# ─────────────────────────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -414,9 +389,7 @@ spec:
           emptyDir: {}
 
 ---
-# ─────────────────────────────────────────────────────────────────────────────
 # PodDisruptionBudget for Loki
-# ─────────────────────────────────────────────────────────────────────────────
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

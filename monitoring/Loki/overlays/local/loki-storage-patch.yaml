@@ -1,8 +1,10 @@
 # /monitoring/Loki/overlays/local/loki-storage-patch.yaml
-
+# JSON6902 patch — applied only for the local overlay.
+# Removes the PVC-based volumeClaimTemplates (not supported without a dynamic provisioner
+# on dev clusters) and injects an emptyDir volume named "storage" so the StatefulSet
+# can start without any StorageClass.
 - op: remove
   path: /spec/volumeClaimTemplates
-
 - op: add
   path: /spec/template/spec/volumes/-
   value:

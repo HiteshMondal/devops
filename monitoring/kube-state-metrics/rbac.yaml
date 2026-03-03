@@ -18,8 +18,6 @@ rules:
     - services
     - namespaces
     - configmaps
-    # PVCs and PVs added — scraped by default in v2.10.1 but
-    # previously missing, silently dropping kube_persistentvolumeclaim_* metrics.
     - persistentvolumeclaims
     - persistentvolumes
   verbs: ["list", "watch"]
@@ -30,9 +28,6 @@ rules:
     - daemonsets
     - replicasets
   verbs: ["list", "watch"]
-# HPA permissions added — this project deploys an HPA
-# (kubernetes/base/hpa.yaml). Without list+watch on horizontalpodautoscalers,
-# kube_horizontalpodautoscaler_spec_max_replicas and related metrics are absent.
 - apiGroups: ["autoscaling"]
   resources:
     - horizontalpodautoscalers

@@ -13,21 +13,13 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     return 1 2>/dev/null || exit 1
 fi
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PROJECT_ROOT detection
-# BUG FIX: original used `dirname "${BASH_SOURCE[0]}")/..` which resolves to
-# monitoring/ — one level too shallow. This script lives at:
-#   <project_root>/monitoring/Loki/deploy_loki.sh
-# so we need two levels up to reach project root.
-# ─────────────────────────────────────────────────────────────────────────────
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 fi
 export PROJECT_ROOT
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Load shared libraries
-# ─────────────────────────────────────────────────────────────────────────────
 # Prefer bootstrap.sh (used by deploy_monitoring.sh) if available.
 if [[ -f "$PROJECT_ROOT/lib/bootstrap.sh" ]]; then
     source "$PROJECT_ROOT/lib/bootstrap.sh"
@@ -37,21 +29,14 @@ elif [[ -z "$(type -t print_info 2>/dev/null)" ]]; then
     done
 fi
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Load .env (only if standalone — when called from run.sh env is already loaded)
-# ─────────────────────────────────────────────────────────────────────────────
 if [[ -z "${APP_NAME:-}" ]] && [[ -f "$PROJECT_ROOT/.env" ]]; then
     set -a
     source "$PROJECT_ROOT/.env"
     set +a
 fi
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Defaults
-# BUG FIX: DEPLOY_TARGET had no default — when deploy_loki.sh is run standalone
-# (not via run.sh), kubectl apply -k overlay/${DEPLOY_TARGET} would fail with
-# "no such file or directory" because the variable was empty.
-# ─────────────────────────────────────────────────────────────────────────────
 : "${LOKI_ENABLED:=true}"
 : "${LOKI_NAMESPACE:=loki}"
 : "${LOKI_VERSION:=2.9.3}"
@@ -62,7 +47,7 @@ fi
 : "${LOKI_CPU_LIMIT:=1000m}"
 : "${LOKI_MEMORY_REQUEST:=256Mi}"
 : "${LOKI_MEMORY_LIMIT:=1Gi}"
-: "${DEPLOY_TARGET:=local}"   # BUG FIX: was missing — standalone runs would use an empty path
+: "${DEPLOY_TARGET:=local}"
 
 export LOKI_ENABLED LOKI_NAMESPACE LOKI_VERSION LOKI_RETENTION_PERIOD \
        LOKI_STORAGE_SIZE LOKI_SERVICE_TYPE \
@@ -70,10 +55,8 @@ export LOKI_ENABLED LOKI_NAMESPACE LOKI_VERSION LOKI_RETENTION_PERIOD \
        LOKI_MEMORY_REQUEST LOKI_MEMORY_LIMIT \
        DEPLOY_TARGET
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Kubernetes distribution detection
 # Honours K8S_DISTRIBUTION if already exported by run.sh / deploy_monitoring.sh.
-# ─────────────────────────────────────────────────────────────────────────────
 detect_k8s_distribution() {
     if [[ -n "${K8S_DISTRIBUTION:-}" ]]; then
         print_info "K8S_DISTRIBUTION already set: ${K8S_DISTRIBUTION} (from parent process)"
@@ -103,9 +86,7 @@ detect_k8s_distribution() {
     export K8S_DISTRIBUTION="$k8s_dist"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Determine Loki access URL for the post-deploy info box
-# ─────────────────────────────────────────────────────────────────────────────
 get_loki_url() {
     local port=3100
     case "$K8S_DISTRIBUTION" in
@@ -128,20 +109,7 @@ get_loki_url() {
     esac
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Verify Loki /ready endpoint via a short-lived port-forward
-#
-# BUG FIX — pf_pid: unbound variable:
-#   `local pf_pid=""` inside the function + `trap _cleanup_pf EXIT` causes the
-#   trap to fire a second time after the function returns (once on RETURN, once
-#   on script EXIT). On the second firing, the local variable is out of scope and
-#   set -u raises "pf_pid: unbound variable".
-#
-# FIX:
-#   1. pf_pid is now a script-level global (declared outside the function).
-#   2. Trap covers only INT TERM EXIT — not RETURN (which fired it twice).
-#   3. After cleanup, the trap is reset to the default so it does not re-fire.
-# ─────────────────────────────────────────────────────────────────────────────
 
 # Script-level global — must be outside the function so the EXIT trap can see it
 _LOKI_PF_PID=""
@@ -150,7 +118,10 @@ _cleanup_loki_pf() {
     if [[ -n "${_LOKI_PF_PID:-}" ]] && kill -0 "$_LOKI_PF_PID" 2>/dev/null; then
         kill "$_LOKI_PF_PID" 2>/dev/null || true
     fi
-    # Reset trap so it does not re-fire on subsequent signals or normal script exit
+    _LOKI_PF_PID=""
+    # BUG FIX: Do NOT reset the trap to "-" here. Resetting all traps would silently
+    # swallow EXIT signals if this script is called from a parent (run.sh / deploy_monitoring.sh)
+    # that has its own EXIT handler. Only deregister the specific signals we registered.
     trap - EXIT INT TERM
 }
 
@@ -196,9 +167,40 @@ verify_loki_endpoint() {
     _cleanup_loki_pf
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# Count volumeClaimTemplates on the live StatefulSet.
+# BUG FIX: The original code used kubectl jsonpath output piped into python3 json.load().
+# kubectl jsonpath returns a Go-formatted string (e.g. "[map[...]]"), NOT valid JSON —
+# json.load() would always raise a JSONDecodeError, so existing_vct_count was always "0",
+# causing spurious StatefulSet deletes on every run when a PVC-backed StatefulSet existed.
+# Fix: use "-o json" to get proper JSON, then parse .spec.volumeClaimTemplates with python3.
+_get_live_vct_count() {
+    local namespace="$1"
+    kubectl get statefulset loki -n "$namespace" -o json 2>/dev/null \
+        | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+vcts = data.get('spec', {}).get('volumeClaimTemplates') or []
+print(len(vcts))
+" 2>/dev/null || echo "0"
+}
+
+# Count volumeClaimTemplates that the kustomize overlay would produce (dry-run).
+_get_overlay_vct_count() {
+    local overlay_path="$1"
+    kubectl apply -k "$overlay_path" --dry-run=client -o json 2>/dev/null \
+        | python3 -c "
+import sys, json
+items = json.load(sys.stdin).get('items', [])
+for item in items:
+    if item.get('kind') == 'StatefulSet' and item.get('metadata', {}).get('name') == 'loki':
+        vcts = item.get('spec', {}).get('volumeClaimTemplates') or []
+        print(len(vcts))
+        sys.exit(0)
+print(0)
+" 2>/dev/null || echo "unknown"
+}
+
 # Main deployment function
-# ─────────────────────────────────────────────────────────────────────────────
 deploy_loki() {
     print_section "LOKI LOG AGGREGATION" "📜"
 
@@ -230,30 +232,13 @@ deploy_loki() {
     kubectl create namespace "$LOKI_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
     print_success "Namespace ready: ${BOLD}${LOKI_NAMESPACE}${RESET}"
 
-    # ── Recreate StatefulSet if volumeClaimTemplates changed ────────────────
-    # Kubernetes forbids updating volumeClaimTemplates on an existing StatefulSet
-    # (spec.volumeClaimTemplates is immutable after creation). This happens when
-    # switching between overlays — e.g. from a previous run that used the base
-    # PVC template, to the local overlay that removes it via JSON6902 patch, or
-    # vice-versa. The only safe path is: delete the StatefulSet (pods are deleted
-    # too), then re-create it. PVCs are NOT deleted — data is preserved when
-    # switching back to a PVC-backed overlay.
+    # Recreate StatefulSet if volumeClaimTemplates changed
     print_step "Checking for StatefulSet volumeClaimTemplates conflict..."
     if kubectl get statefulset loki -n "$LOKI_NAMESPACE" >/dev/null 2>&1; then
-        # Detect mismatch: existing StatefulSet has VCTs but overlay removes them, or vice-versa
         local existing_vct_count overlay_vct_count
-        existing_vct_count=$(kubectl get statefulset loki -n "$LOKI_NAMESPACE"             -o jsonpath='{.spec.volumeClaimTemplates}' 2>/dev/null             | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d))" 2>/dev/null             || echo "0")
-
-        # Render the overlay to check what it produces (dry-run, no apply)
-        overlay_vct_count=$(kubectl apply -k "$overlay_path" --dry-run=client -o json 2>/dev/null             | python3 -c "
-import sys, json
-items = json.load(sys.stdin).get('items', [])
-for item in items:
-    if item.get('kind') == 'StatefulSet' and item.get('metadata',{}).get('name') == 'loki':
-        print(len(item.get('spec',{}).get('volumeClaimTemplates') or []))
-        sys.exit(0)
-print(0)
-" 2>/dev/null || echo "unknown")
+        # BUG FIX: use dedicated helpers that parse proper JSON (see _get_live_vct_count above)
+        existing_vct_count=$(_get_live_vct_count "$LOKI_NAMESPACE")
+        overlay_vct_count=$(_get_overlay_vct_count "$overlay_path")
 
         if [[ "$existing_vct_count" != "$overlay_vct_count" ]]; then
             print_step "volumeClaimTemplates changed (existing: ${existing_vct_count} VCT(s), overlay: ${overlay_vct_count} VCT(s))"
@@ -290,15 +275,16 @@ print(0)
     else
         print_warning "Loki rollout had issues — collecting diagnostics..."
         echo ""
-        echo "──────────────── kubectl describe pod loki-0 ────────────────"
-        kubectl describe pod loki-0 -n "$LOKI_NAMESPACE" 2>/dev/null ||             kubectl describe pod -l app=loki -n "$LOKI_NAMESPACE" 2>/dev/null || true
+        echo " kubectl describe pod loki-0"
+        kubectl describe pod loki-0 -n "$LOKI_NAMESPACE" 2>/dev/null \
+            || kubectl describe pod -l app=loki -n "$LOKI_NAMESPACE" 2>/dev/null || true
         echo ""
-        echo "──────────────── kubectl logs loki-0 (last 60 lines) ────────"
-        kubectl logs loki-0 -n "$LOKI_NAMESPACE" --tail=60 2>/dev/null ||             kubectl logs -l app=loki -n "$LOKI_NAMESPACE" --tail=60 2>/dev/null || true
+        echo " kubectl logs loki-0 (last 60 lines)"
+        kubectl logs loki-0 -n "$LOKI_NAMESPACE" --tail=60 2>/dev/null \
+            || kubectl logs -l app=loki -n "$LOKI_NAMESPACE" --tail=60 2>/dev/null || true
         echo ""
-        echo "──────────────── Previous container logs (if restarted) ─────"
+        echo " Previous container logs (if restarted)"
         kubectl logs loki-0 -n "$LOKI_NAMESPACE" --previous --tail=60 2>/dev/null || true
-        echo "─────────────────────────────────────────────────────────────"
         echo ""
     fi
 
@@ -333,8 +319,7 @@ print(0)
             "BLANK:" \
             "URL:Step 2 — Loki endpoint:http://localhost:${port}" \
             "SEP:" \
-            "TEXT:Grafana datasource URL (cluster-internal):" \
-            "URL:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:${port}" \
+            "CRED:Grafana datasource URL:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
             "SEP:" \
             "CRED:Recommended Grafana Dashboard IDs:" \
             "CRED: Logs / App:13639" \
@@ -344,8 +329,7 @@ print(0)
         print_access_box "LOKI ACCESS" "📜" \
             "URL:Loki endpoint:${url}" \
             "SEP:" \
-            "TEXT:Grafana datasource URL (cluster-internal):" \
-            "URL:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
+            "CRED:Grafana datasource URL:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
             "SEP:" \
             "CRED:Recommended Grafana Dashboard IDs:" \
             "CRED: Logs / App:13639" \
@@ -355,7 +339,4 @@ print(0)
     print_divider
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Entry point — only runs when executed directly, not when sourced
-# ─────────────────────────────────────────────────────────────────────────────
 deploy_loki

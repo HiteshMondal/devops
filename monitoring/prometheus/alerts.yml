@@ -32,12 +32,6 @@ groups:
   - alert: ContainerHighCPU
     expr: |
       sum by (namespace, pod) (
-        # BUG FIX 6a: added container!="" filter.
-        # Without it, cAdvisor emits aggregate rows with container="" for the
-        # pod-level summary and one row per pause (infra) container. These
-        # phantom rows inflate the per-pod CPU sum — a pod using 0.4 cores
-        # could report >0.8 when the pause container's row is included.
-        # container!="" keeps only named application containers.
         rate(container_cpu_usage_seconds_total{container!=""}[5m])
       ) > 0.8
     for: 5m

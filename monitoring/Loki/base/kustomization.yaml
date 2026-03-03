@@ -3,17 +3,13 @@
 # Overlays (local / production) extend this base via patches.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
 resources:
   - loki-deployment.yaml
-
 namespace: loki
-
 labels:
   - pairs:
       app.kubernetes.io/name: loki
       app.kubernetes.io/part-of: monitoring
     includeSelectors: false
-
 generatorOptions:
   disableNameSuffixHash: true

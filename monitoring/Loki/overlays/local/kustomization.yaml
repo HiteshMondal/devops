@@ -1,26 +1,11 @@
 # /monitoring/Loki/overlays/local/kustomization.yaml
 # Local overlay — Minikube, Kind, K3s, MicroK8s, or any single-node dev cluster.
-#
-# Changes from base:
-#   1. Loki Service type → NodePort  (local access without a LoadBalancer provisioner)
-#   2. Loki resources reduced        (resources-patch.yaml — existing filename, do not rename)
-#   3. PVC removed; emptyDir added   (loki-storage-patch.yaml — JSON6902, not strategic-merge)
-#
-# NOTE on loki-storage-patch.yaml:
-#   This MUST be a JSON6902 patch (list of op/path/value objects), NOT a strategic-merge patch.
-#   Strategic-merge cannot remove volumeClaimTemplates — setting it to [] is silently ignored
-#   by kustomize, leaving the PVC template in place and causing CrashLoopBackOff on clusters
-#   without a persistent provisioner. JSON6902 `op: remove` is the correct mechanism.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
 namespace: loki
-
 resources:
   - ../../base
-
 patches:
-  # ── Service: NodePort for local access ───────────────────────────────────
   - target:
       kind: Service
       name: loki
@@ -28,17 +13,13 @@ patches:
       - op: replace
         path: /spec/type
         value: NodePort
-
-  # ── StatefulSet: reduce resources for local dev machines ─────────────────
-  # Uses the existing resources-patch.yaml filename (strategic-merge, inferred from content)
-  - path: resources-patch.yaml
+  # StatefulSet: reduce resources for local dev machines
+  # BUG FIX: was "resources-patch.yaml" — filename must match the actual file on disk.
+  - path: loki-resources-patch.yaml
     target:
       kind: StatefulSet
       name: loki
-
-  # ── StatefulSet: remove PVC, inject emptyDir + initContainer ─────────────
-  # JSON6902 patch — must have explicit target so kustomize uses JSON6902 mode,
-  # not strategic-merge mode (which it would infer from a bare `path:` entry).
+  # StatefulSet: remove PVC, inject emptyDir + initContainer
   - path: loki-storage-patch.yaml
     target:
       kind: StatefulSet

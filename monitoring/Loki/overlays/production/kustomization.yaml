@@ -1,14 +1,10 @@
 # /monitoring/Loki/overlays/production/kustomization.yaml
 # Production overlay — EKS, GKE, AKS, K8s, K3s (HA), or any cluster with a dynamic provisioner.
-
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
 namespace: loki
-
 resources:
   - ../../base
-
 patches:
   - target:
       kind: Service
@@ -17,13 +13,11 @@ patches:
       - op: replace
         path: /spec/type
         value: ClusterIP
-
   # Strategic-merge — scale up resources for production
   - path: loki-resources-patch.yaml
     target:
       kind: StatefulSet
       name: loki
-
 images:
   - name: grafana/loki
     newTag: "2.9.3"
