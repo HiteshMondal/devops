@@ -6,6 +6,7 @@ namespace: loki
 resources:
   - ../../base
 patches:
+  # Patch the Loki Service to NodePort so it is reachable directly on local clusters.
   - target:
       kind: Service
       name: loki
@@ -13,15 +14,17 @@ patches:
       - op: replace
         path: /spec/type
         value: NodePort
-  # StatefulSet: reduce resources for local dev machines
+  # Strategic-merge — reduce resources for local dev machines.
   - path: loki-resources-patch.yaml
     target:
       kind: StatefulSet
       name: loki
-  # StatefulSet: remove PVC, inject emptyDir + initContainer
+  # JSON 6902 — remove PVC template, inject emptyDir (no dynamic provisioner needed).
+  # FIX: group/version must be included on the JSON-patch target so kustomize
+  # can distinguish it from the strategic-merge patch above on the same resource.
   - path: loki-storage-patch.yaml
     target:
-      kind: StatefulSet
-      name: loki
       group: apps
       version: v1
+      kind: StatefulSet
+      name: loki

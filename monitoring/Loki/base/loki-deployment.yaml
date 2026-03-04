@@ -50,11 +50,28 @@ data:
     compactor:
       working_directory: /loki/compactor
       shared_store: filesystem
-      retention_enabled: false
+      # FIX: retention_enabled=true requires delete_request_store — without it
+      # Loki 2.9.x fails config validation and crashes with:
+      #   "invalid compactor config: compactor.delete-request-store should be
+      #    configured when retention is enabled"
+      # retention_delete_enabled is NOT a valid field in Loki 2.9.x (causes
+      # "field not found" parse error and CrashLoopBackOff) — removed.
+      # compaction_interval and retention_delete_delay ARE valid.
+      retention_enabled: true
+      retention_delete_delay: 2h
+      compaction_interval: 10m
+      delete_request_store: filesystem
 
     limits_config:
+      # Global retention period — matches the default LOKI_RETENTION_PERIOD (168h = 7d).
+      # Overlays or .env can override this via configmap patches.
+      retention_period: 168h
       ingestion_rate_mb: 10
       ingestion_burst_size_mb: 20
+      # FIX: reject_old_samples prevents Loki from silently dropping out-of-order
+      # log lines that arrive outside the ingestion window.
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
 
     analytics:
       reporting_enabled: false
@@ -150,6 +167,8 @@ metadata:
   labels:
     app: loki
 spec:
+  # Base default: ClusterIP.
+  # Local overlay patches this to NodePort for direct access on Minikube/Kind/etc.
   type: ClusterIP
   ports:
     - port: 3100
@@ -277,6 +296,10 @@ data:
               - __meta_kubernetes_pod_uid
               - __meta_kubernetes_pod_container_name
             target_label: __path__
+          # FIX: drop pods that have no valid log path (avoids empty-matcher scrape errors)
+          - action: drop
+            regex: ""
+            source_labels: [__path__]
 
 ---
 apiVersion: apps/v1

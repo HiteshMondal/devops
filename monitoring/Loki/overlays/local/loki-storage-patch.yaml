@@ -1,5 +1,16 @@
 # /monitoring/Loki/overlays/local/loki-storage-patch.yaml
-
+# JSON 6902 patch applied to the local StatefulSet.
+#
+# What this does (in order):
+#   1. Remove the volumeClaimTemplates so no PVC is created on local clusters
+#      that may lack a dynamic provisioner (Minikube hostpath is fine, but
+#      emptyDir is simpler and avoids leftover PVCs between redeploys).
+#   2. Add an emptyDir volume named "storage" so the existing volumeMount
+#      in the container (mountPath: /loki) stays valid.
+#
+# The container's volumeMount (/loki → storage) is defined in the base and
+# does NOT need to be patched — it references the volume by name, and the
+# emptyDir added below satisfies that reference.
 - op: remove
   path: /spec/volumeClaimTemplates
 - op: add
