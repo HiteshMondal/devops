@@ -6,6 +6,10 @@
 #
 # Dashboard provisioning via ConfigMap has been removed.
 # Dashboards are imported through the Grafana UI (Dashboards → Import).
+#
+# DEPENDENCY NOTE (macOS):
+#   envsubst is part of GNU gettext.  Install with: brew install gettext
+#   On Linux it is included in the gettext or gettext-base package.
 
 set -euo pipefail
 
@@ -61,7 +65,7 @@ else
     CI_MODE=false
 fi
 
-# KUBERNETES DISTRIBUTION DETECTION
+# Kubernetes distribution detection
 detect_k8s_distribution() {
     print_subsection "Detecting Kubernetes Distribution"
 
@@ -110,6 +114,7 @@ detect_k8s_distribution() {
     print_kv "Service Type" "${MONITORING_SERVICE_TYPE}"
 }
 
+# Return the access URL for a monitoring service.
 get_monitoring_url() {
     local service_name="$1"
     local namespace="$2"
@@ -130,7 +135,7 @@ get_monitoring_url() {
                 -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
             [[ -n "$node_port" ]] && echo "http://localhost:$node_port" || echo "port-forward:$default_port"
             ;;
-        k3s)
+        k3s|microk8s)
             local external_ip node_ip node_port
             external_ip=$(kubectl get svc "$service_name" -n "$namespace" \
                 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
@@ -138,7 +143,8 @@ get_monitoring_url() {
                 echo "http://$external_ip:$default_port"
             else
                 node_ip=$(kubectl get nodes \
-                    -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "localhost")
+                    -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
+                    2>/dev/null || echo "localhost")
                 node_port=$(kubectl get svc "$service_name" -n "$namespace" \
                     -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
                 [[ -n "$node_port" ]] && echo "http://$node_ip:$node_port" || echo "port-forward:$default_port"
@@ -158,7 +164,7 @@ get_monitoring_url() {
     esac
 }
 
-# YAML PROCESSING
+# YAML processing
 substitute_env_vars() {
     local file=$1
     local temp_file="${file}.tmp"
@@ -185,7 +191,7 @@ substitute_env_vars() {
     mv "$temp_file" "$file"
 }
 
-# HELM SETUP
+# Helm setup
 setup_helm() {
     print_subsection "Helm Setup"
 
@@ -334,7 +340,7 @@ substitute_env_vars_to_file() {
     mv "$temp_file" "$dst"
 }
 
-# MAIN MONITORING DEPLOYMENT
+# Main monitoring deployment
 deploy_monitoring() {
     sleep 2
 
@@ -376,7 +382,7 @@ deploy_monitoring() {
 
     if [[ -d "$PROJECT_ROOT/monitoring/prometheus_grafana" ]]; then
         cp -r "$PROJECT_ROOT/monitoring/prometheus_grafana/"* "$WORK_DIR/monitoring/" 2>/dev/null || true
-        # Remove dashboard-configmap.yaml — dashboards are imported via Grafana UI
+        # Dashboard ConfigMap is excluded — dashboards are imported via Grafana UI.
         rm -f "$WORK_DIR/monitoring/dashboard-configmap.yaml"
         process_tpl_files "$WORK_DIR/monitoring"
         print_success "Rendered prometheus_grafana templates (dashboard ConfigMap excluded)"
@@ -464,7 +470,7 @@ deploy_monitoring() {
         print_subsection "Deploying Grafana"
 
         if [[ -f "$WORK_DIR/monitoring/grafana.yaml" ]]; then
-            # Drop any stale grafana-dashboards ConfigMap that may exist from a previous deploy
+            # Drop any stale dashboard ConfigMaps from previous deploys.
             kubectl delete configmap grafana-dashboards -n "$PROMETHEUS_NAMESPACE" \
                 --ignore-not-found 2>/dev/null || true
             kubectl delete configmap grafana-dashboard-provider -n "$PROMETHEUS_NAMESPACE" \
@@ -495,6 +501,7 @@ deploy_monitoring() {
 
     print_divider
 
+    # Access info
     echo ""
     print_section "MONITORING ACCESS" "📊"
     print_kv "Distribution" "${K8S_DISTRIBUTION}"
@@ -515,6 +522,11 @@ deploy_monitoring() {
             print_access_box "PROMETHEUS" "🔍" \
                 "NOTE:LoadBalancer is still provisioning." \
                 "CMD:Check status:|kubectl get svc prometheus -n ${PROMETHEUS_NAMESPACE}"
+            ;;
+        minikube-cli-missing)
+            print_access_box "PROMETHEUS" "🔍" \
+                "NOTE:minikube CLI not found — use port-forward to access Prometheus." \
+                "CMD:Port-forward:|kubectl port-forward svc/prometheus 9090:9090 -n ${PROMETHEUS_NAMESPACE}"
             ;;
         *)
             print_access_box "PROMETHEUS" "🔍" \
@@ -545,6 +557,14 @@ deploy_monitoring() {
                     "CRED:Username:${GRAFANA_ADMIN_USER}" \
                     "CRED:Password:${GRAFANA_ADMIN_PASSWORD}"
                 ;;
+            minikube-cli-missing)
+                print_access_box "GRAFANA" "📈" \
+                    "NOTE:minikube CLI not found — use port-forward to access Grafana." \
+                    "CMD:Port-forward:|kubectl port-forward svc/grafana ${GRAFANA_PORT}:${GRAFANA_PORT} -n ${PROMETHEUS_NAMESPACE}" \
+                    "SEP:" \
+                    "CRED:Username:${GRAFANA_ADMIN_USER}" \
+                    "CRED:Password:${GRAFANA_ADMIN_PASSWORD}"
+                ;;
             *)
                 print_access_box "GRAFANA" "📈" \
                     "URL:Grafana UI:${grafana_url}" \
@@ -555,7 +575,7 @@ deploy_monitoring() {
         esac
     fi
 
-    #  Dashboard import instructions
+    # Dashboard import instructions
     print_access_box "GRAFANA DASHBOARDS — Import via Dashboards → Import → paste ID → Load" "📋" \
         "BLANK:" \
         "CRED:── Kubernetes & Infrastructure ──:" \

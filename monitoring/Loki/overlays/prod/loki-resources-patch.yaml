@@ -1,6 +1,6 @@
 # /monitoring/Loki/overlays/prod/loki-resources-patch.yaml
 # Production resource allocation for Loki.
-# Sized for moderate log volume — adjust to your cluster's capacity.
+# Sized for moderate log volume — adjust cpu/memory to your cluster's capacity.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:

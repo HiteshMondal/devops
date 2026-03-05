@@ -28,7 +28,7 @@ elif [[ -z "$(type -t print_info 2>/dev/null)" ]]; then
     done
 fi
 
-# Load .env (only if standalone — when called from run.sh env is already loaded)
+# Load .env only when running standalone (run.sh already exports the environment)
 if [[ -z "${APP_NAME:-}" ]] && [[ -f "$PROJECT_ROOT/.env" ]]; then
     set -a
     source "$PROJECT_ROOT/.env"
@@ -54,6 +54,9 @@ export LOKI_ENABLED LOKI_NAMESPACE LOKI_VERSION LOKI_RETENTION_PERIOD \
        LOKI_MEMORY_REQUEST LOKI_MEMORY_LIMIT \
        DEPLOY_TARGET
 
+# Helpers
+
+# Map DEPLOY_TARGET to the kustomize overlay directory name.
 _overlay_name() {
     case "${DEPLOY_TARGET}" in
         local)       echo "local" ;;
@@ -66,15 +69,19 @@ _overlay_name() {
     esac
 }
 
+# Pick a random port in the NodePort range (30000-32767).
+# Uses shuf when available (Linux), falls back to $RANDOM (macOS/portable).
 _random_port() {
     if command -v shuf >/dev/null 2>&1; then
         shuf -i 30000-32767 -n 1
     else
-        # RANDOM is 0-32767; scale to 30000-32767
+        # $RANDOM is 0-32767 on bash; modulo gives 0-2767 → shift to 30000-32767.
         echo $(( (RANDOM % 2768) + 30000 ))
     fi
 }
 
+# Count .spec.volumeClaimTemplates in a JSON document read from stdin.
+# Tries jq, then python3, then python, then a grep fallback.
 _count_json_vcts() {
     local json
     json="$(cat)"
@@ -96,12 +103,12 @@ vcts = data.get('spec', {}).get('volumeClaimTemplates') or []
 print(len(vcts))
 " 2>/dev/null || echo "0"
     else
-        local count
-        count=$(echo "$json" | grep -c '"volumeClaimTemplates"' 2>/dev/null || echo "0")
-        echo "$count"
+        # Last-resort grep — may over-count but avoids hard failure.
+        grep -c '"volumeClaimTemplates"' <<< "$json" 2>/dev/null || echo "0"
     fi
 }
 
+# Return the number of VCTs on the live Loki StatefulSet (0 if not deployed).
 _get_live_vct_count() {
     local namespace="$1"
     kubectl get statefulset loki -n "$namespace" -o json 2>/dev/null \
@@ -109,6 +116,8 @@ _get_live_vct_count() {
         || echo "0"
 }
 
+# Return the number of VCTs the overlay would produce (dry-run).
+# Returns "unknown" on any error so callers can skip the conflict check safely.
 _get_overlay_vct_count() {
     local overlay_path="$1"
     local result
@@ -117,7 +126,7 @@ _get_overlay_vct_count() {
         return
     }
 
-    # The dry-run output is a List; extract the StatefulSet item.
+    # dry-run output is a List; extract the StatefulSet item.
     if command -v jq >/dev/null 2>&1; then
         echo "$result" | jq '
           [.items[] | select(.kind == "StatefulSet" and .metadata.name == "loki")]
@@ -149,10 +158,7 @@ for item in items:
 print(0)
 " 2>/dev/null || echo "unknown"
     else
-        # Fallback: grep for volumeClaimTemplates in the raw JSON
-        local count
-        count=$(echo "$result" | grep -c '"volumeClaimTemplates"' 2>/dev/null || echo "0")
-        echo "$count"
+        grep -c '"volumeClaimTemplates"' <<< "$result" 2>/dev/null || echo "0"
     fi
 }
 
@@ -202,23 +208,40 @@ get_loki_url() {
             fi
             echo "port-forward:$port"
             ;;
-        kind|microk8s|kubernetes|k3s|eks|gke|aks|*)
+        # All other distributions (kind, microk8s, k3s, eks, gke, aks, kubernetes)
+        # use port-forward for Loki — it is ClusterIP-only in all overlays except local.
+        *)
             echo "port-forward:$port"
             ;;
     esac
 }
 
+# Port-forward lifecycle for endpoint verification
+
 _LOKI_PF_PID=""
 
+# Kill the background port-forward process and reset the trap.
+# Safe to call multiple times.
 _cleanup_loki_pf() {
     if [[ -n "${_LOKI_PF_PID:-}" ]] && kill -0 "$_LOKI_PF_PID" 2>/dev/null; then
         kill "$_LOKI_PF_PID" 2>/dev/null || true
+        wait "$_LOKI_PF_PID" 2>/dev/null || true
     fi
     _LOKI_PF_PID=""
+    # Restore default signal handling so subsequent traps in the caller are not
+    # masked by this function's registration.
     trap - EXIT INT TERM
 }
 
+# Verify the Loki /ready endpoint via a short-lived port-forward.
 verify_loki_endpoint() {
+    # FIX (H): Skip gracefully when curl is not available.
+    if ! command -v curl >/dev/null 2>&1; then
+        print_warning "curl not found — skipping Loki endpoint verification"
+        print_info "Install curl to enable endpoint health checks"
+        return 0
+    fi
+
     local loki_pod
     loki_pod=$(kubectl get pod -l app=loki -n "$LOKI_NAMESPACE" \
         -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
@@ -228,18 +251,21 @@ verify_loki_endpoint() {
         return 0
     fi
 
-    # FIX: use portable _random_port() instead of shuf (not available on macOS)
+    # FIX (B): _random_port() is portable across Linux and macOS.
     local local_port
     local_port=$(_random_port)
 
     print_step "Verifying Loki /ready via port-forward (local port ${local_port})..."
 
+    # Register the cleanup trap before starting the background process
+    # so that any early exit (e.g. set -e on an unrelated command) still cleans up.
     trap _cleanup_loki_pf EXIT INT TERM
 
     kubectl port-forward "pod/$loki_pod" "${local_port}:3100" \
         -n "$LOKI_NAMESPACE" >/dev/null 2>&1 &
     _LOKI_PF_PID=$!
 
+    # Give kubectl a moment to establish the tunnel.
     sleep 3
 
     local attempts=0
@@ -255,9 +281,12 @@ verify_loki_endpoint() {
     done
 
     print_success "Loki HTTP endpoint confirmed reachable"
+    # Reset the trap immediately after successful verification so the
+    # parent script's traps are not shadowed for the rest of its execution.
     _cleanup_loki_pf
 }
 
+# Main deployment
 deploy_loki() {
     print_section "LOKI LOG AGGREGATION" "📜"
 
@@ -268,7 +297,6 @@ deploy_loki() {
 
     detect_k8s_distribution
 
-    # 'prod' and 'production' both map to the overlays/prod directory.
     local overlay_dir
     overlay_dir=$(_overlay_name)
     local overlay_path="$PROJECT_ROOT/monitoring/Loki/overlays/${overlay_dir}"
@@ -294,10 +322,12 @@ deploy_loki() {
         echo ""
     fi
 
+    # Namespace
     print_subsection "Creating Namespace"
     kubectl create namespace "$LOKI_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
     print_success "Namespace ready: ${BOLD}${LOKI_NAMESPACE}${RESET}"
 
+    # StatefulSet VCT conflict check
     print_step "Checking for StatefulSet volumeClaimTemplates conflict..."
     if kubectl get statefulset loki -n "$LOKI_NAMESPACE" >/dev/null 2>&1; then
         local existing_vct_count overlay_vct_count
@@ -307,7 +337,7 @@ deploy_loki() {
         if [[ "$overlay_vct_count" == "unknown" ]]; then
             print_warning "Could not determine overlay VCT count — skipping conflict check"
         elif [[ "$existing_vct_count" != "$overlay_vct_count" ]]; then
-            print_step "volumeClaimTemplates changed (existing: ${existing_vct_count} VCT(s), overlay: ${overlay_vct_count} VCT(s))"
+            print_step "volumeClaimTemplates changed (live: ${existing_vct_count}, overlay: ${overlay_vct_count})"
 
             if [[ "$overlay_dir" == "local" ]]; then
                 print_warning "Deleting Loki StatefulSet — emptyDir means all in-memory log data will be lost."
@@ -317,13 +347,15 @@ deploy_loki() {
 
             kubectl delete statefulset loki -n "$LOKI_NAMESPACE" --ignore-not-found
             print_step "Waiting for Loki pods to terminate..."
-            kubectl wait --for=delete pod -l app=loki -n "$LOKI_NAMESPACE" --timeout=120s 2>/dev/null || true
+            kubectl wait --for=delete pod -l app=loki \
+                -n "$LOKI_NAMESPACE" --timeout=120s 2>/dev/null || true
             print_success "StatefulSet deleted — will be re-created by kustomize apply"
         else
             print_info "volumeClaimTemplates unchanged — keeping existing StatefulSet"
         fi
     fi
 
+    # Promtail DaemonSet pre-delete.
     print_step "Checking for stale Promtail DaemonSet..."
     if kubectl get daemonset promtail -n "$LOKI_NAMESPACE" >/dev/null 2>&1; then
         print_step "Removing stale Promtail DaemonSet before re-applying..."
@@ -333,10 +365,12 @@ deploy_loki() {
         print_info "No stale Promtail DaemonSet found — skipping delete"
     fi
 
+    # Apply manifests
     print_subsection "Deploying Loki & Promtail (overlay: ${overlay_dir})"
     kubectl apply -k "$overlay_path"
     print_success "Manifests applied"
 
+    # Loki rollout
     print_step "Waiting for Loki rollout..."
     if kubectl rollout status statefulset/loki -n "$LOKI_NAMESPACE" --timeout=300s; then
         print_success "Loki StatefulSet is rolled out"
@@ -351,6 +385,7 @@ deploy_loki() {
 
     verify_loki_endpoint
 
+    # Promtail rollout
     print_step "Waiting for Promtail rollout..."
     if kubectl rollout status daemonset/promtail -n "$LOKI_NAMESPACE" --timeout=180s; then
         print_success "Promtail DaemonSet is rolled out"
@@ -361,11 +396,13 @@ deploy_loki() {
 
     print_success "Loki & Promtail deployed successfully"
 
+    # Status summary
     print_divider
     print_subsection "Loki Resource Status"
     kubectl get all -n "$LOKI_NAMESPACE"
     print_divider
 
+    # Access info
     local url
     url=$(get_loki_url)
 

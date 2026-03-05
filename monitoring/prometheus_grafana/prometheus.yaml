@@ -1,11 +1,10 @@
 # /monitoring/prometheus_grafana/prometheus.yaml
-# ─────────────────────────────────────────────────────────────────────────────
+
 # ARGOCD / DIRECT APPLY — hardcoded defaults. Never contains ${} placeholders.
 # Applied as-is by ArgoCD from Git, or by kubectl apply directly.
 #
 # For shell-based deployment (deploy_monitoring.sh direct mode), this file is
 # NOT used. The script uses prometheus.yaml.tpl instead (see that file).
-# ─────────────────────────────────────────────────────────────────────────────
 
 apiVersion: v1
 kind: ConfigMap

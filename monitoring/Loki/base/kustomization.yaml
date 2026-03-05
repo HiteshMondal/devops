@@ -1,7 +1,6 @@
 # /monitoring/Loki/base/kustomization.yaml
 # Base layer — ArgoCD and direct-apply safe.
 # Overlays (local / prod) extend this base via patches.
-
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:

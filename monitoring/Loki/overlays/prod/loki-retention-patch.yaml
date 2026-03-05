@@ -25,17 +25,16 @@ data:
         heartbeat_timeout: 1m
       chunk_idle_period: 5m
       chunk_retain_period: 30s
-      # FIX: WAL enabled in production for crash recovery.
-      # /loki/wal is on the same PVC as /loki (storage volumeMount).
+      # WAL enabled in production for crash recovery.
+      # /loki/wal lives on the same PVC mounted at /loki.
       wal:
         enabled: true
         dir: /loki/wal
 
     schema_config:
       configs:
-        # FIX: upgraded from v12 → v13.
-        # Loki 3.0 requires v13 for structured metadata and OTLP ingestion.
-        # v12 triggers a fatal CONFIG ERROR and CrashLoopBackOff.
+        # v13 required for Loki 3.0 — structured metadata + OTLP ingestion.
+        # v12 causes a fatal CONFIG ERROR → CrashLoopBackOff.
         - from: 2023-01-01
           store: tsdb
           object_store: filesystem
@@ -49,21 +48,21 @@ data:
         active_index_directory: /loki/index
         cache_location: /loki/cache
         cache_ttl: 24h
-        # shared_store removed — Loki 3.0 infers from schema_config
+        # shared_store intentionally omitted — Loki 3.0 infers from schema_config.
       filesystem:
         directory: /loki/chunks
 
     compactor:
       working_directory: /loki/compactor
-      # shared_store removed — Loki 3.0 infers from schema_config
-      # Production: PVC-backed storage, safe to enable retention.
+      # delete_request_store is required when retention_enabled: true.
+      delete_request_store: filesystem
       retention_enabled: true
       retention_delete_delay: 2h
       compaction_interval: 10m
-      delete_request_store: filesystem
 
     limits_config:
       allow_structured_metadata: true
+      # Retention aligned with compactor above (30 days).
       retention_period: 720h
       ingestion_rate_mb: 32
       ingestion_burst_size_mb: 64

@@ -3,6 +3,7 @@
 # Works in both environments: ArgoCD and direct
 # Supports: Minikube · Kind · K3s · K8s · EKS · GKE · AKS · MicroK8s
 
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -33,6 +34,8 @@ data:
 
     schema_config:
       configs:
+        # v13 is required by Loki 3.0 for structured metadata and OTLP ingestion.
+        # v12 causes a fatal CONFIG ERROR → CrashLoopBackOff on Loki 3.0+.
         - from: 2023-01-01
           store: tsdb
           object_store: filesystem
@@ -46,12 +49,14 @@ data:
         active_index_directory: /loki/index
         cache_location: /loki/cache
         cache_ttl: 24h
-        # shared_store removed — Loki 3.0 infers this from schema_config
+        # shared_store is intentionally omitted — Loki 3.0 infers it from
+        # schema_config.  Adding it triggers a deprecation warning.
       filesystem:
         directory: /loki/chunks
 
     compactor:
       working_directory: /loki/compactor
+      # Retention is disabled in the base config; the prod overlay enables it.
       retention_enabled: false
       compaction_interval: 10m
 
@@ -87,6 +92,8 @@ spec:
   selector:
     matchLabels:
       app: loki
+  # volumeClaimTemplates provide persistent storage in production.
+  # The local overlay removes this via JSON patch and substitutes an emptyDir.
   volumeClaimTemplates:
     - metadata:
         name: storage
@@ -104,6 +111,8 @@ spec:
       securityContext:
         fsGroup: 10001
         runAsUser: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
       containers:
         - name: loki
           securityContext:
@@ -154,6 +163,8 @@ spec:
         - name: config
           configMap:
             name: loki-config
+        # "storage" is intentionally omitted here — it is provided either by
+        # volumeClaimTemplates (prod) or by the local overlay's emptyDir patch.
 
 ---
 apiVersion: v1
@@ -314,8 +325,9 @@ spec:
     spec:
       serviceAccountName: promtail
       securityContext:
-        runAsUser: 0
-        runAsGroup: 0
+        runAsUser: 65533
+        runAsGroup: 65533
+        runAsNonRoot: true
       tolerations:
         - effect: NoSchedule
           key: node-role.kubernetes.io/master
@@ -327,6 +339,9 @@ spec:
         - name: promtail
           image: grafana/promtail:3.0.0
           securityContext:
+            runAsUser: 65533
+            runAsGroup: 65533
+            runAsNonRoot: true
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
           args:
@@ -351,6 +366,7 @@ spec:
               mountPath: /etc/promtail
             - name: varlog
               mountPath: /var/log
+              readOnly: true
             - name: pods
               mountPath: /var/log/pods
               readOnly: true
@@ -378,6 +394,9 @@ spec:
           emptyDir: {}
 
 ---
+# Explicit namespace on PodDisruptionBudget so ArgoCD and direct
+# kubectl apply both land the resource in the correct namespace regardless of
+# the kustomize namespace override.
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
