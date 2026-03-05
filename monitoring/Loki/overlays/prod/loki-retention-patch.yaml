@@ -1,5 +1,4 @@
 # /monitoring/Loki/overlays/prod/loki-retention-patch.yaml
-
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,13 +7,11 @@ metadata:
 data:
   loki.yaml: |
     auth_enabled: false
-
     server:
       http_listen_port: 3100
       grpc_listen_port: 9096
       http_listen_address: 0.0.0.0
       grpc_listen_address: 0.0.0.0
-
     ingester:
       lifecycler:
         address: 127.0.0.1
@@ -30,7 +27,6 @@ data:
       wal:
         enabled: true
         dir: /loki/wal
-
     schema_config:
       configs:
         # v13 required for Loki 3.0 — structured metadata + OTLP ingestion.
@@ -42,7 +38,6 @@ data:
           index:
             prefix: index_
             period: 24h
-
     storage_config:
       tsdb_shipper:
         active_index_directory: /loki/index
@@ -51,7 +46,6 @@ data:
         # shared_store intentionally omitted — Loki 3.0 infers from schema_config.
       filesystem:
         directory: /loki/chunks
-
     compactor:
       working_directory: /loki/compactor
       # delete_request_store is required when retention_enabled: true.
@@ -59,7 +53,6 @@ data:
       retention_enabled: true
       retention_delete_delay: 2h
       compaction_interval: 10m
-
     limits_config:
       allow_structured_metadata: true
       # Retention aligned with compactor above (30 days).
@@ -69,13 +62,10 @@ data:
       reject_old_samples: true
       reject_old_samples_max_age: 720h
       volume_enabled: false
-
     frontend:
       max_outstanding_per_tenant: 256
-
     query_range:
       align_queries_with_step: true
       cache_results: false
-
     analytics:
       reporting_enabled: false

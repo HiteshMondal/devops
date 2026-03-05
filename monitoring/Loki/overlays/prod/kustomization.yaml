@@ -14,28 +14,24 @@ patches:
       - op: replace
         path: /spec/type
         value: ClusterIP
-
   # Strategic-merge patch — production resource allocation.
   - path: loki-resources-patch.yaml
     target:
       kind: StatefulSet
       name: loki
-
   # Strategic-merge patch — production storage class and PVC sizing.
+  # To change storage size or pin a StorageClass, edit loki-storage-patch.yaml.
   - path: loki-storage-patch.yaml
     target:
       kind: StatefulSet
       name: loki
-
   # Strategic-merge patch — production Loki config (WAL, retention, limits).
   # Replaces the entire loki.yaml key in the ConfigMap; must contain the full config.
   - path: loki-retention-patch.yaml
     target:
       kind: ConfigMap
       name: loki-config
-
-images:
-  - name: grafana/loki
-    newTag: "3.0.0"
-  - name: grafana/promtail
-    newTag: "3.0.0"
+# NOTE: images block is intentionally omitted here.
+# The base manifest already pins grafana/loki:3.0.0 and grafana/promtail:3.0.0.
+# To upgrade, update the image tag in base/loki-deployment.yaml (or add an
+# images override here if you want overlay-level version pinning).

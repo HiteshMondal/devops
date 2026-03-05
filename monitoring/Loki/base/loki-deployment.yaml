@@ -344,10 +344,8 @@ data:
             regex: ""
             source_labels: [__path__]
 
-          # Drop any target where app is still empty after all fallbacks.
-          # This is a safety net — should never fire with the chain above in place.
-          - action: drop
-            regex: ""
+          - action: keep
+            regex: .+
             source_labels: [app]
 
 ---
@@ -379,13 +377,6 @@ spec:
         - effect: NoSchedule
           key: node-role.kubernetes.io/control-plane
           operator: Exists
-      initContainers:
-        - name: clear-positions
-          image: busybox:1.36
-          command: ['sh', '-c', 'rm -f /tmp/positions.yaml && echo "positions cleared"']
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp    
       containers:
         - name: promtail
           image: grafana/promtail:3.0.0

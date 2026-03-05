@@ -1,6 +1,5 @@
 # /monitoring/Loki/overlays/local/kustomization.yaml
 # Local overlay — Minikube, Kind, K3s, MicroK8s, or any single-node dev cluster.
-
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: loki
@@ -15,13 +14,11 @@ patches:
       - op: replace
         path: /spec/type
         value: NodePort
-
   # Strategic-merge patch — reduce resource requests/limits for local dev machines.
   - path: loki-resources-patch.yaml
     target:
       kind: StatefulSet
       name: loki
-
   # JSON patch — swap the PVC-backed volumeClaimTemplate for a lightweight emptyDir.
   # WARNING: emptyDir data is lost on pod restart. Intentional for local development.
   - path: loki-storage-patch.yaml

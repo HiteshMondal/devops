@@ -1,19 +1,19 @@
 # /monitoring/Loki/overlays/prod/loki-storage-patch.yaml
 # Configures the PVC storage class and size for cloud / bare-metal production clusters.
 #
-#   storageClassName: "" has been REMOVED.
-#   An explicit empty string ("") in Kubernetes ≤ 1.25 selects the default
-#   StorageClass, but in Kubernetes ≥ 1.26 it disables dynamic provisioning
-#   entirely, causing the PVC to stay Pending forever on clusters without a
-#   pre-provisioned PV.
+# storageClassName is intentionally omitted.
+# An explicit empty string ("") in Kubernetes ≤ 1.25 selects the default
+# StorageClass, but in Kubernetes ≥ 1.26 it disables dynamic provisioning
+# entirely, causing the PVC to stay Pending forever on clusters without a
+# pre-provisioned PV.
 #
-#   Omitting the storageClassName field entirely lets Kubernetes use the
-#   cluster's default StorageClass on every supported distribution:
-#     • EKS  → gp2 / gp3
-#     • GKE  → standard / premium-rwo
-#     • AKS  → managed-csi
-#     • K3s  → local-path
-#     • bare-metal → whatever the admin set as default
+# Omitting storageClassName entirely lets Kubernetes use the cluster's default
+# StorageClass on every supported distribution:
+#   • EKS  → gp2 / gp3
+#   • GKE  → standard / premium-rwo
+#   • AKS  → managed-csi
+#   • K3s  → local-path
+#   • bare-metal → whatever the admin set as default
 
 apiVersion: apps/v1
 kind: StatefulSet

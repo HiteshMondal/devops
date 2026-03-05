@@ -192,119 +192,7 @@ detect_k8s_distribution() {
     export K8S_DISTRIBUTION="$k8s_dist"
 }
 
-patch_promtail_for_node() {
-    local base_file="$PROJECT_ROOT/monitoring/Loki/base/loki-deployment.yaml"
-
-    if [[ ! -f "$base_file" ]]; then
-        print_warning "loki-deployment.yaml not found — skipping promtail patch"
-        return 0
-    fi
-
-    print_step "Patching Promtail security context, positions path, and relabel rules..."
-
-    python3 - "$base_file" << 'PYEOF'
-import sys, re
-
-path = sys.argv[1]
-content = open(path).read()
-
-# ── 1. positions path ────────────────────────────────────────────────────────
-content = content.replace(
-    'filename: /run/promtail/positions.yaml',
-    'filename: /tmp/positions.yaml'
-)
-
-# ── 2. Split at DaemonSet so we never touch the Loki StatefulSet ─────────────
-parts = re.split(r'(?=\nkind: DaemonSet)', content, maxsplit=1)
-if len(parts) != 2:
-    print("  DaemonSet section not found — skipping patch")
-    open(path, 'w').write(content)
-    sys.exit(0)
-
-pre_ds, ds_section = parts[0], parts[1]
-
-# ── 3. Security context: root uid ────────────────────────────────────────────
-ds_section = re.sub(r'runAsUser:\s*\d+', 'runAsUser: 0', ds_section)
-ds_section = re.sub(r'runAsGroup:\s*\d+', 'runAsGroup: 0', ds_section)
-ds_section = ds_section.replace('runAsNonRoot: true', 'runAsNonRoot: false')
-
-# ── 4. Replace the entire relabel_configs block ───────────────────────────────
-# Match from "relabel_configs:" to the end of the scrape config block
-# (just before the DaemonSet spec — i.e. up to the next top-level key after
-# the promtail.yaml value ends).
-FIXED_RELABEL = """        relabel_configs:
-          - source_labels: [__meta_kubernetes_pod_node_name]
-            target_label: __host__
-
-          # Capture all pod labels verbatim (e.g. app=devops-app).
-          - action: labelmap
-            regex: __meta_kubernetes_pod_label_(.+)
-
-          # Step 1: seed app from the plain "app" pod label (most common).
-          - source_labels: [__meta_kubernetes_pod_label_app]
-            regex: (.+)
-            action: replace
-            target_label: app
-
-          # Step 2: fallback to app.kubernetes.io/name only when app is still empty.
-          - source_labels: [app, __meta_kubernetes_pod_label_app_kubernetes_io_name]
-            regex: ;(.+)
-            action: replace
-            target_label: app
-            replacement: $1
-
-          # Step 3: final fallback — container name so app is NEVER empty.
-          # Prevents Loki parse error: "empty-compatible matcher" on app=~".*"
-          - source_labels: [app, __meta_kubernetes_pod_container_name]
-            regex: ;(.+)
-            action: replace
-            target_label: app
-            replacement: $1
-
-          - action: replace
-            replacement: $1
-            separator: /
-            source_labels:
-              - __meta_kubernetes_namespace
-              - __meta_kubernetes_pod_name
-            target_label: job
-          - action: replace
-            source_labels: [__meta_kubernetes_namespace]
-            target_label: namespace
-          - action: replace
-            source_labels: [__meta_kubernetes_pod_name]
-            target_label: pod
-          - action: replace
-            source_labels: [__meta_kubernetes_pod_container_name]
-            target_label: container
-          - replacement: /var/log/pods/*$1/*.log
-            separator: /
-            source_labels:
-              - __meta_kubernetes_pod_uid
-              - __meta_kubernetes_pod_container_name
-            target_label: __path__
-          - action: drop
-            regex: ""
-            source_labels: [__path__]
-          - action: drop
-            regex: ""
-            source_labels: [app]
-"""
-
-ds_section = re.sub(
-    r'        relabel_configs:.*?(?=\n---|\Z)',
-    FIXED_RELABEL.rstrip(),
-    ds_section,
-    flags=re.DOTALL
-)
-
-open(path, 'w').write(pre_ds + ds_section)
-print("  patched: root uid, /tmp positions, full relabel_configs replaced")
-PYEOF
-
-    print_success "Promtail patched successfully"
-}
-
+# Access URL helper
 get_loki_url() {
     local port=3100
     case "$K8S_DISTRIBUTION" in
@@ -321,8 +209,8 @@ get_loki_url() {
             fi
             echo "port-forward:$port"
             ;;
-        # All other distributions (kind, microk8s, k3s, eks, gke, aks, kubernetes)
-        # use port-forward for Loki — it is ClusterIP-only in all overlays except local.
+        # All other distributions use port-forward for Loki — it is ClusterIP-only
+        # in all overlays except local/minikube.
         *)
             echo "port-forward:$port"
             ;;
@@ -333,22 +221,16 @@ get_loki_url() {
 
 _LOKI_PF_PID=""
 
-# Kill the background port-forward process and reset the trap.
-# Safe to call multiple times.
-_cleanup_loki_pf() {
+_stop_loki_pf() {
     if [[ -n "${_LOKI_PF_PID:-}" ]] && kill -0 "$_LOKI_PF_PID" 2>/dev/null; then
         kill "$_LOKI_PF_PID" 2>/dev/null || true
         wait "$_LOKI_PF_PID" 2>/dev/null || true
     fi
     _LOKI_PF_PID=""
-    # Restore default signal handling so subsequent traps in the caller are not
-    # masked by this function's registration.
-    trap - EXIT INT TERM
 }
 
 # Verify the Loki /ready endpoint via a short-lived port-forward.
 verify_loki_endpoint() {
-    # FIX (H): Skip gracefully when curl is not available.
     if ! command -v curl >/dev/null 2>&1; then
         print_warning "curl not found — skipping Loki endpoint verification"
         print_info "Install curl to enable endpoint health checks"
@@ -364,15 +246,15 @@ verify_loki_endpoint() {
         return 0
     fi
 
-    # FIX (B): _random_port() is portable across Linux and macOS.
     local local_port
     local_port=$(_random_port)
 
     print_step "Verifying Loki /ready via port-forward (local port ${local_port})..."
 
-    # Register the cleanup trap before starting the background process
-    # so that any early exit (e.g. set -e on an unrelated command) still cleans up.
-    trap _cleanup_loki_pf EXIT INT TERM
+    local _prev_exit_trap
+    _prev_exit_trap=$(trap -p EXIT)
+
+    trap '_stop_loki_pf' EXIT INT TERM
 
     kubectl port-forward "pod/$loki_pod" "${local_port}:3100" \
         -n "$LOKI_NAMESPACE" >/dev/null 2>&1 &
@@ -386,7 +268,9 @@ verify_loki_endpoint() {
         attempts=$((attempts + 1))
         if [[ $attempts -ge 24 ]]; then
             print_warning "Loki /ready did not respond after ~120s — it may still be starting"
-            _cleanup_loki_pf
+            _stop_loki_pf
+            # Restore the caller's EXIT trap before returning.
+            eval "${_prev_exit_trap:-trap - EXIT}"
             return 0
         fi
         print_step "Loki not ready yet... (${attempts}/24)"
@@ -394,9 +278,10 @@ verify_loki_endpoint() {
     done
 
     print_success "Loki HTTP endpoint confirmed reachable"
-    # Reset the trap immediately after successful verification so the
-    # parent script's traps are not shadowed for the rest of its execution.
-    _cleanup_loki_pf
+
+    _stop_loki_pf
+    # Restore the caller's EXIT trap so subsequent cleanup still runs correctly.
+    eval "${_prev_exit_trap:-trap - EXIT}"
 }
 
 # Main deployment
@@ -468,24 +353,15 @@ deploy_loki() {
         fi
     fi
 
-    # Promtail DaemonSet pre-delete + positions cleanup.
-    print_step "Checking for stale Promtail DaemonSet..."
+    # Promtail DaemonSet pre-delete
+    print_step "Checking for existing Promtail DaemonSet..."
     if kubectl get daemonset promtail -n "$LOKI_NAMESPACE" >/dev/null 2>&1; then
-        print_step "Clearing stale Promtail positions file before delete..."
-        kubectl exec -it \
-            "$(kubectl get pod -l app=promtail -n "$LOKI_NAMESPACE" \
-               -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)" \
-            -n "$LOKI_NAMESPACE" -- \
-            sh -c 'rm -f /tmp/positions.yaml' 2>/dev/null || true
-        print_step "Removing stale Promtail DaemonSet before re-applying..."
+        print_step "Removing existing Promtail DaemonSet before re-applying..."
         kubectl delete daemonset promtail -n "$LOKI_NAMESPACE" --ignore-not-found
-        print_success "Stale DaemonSet removed"
+        print_success "Existing DaemonSet removed"
     else
-        print_info "No stale Promtail DaemonSet found — skipping delete"
+        print_info "No existing Promtail DaemonSet found — skipping delete"
     fi
-
-    # Patch promtail before applying — ensures correct permissions on all nodes
-    patch_promtail_for_node
 
     # Apply manifests
     print_subsection "Deploying Loki & Promtail (overlay: ${overlay_dir})"
@@ -537,24 +413,18 @@ deploy_loki() {
             "SEP:" \
             "CRED:Grafana datasource URL:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
             "SEP:" \
-            "CRED:Recommended Loki Version 3 Grafana Dashboard IDs:" \
-            "CRED: Kubernetes Service Logs:15141" \
-            "CRED: Loki Stack Monitoring:14055" \
-            "CRED: Logging Dashboard via Loki:12611" \
-            "CRED: Logging Dashboard via Loki v3:24574" \
-            "CRED: DnsCollector Loki v3:15415"
+            "NOTE:Custom Loki 3.0 dashboard — import the JSON file from your repo:" \
+            "CMD:Dashboard file:|monitoring/devops-loki-dashboard.json" \
+            "NOTE:In Grafana: Dashboards → New → Import → Upload JSON file"
     else
         print_access_box "LOKI ACCESS" "📜" \
             "URL:Loki endpoint:${url}" \
             "SEP:" \
             "CRED:Grafana datasource URL:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
             "SEP:" \
-            "CRED:Recommended Loki Version 3 Grafana Dashboard IDs:" \
-            "CRED: Kubernetes Service Logs:15141" \
-            "CRED: Loki Stack Monitoring:14055" \
-            "CRED: Logging Dashboard via Loki:12611" \
-            "CRED: Logging Dashboard via Loki v3:24574" \
-            "CRED: DnsCollector Loki v3:15415"
+            "NOTE:Custom Loki 3.0 dashboard — import the JSON file from your repo:" \
+            "CMD:Dashboard file:|monitoring/devops-loki-dashboard.json" \
+            "NOTE:In Grafana: Dashboards → New → Import → Upload JSON file"
     fi
     print_divider
 }

@@ -576,19 +576,22 @@ deploy_monitoring() {
     fi
 
     # Dashboard import instructions
-    print_access_box "GRAFANA DASHBOARDS — Import via Dashboards → Import → paste ID → Load" "📋" \
+    print_access_box "GRAFANA DASHBOARDS" "📋" \
         "BLANK:" \
-        "CRED:── Kubernetes & Infrastructure ──:" \
+        "NOTE:── Kubernetes & Infrastructure — paste ID in Dashboards → New → Import ──" \
         "CRED:Node Exporter Full:1860" \
         "CRED:Kubernetes Cluster (Prometheus):6417" \
         "CRED:kube-state-metrics v2:13332" \
         "CRED:K8s Resource Requests:9614" \
         "BLANK:" \
-        "CRED:Recommended Grafana Dashboard IDs:" \
-        "CRED: Logging Dashboard via Loki v3:24574" \
-        "CRED: DnsCollector Loki v3:15415" \
+        "NOTE:── Loki Logging — upload JSON file (pre-made dashboards break on Loki 3.0) ──" \
+        "NOTE:Custom DevOps Loki dashboard is Loki 3.0 compatible — no empty-matcher errors" \
+        "CMD:Step 1 — In Grafana:|Dashboards → New → Import" \
+        "CMD:Step 2 — Click:|Upload dashboard JSON file" \
+        "CMD:Step 3 — Select:|monitoring/devops-loki-dashboard.json" \
+        "CMD:Step 4 — Set datasource:|Loki → loki  then click Import" \
         "BLANK:" \
-        "CRED:── Notes ──:" \
+        "NOTE:── Notes ──" \
         "NOTE:Datasource 'Prometheus' uid=prometheus is pre-configured" \
         "NOTE:Datasource 'Loki'       uid=loki       is pre-configured"
 
