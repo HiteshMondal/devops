@@ -263,7 +263,7 @@ data:
       grpc_listen_port: 0
 
     positions:
-      filename: /run/promtail/positions.yaml
+      filename: /tmp/positions.yaml
 
     clients:
       - url: http://loki.loki.svc.cluster.local:3100/loki/api/v1/push
@@ -328,9 +328,9 @@ spec:
     spec:
       serviceAccountName: promtail
       securityContext:
-        runAsUser: 65533
-        runAsGroup: 65533
-        runAsNonRoot: true
+        runAsUser: 0
+        runAsGroup: 0
+        runAsNonRoot: false
       tolerations:
         - effect: NoSchedule
           key: node-role.kubernetes.io/master
@@ -342,9 +342,9 @@ spec:
         - name: promtail
           image: grafana/promtail:3.0.0
           securityContext:
-            runAsUser: 65533
-            runAsGroup: 65533
-            runAsNonRoot: true
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
           args:
