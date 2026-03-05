@@ -584,10 +584,9 @@ deploy_monitoring() {
         "CRED:kube-state-metrics v2:13332" \
         "CRED:K8s Resource Requests:9614" \
         "BLANK:" \
-        "CRED:── Logs (Loki) ──:" \
-        "CRED:Logs / App:13639" \
-        "CRED:Container Log Quick Search:16970" \
-        "CRED:K8s App Logs / Multi Clusters:22874" \
+        "CRED:Recommended Grafana Dashboard IDs:" \
+        "CRED: Logging Dashboard via Loki v3:24574" \
+        "CRED: DnsCollector Loki v3:15415" \
         "BLANK:" \
         "CRED:── Notes ──:" \
         "NOTE:Datasource 'Prometheus' uid=prometheus is pre-configured" \

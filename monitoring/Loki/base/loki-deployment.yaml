@@ -146,10 +146,10 @@ spec:
             httpGet:
               path: /ready
               port: http-metrics
-            initialDelaySeconds: 30
+            initialDelaySeconds: 60
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 5
+            failureThreshold: 10
           resources:
             requests:
               cpu: 100m
@@ -281,8 +281,37 @@ data:
         relabel_configs:
           - source_labels: [__meta_kubernetes_pod_node_name]
             target_label: __host__
+
+          # Capture all pod labels verbatim (e.g. app=devops-app).
           - action: labelmap
             regex: __meta_kubernetes_pod_label_(.+)
+
+          # Step 1: seed app from the plain "app" pod label (most common).
+          # labelmap above already copies it, but we re-state it explicitly
+          # so the priority chain below can override only when it is absent.
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: (.+)
+            action: replace
+            target_label: app
+
+          # Step 2: fallback to app.kubernetes.io/name when plain app is absent.
+          - source_labels: [app, __meta_kubernetes_pod_label_app_kubernetes_io_name]
+            # Only replace when the current app value is empty AND k8s name is set.
+            regex: ;(.+)
+            action: replace
+            target_label: app
+            replacement: $1
+
+          # Step 3: final fallback — use the container name so app is NEVER empty.
+          # This prevents Loki's "empty-compatible matcher" parse error when
+          # dashboards use app=~".*" or app!="".
+          - source_labels: [app, __meta_kubernetes_pod_container_name]
+            # Only fires when app is still empty.
+            regex: ;(.+)
+            action: replace
+            target_label: app
+            replacement: $1
+
           - action: replace
             replacement: $1
             separator: /
@@ -290,24 +319,36 @@ data:
               - __meta_kubernetes_namespace
               - __meta_kubernetes_pod_name
             target_label: job
+
           - action: replace
             source_labels: [__meta_kubernetes_namespace]
             target_label: namespace
+
           - action: replace
             source_labels: [__meta_kubernetes_pod_name]
             target_label: pod
+
           - action: replace
             source_labels: [__meta_kubernetes_pod_container_name]
             target_label: container
+
           - replacement: /var/log/pods/*$1/*.log
             separator: /
             source_labels:
               - __meta_kubernetes_pod_uid
               - __meta_kubernetes_pod_container_name
             target_label: __path__
+
+          # Drop any target where __path__ resolved to empty (stale/terminating pods).
           - action: drop
             regex: ""
             source_labels: [__path__]
+
+          # Drop any target where app is still empty after all fallbacks.
+          # This is a safety net — should never fire with the chain above in place.
+          - action: drop
+            regex: ""
+            source_labels: [app]
 
 ---
 apiVersion: apps/v1
@@ -338,6 +379,13 @@ spec:
         - effect: NoSchedule
           key: node-role.kubernetes.io/control-plane
           operator: Exists
+      initContainers:
+        - name: clear-positions
+          image: busybox:1.36
+          command: ['sh', '-c', 'rm -f /tmp/positions.yaml && echo "positions cleared"']
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp    
       containers:
         - name: promtail
           image: grafana/promtail:3.0.0
@@ -373,8 +421,6 @@ spec:
             - name: pods
               mountPath: /var/log/pods
               readOnly: true
-            - name: positions
-              mountPath: /run/promtail
             - name: tmp
               mountPath: /tmp
       volumes:
@@ -389,10 +435,6 @@ spec:
           hostPath:
             path: /var/log/pods
             type: Directory
-        - name: positions
-          hostPath:
-            path: /run/promtail
-            type: DirectoryOrCreate
         - name: tmp
           emptyDir: {}
 

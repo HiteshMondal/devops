@@ -200,35 +200,109 @@ patch_promtail_for_node() {
         return 0
     fi
 
-    print_step "Patching Promtail security context and positions path..."
+    print_step "Patching Promtail security context, positions path, and relabel rules..."
 
-    # Positions file must go to /tmp (emptyDir), not /run/promtail (hostPath, root-owned)
-    sed -i 's|filename: /run/promtail/positions.yaml|filename: /tmp/positions.yaml|g' "$base_file"
-
-    # Promtail must run as root to read /var/log/pods on most nodes
-    sed -i 's/runAsUser: 65533/runAsUser: 0/g'     "$base_file"
-    sed -i 's/runAsGroup: 65533/runAsGroup: 0/g'   "$base_file"
-    # runAsNonRoot: true conflicts with runAsUser: 0 — must be false
-    # Use a targeted replacement: only change the promtail DaemonSet section.
-    # The Loki StatefulSet legitimately uses runAsNonRoot: true and must not change.
-    # Strategy: replace only occurrences that appear after the DaemonSet marker.
     python3 - "$base_file" << 'PYEOF'
 import sys, re
 
 path = sys.argv[1]
 content = open(path).read()
 
-# Split on the DaemonSet document boundary so we only touch Promtail.
+# ── 1. positions path ────────────────────────────────────────────────────────
+content = content.replace(
+    'filename: /run/promtail/positions.yaml',
+    'filename: /tmp/positions.yaml'
+)
+
+# ── 2. Split at DaemonSet so we never touch the Loki StatefulSet ─────────────
 parts = re.split(r'(?=\nkind: DaemonSet)', content, maxsplit=1)
-if len(parts) == 2:
-    fixed = parts[1].replace('runAsNonRoot: true', 'runAsNonRoot: false')
-    open(path, 'w').write(parts[0] + fixed)
-    print("  patched runAsNonRoot in DaemonSet section")
-else:
-    print("  DaemonSet section not found — skipping runAsNonRoot patch")
+if len(parts) != 2:
+    print("  DaemonSet section not found — skipping patch")
+    open(path, 'w').write(content)
+    sys.exit(0)
+
+pre_ds, ds_section = parts[0], parts[1]
+
+# ── 3. Security context: root uid ────────────────────────────────────────────
+ds_section = re.sub(r'runAsUser:\s*\d+', 'runAsUser: 0', ds_section)
+ds_section = re.sub(r'runAsGroup:\s*\d+', 'runAsGroup: 0', ds_section)
+ds_section = ds_section.replace('runAsNonRoot: true', 'runAsNonRoot: false')
+
+# ── 4. Replace the entire relabel_configs block ───────────────────────────────
+# Match from "relabel_configs:" to the end of the scrape config block
+# (just before the DaemonSet spec — i.e. up to the next top-level key after
+# the promtail.yaml value ends).
+FIXED_RELABEL = """        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: __host__
+
+          # Capture all pod labels verbatim (e.g. app=devops-app).
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+
+          # Step 1: seed app from the plain "app" pod label (most common).
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: (.+)
+            action: replace
+            target_label: app
+
+          # Step 2: fallback to app.kubernetes.io/name only when app is still empty.
+          - source_labels: [app, __meta_kubernetes_pod_label_app_kubernetes_io_name]
+            regex: ;(.+)
+            action: replace
+            target_label: app
+            replacement: $1
+
+          # Step 3: final fallback — container name so app is NEVER empty.
+          # Prevents Loki parse error: "empty-compatible matcher" on app=~".*"
+          - source_labels: [app, __meta_kubernetes_pod_container_name]
+            regex: ;(.+)
+            action: replace
+            target_label: app
+            replacement: $1
+
+          - action: replace
+            replacement: $1
+            separator: /
+            source_labels:
+              - __meta_kubernetes_namespace
+              - __meta_kubernetes_pod_name
+            target_label: job
+          - action: replace
+            source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - action: replace
+            source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - action: replace
+            source_labels: [__meta_kubernetes_pod_container_name]
+            target_label: container
+          - replacement: /var/log/pods/*$1/*.log
+            separator: /
+            source_labels:
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            target_label: __path__
+          - action: drop
+            regex: ""
+            source_labels: [__path__]
+          - action: drop
+            regex: ""
+            source_labels: [app]
+"""
+
+ds_section = re.sub(
+    r'        relabel_configs:.*?(?=\n---|\Z)',
+    FIXED_RELABEL.rstrip(),
+    ds_section,
+    flags=re.DOTALL
+)
+
+open(path, 'w').write(pre_ds + ds_section)
+print("  patched: root uid, /tmp positions, full relabel_configs replaced")
 PYEOF
 
-    print_success "Promtail patched: root uid, /tmp positions"
+    print_success "Promtail patched successfully"
 }
 
 get_loki_url() {
@@ -394,9 +468,15 @@ deploy_loki() {
         fi
     fi
 
-    # Promtail DaemonSet pre-delete.
+    # Promtail DaemonSet pre-delete + positions cleanup.
     print_step "Checking for stale Promtail DaemonSet..."
     if kubectl get daemonset promtail -n "$LOKI_NAMESPACE" >/dev/null 2>&1; then
+        print_step "Clearing stale Promtail positions file before delete..."
+        kubectl exec -it \
+            "$(kubectl get pod -l app=promtail -n "$LOKI_NAMESPACE" \
+               -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)" \
+            -n "$LOKI_NAMESPACE" -- \
+            sh -c 'rm -f /tmp/positions.yaml' 2>/dev/null || true
         print_step "Removing stale Promtail DaemonSet before re-applying..."
         kubectl delete daemonset promtail -n "$LOKI_NAMESPACE" --ignore-not-found
         print_success "Stale DaemonSet removed"
@@ -457,20 +537,24 @@ deploy_loki() {
             "SEP:" \
             "CRED:Grafana datasource URL:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
             "SEP:" \
-            "CRED:Recommended Grafana Dashboard IDs:" \
-            "CRED: Logs / App:13639" \
-            "CRED: Container Log Quick Search:16970" \
-            "CRED: K8s App Logs / Multi Clusters:22874"
+            "CRED:Recommended Loki Version 3 Grafana Dashboard IDs:" \
+            "CRED: Kubernetes Service Logs:15141" \
+            "CRED: Loki Stack Monitoring:14055" \
+            "CRED: Logging Dashboard via Loki:12611" \
+            "CRED: Logging Dashboard via Loki v3:24574" \
+            "CRED: DnsCollector Loki v3:15415"
     else
         print_access_box "LOKI ACCESS" "📜" \
             "URL:Loki endpoint:${url}" \
             "SEP:" \
             "CRED:Grafana datasource URL:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
             "SEP:" \
-            "CRED:Recommended Grafana Dashboard IDs:" \
-            "CRED: Logs / App:13639" \
-            "CRED: Container Log Quick Search:16970" \
-            "CRED: K8s App Logs / Multi Clusters:22874"
+            "CRED:Recommended Loki Version 3 Grafana Dashboard IDs:" \
+            "CRED: Kubernetes Service Logs:15141" \
+            "CRED: Loki Stack Monitoring:14055" \
+            "CRED: Logging Dashboard via Loki:12611" \
+            "CRED: Logging Dashboard via Loki v3:24574" \
+            "CRED: DnsCollector Loki v3:15415"
     fi
     print_divider
 }
