@@ -192,6 +192,45 @@ detect_k8s_distribution() {
     export K8S_DISTRIBUTION="$k8s_dist"
 }
 
+patch_promtail_for_node() {
+    local base_file="$PROJECT_ROOT/monitoring/Loki/base/loki-deployment.yaml"
+
+    if [[ ! -f "$base_file" ]]; then
+        print_warning "loki-deployment.yaml not found — skipping promtail patch"
+        return 0
+    fi
+
+    print_step "Patching Promtail security context and positions path..."
+
+    # Positions file must go to /tmp (emptyDir), not /run/promtail (hostPath, root-owned)
+    sed -i 's|filename: /run/promtail/positions.yaml|filename: /tmp/positions.yaml|g' "$base_file"
+
+    # Promtail must run as root to read /var/log/pods on most nodes
+    sed -i 's/runAsUser: 65533/runAsUser: 0/g'     "$base_file"
+    sed -i 's/runAsGroup: 65533/runAsGroup: 0/g'   "$base_file"
+    # runAsNonRoot: true conflicts with runAsUser: 0 — must be false
+    # Use a targeted replacement: only change the promtail DaemonSet section.
+    # The Loki StatefulSet legitimately uses runAsNonRoot: true and must not change.
+    # Strategy: replace only occurrences that appear after the DaemonSet marker.
+    python3 - "$base_file" << 'PYEOF'
+import sys, re
+
+path = sys.argv[1]
+content = open(path).read()
+
+# Split on the DaemonSet document boundary so we only touch Promtail.
+parts = re.split(r'(?=\nkind: DaemonSet)', content, maxsplit=1)
+if len(parts) == 2:
+    fixed = parts[1].replace('runAsNonRoot: true', 'runAsNonRoot: false')
+    open(path, 'w').write(parts[0] + fixed)
+    print("  patched runAsNonRoot in DaemonSet section")
+else:
+    print("  DaemonSet section not found — skipping runAsNonRoot patch")
+PYEOF
+
+    print_success "Promtail patched: root uid, /tmp positions"
+}
+
 get_loki_url() {
     local port=3100
     case "$K8S_DISTRIBUTION" in
@@ -364,6 +403,9 @@ deploy_loki() {
     else
         print_info "No stale Promtail DaemonSet found — skipping delete"
     fi
+
+    # Patch promtail before applying — ensures correct permissions on all nodes
+    patch_promtail_for_node
 
     # Apply manifests
     print_subsection "Deploying Loki & Promtail (overlay: ${overlay_dir})"

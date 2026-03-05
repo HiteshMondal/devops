@@ -1,5 +1,5 @@
 # /monitoring/Loki/base/loki-deployment.yaml
-
+#
 # Works in both environments: ArgoCD and direct
 # Supports: Minikube · Kind · K3s · K8s · EKS · GKE · AKS · MicroK8s
 
@@ -29,6 +29,9 @@ data:
         heartbeat_timeout: 1m
       chunk_idle_period: 5m
       chunk_retain_period: 30s
+      # WAL is intentionally disabled in the base/local config.
+      # The prod overlay (loki-retention-patch.yaml) enables WAL with a
+      # PVC-backed directory that survives pod restarts.
       wal:
         enabled: false
 
