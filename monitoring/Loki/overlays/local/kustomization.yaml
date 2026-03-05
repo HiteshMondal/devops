@@ -1,5 +1,6 @@
 # /monitoring/Loki/overlays/local/kustomization.yaml
 # Local overlay — Minikube, Kind, K3s, MicroK8s, or any single-node dev cluster.
+
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: loki
@@ -19,9 +20,6 @@ patches:
     target:
       kind: StatefulSet
       name: loki
-  # JSON 6902 — remove PVC template, inject emptyDir (no dynamic provisioner needed).
-  # FIX: group/version must be included on the JSON-patch target so kustomize
-  # can distinguish it from the strategic-merge patch above on the same resource.
   - path: loki-storage-patch.yaml
     target:
       group: apps

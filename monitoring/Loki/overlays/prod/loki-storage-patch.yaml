@@ -1,0 +1,18 @@
+# /monitoring/Loki/overlays/prod/loki-storage-patch.yaml
+# Configures the PVC storage class for cloud providers.
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki
+  namespace: loki
+spec:
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: ""
+        resources:
+          requests:
+            storage: 10Gi

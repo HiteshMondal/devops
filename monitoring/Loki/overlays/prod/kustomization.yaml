@@ -1,0 +1,37 @@
+# /monitoring/Loki/overlays/prod/kustomization.yaml
+# Production overlay — EKS, GKE, AKS, K3s, bare-metal K8s.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: loki
+resources:
+  - ../../base
+patches:
+  # Keep Loki internal — ingress or port-forward handles external access.
+  - target:
+      kind: Service
+      name: loki
+    patch: |
+      - op: replace
+        path: /spec/type
+        value: ClusterIP
+  # Strategic-merge — production resource allocation.
+  - path: loki-resources-patch.yaml
+    target:
+      kind: StatefulSet
+      name: loki
+  # Strategic-merge — production storage class and WAL.
+  - path: loki-storage-patch.yaml
+    target:
+      kind: StatefulSet
+      name: loki
+  # Strategic-merge — production Loki config (retention, WAL, limits).
+  - path: loki-retention-patch.yaml
+    target:
+      kind: ConfigMap
+      name: loki-config
+images:
+  - name: grafana/loki
+    newTag: "3.0.0"
+  - name: grafana/promtail
+    newTag: "3.0.0"

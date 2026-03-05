@@ -3,6 +3,9 @@
 # Works in both environments: ArgoCD and direct
 # Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s
 # Should work and be compatible with all computers
+#
+# Dashboard provisioning via ConfigMap has been removed.
+# Dashboards are imported through the Grafana UI (Dashboards → Import).
 
 set -euo pipefail
 
@@ -62,7 +65,6 @@ fi
 detect_k8s_distribution() {
     print_subsection "Detecting Kubernetes Distribution"
 
-    # Honour K8S_DISTRIBUTION if already set by run.sh
     if [[ -n "${K8S_DISTRIBUTION:-}" ]]; then
         print_info "K8S_DISTRIBUTION already set: ${K8S_DISTRIBUTION} (from parent process)"
     else
@@ -157,8 +159,6 @@ get_monitoring_url() {
 }
 
 # YAML PROCESSING
-# Resolves ${VAR} placeholders in a file IN PLACE (operates on WORK_DIR copies only —
-# the repo source files are never modified).
 substitute_env_vars() {
     local file=$1
     local temp_file="${file}.tmp"
@@ -297,10 +297,6 @@ create_alerts_configmap() {
     print_success "Alerts ConfigMap created"
 }
 
-# Process all .tpl files in a directory:
-#   1. Copy foo.yaml.tpl → foo.yaml in WORK_DIR
-#   2. Run envsubst on the copy
-# The repo source .yaml files (ArgoCD targets) are never touched.
 process_tpl_files() {
     local dir="$1"
     print_step "Processing template files in $(basename "$dir")"
@@ -311,7 +307,6 @@ process_tpl_files() {
     done
 }
 
-# Render a single .tpl file → output file (does not modify tpl_file)
 substitute_env_vars_to_file() {
     local src="$1"
     local dst="$2"
@@ -379,16 +374,12 @@ deploy_monitoring() {
 
     print_subsection "Preparing Manifests"
 
-    # SHELL PATH: copy .tpl files, render via envsubst
-    # .yaml.tpl  → envsubst → .yaml  in WORK_DIR  (used by kubectl apply below)
-    # .yaml      → untouched in repo              (used by ArgoCD directly)
-    #
-    # This keeps the repo .yaml files clean (ArgoCD-safe, hardcoded defaults)
-    # while giving the shell path fully substituted values from .env.
     if [[ -d "$PROJECT_ROOT/monitoring/prometheus_grafana" ]]; then
         cp -r "$PROJECT_ROOT/monitoring/prometheus_grafana/"* "$WORK_DIR/monitoring/" 2>/dev/null || true
+        # Remove dashboard-configmap.yaml — dashboards are imported via Grafana UI
+        rm -f "$WORK_DIR/monitoring/dashboard-configmap.yaml"
         process_tpl_files "$WORK_DIR/monitoring"
-        print_success "Rendered prometheus_grafana templates"
+        print_success "Rendered prometheus_grafana templates (dashboard ConfigMap excluded)"
     else
         print_warning "prometheus_grafana directory not found"
     fi
@@ -430,7 +421,7 @@ deploy_monitoring() {
 
     print_divider
 
-    # Prometheus — apply the rendered .yaml (from .tpl), NOT the hardcoded repo .yaml
+    # Prometheus
     print_subsection "Deploying Prometheus"
 
     require_file "$WORK_DIR/monitoring/prometheus.yaml" "prometheus.yaml not found in work dir"
@@ -468,20 +459,21 @@ deploy_monitoring() {
 
     print_divider
 
-    # Grafana — apply the rendered .yaml (from .tpl)
+    # Grafana
     if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
         print_subsection "Deploying Grafana"
 
         if [[ -f "$WORK_DIR/monitoring/grafana.yaml" ]]; then
+            # Drop any stale grafana-dashboards ConfigMap that may exist from a previous deploy
+            kubectl delete configmap grafana-dashboards -n "$PROMETHEUS_NAMESPACE" \
+                --ignore-not-found 2>/dev/null || true
+            kubectl delete configmap grafana-dashboard-provider -n "$PROMETHEUS_NAMESPACE" \
+                --ignore-not-found 2>/dev/null || true
+
             kubectl apply -f "$WORK_DIR/monitoring/grafana.yaml"
             print_success "Grafana manifests applied"
         else
             print_warning "grafana.yaml not found in work dir"
-        fi
-
-        if [[ -f "$WORK_DIR/monitoring/dashboard-configmap.yaml" ]]; then
-            kubectl apply -f "$WORK_DIR/monitoring/dashboard-configmap.yaml"
-            print_success "Grafana dashboards applied"
         fi
 
         print_step "Waiting for Grafana rollout..."
@@ -563,10 +555,23 @@ deploy_monitoring() {
         esac
     fi
 
-    print_access_box "GRAFANA DASHBOARD IDs  (import via Dashboards → Import)" "📋" \
+    #  Dashboard import instructions
+    print_access_box "GRAFANA DASHBOARDS — Import via Dashboards → Import → paste ID → Load" "📋" \
+        "BLANK:" \
+        "CRED:── Kubernetes & Infrastructure ──:" \
         "CRED:Node Exporter Full:1860" \
         "CRED:Kubernetes Cluster (Prometheus):6417" \
-        "CRED:kube-state-metrics v2:13332"
+        "CRED:kube-state-metrics v2:13332" \
+        "CRED:K8s Resource Requests:9614" \
+        "BLANK:" \
+        "CRED:── Logs (Loki) ──:" \
+        "CRED:Logs / App:13639" \
+        "CRED:Container Log Quick Search:16970" \
+        "CRED:K8s App Logs / Multi Clusters:22874" \
+        "BLANK:" \
+        "CRED:── Notes ──:" \
+        "NOTE:Datasource 'Prometheus' uid=prometheus is pre-configured" \
+        "NOTE:Datasource 'Loki'       uid=loki       is pre-configured"
 
     print_subsection "Monitored Targets"
     print_target "Kubernetes API Server"

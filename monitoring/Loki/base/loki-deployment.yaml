@@ -1,5 +1,8 @@
 # /monitoring/Loki/base/loki-deployment.yaml
 
+# Works in both environments: ArgoCD and direct
+# Supports: Minikube · Kind · K3s · K8s · EKS · GKE · AKS · MicroK8s
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -33,7 +36,7 @@ data:
         - from: 2023-01-01
           store: tsdb
           object_store: filesystem
-          schema: v12
+          schema: v13
           index:
             prefix: index_
             period: 24h
@@ -43,35 +46,29 @@ data:
         active_index_directory: /loki/index
         cache_location: /loki/cache
         cache_ttl: 24h
-        shared_store: filesystem
+        # shared_store removed — Loki 3.0 infers this from schema_config
       filesystem:
         directory: /loki/chunks
 
     compactor:
       working_directory: /loki/compactor
-      shared_store: filesystem
-      # FIX: retention_enabled=true requires delete_request_store — without it
-      # Loki 2.9.x fails config validation and crashes with:
-      #   "invalid compactor config: compactor.delete-request-store should be
-      #    configured when retention is enabled"
-      # retention_delete_enabled is NOT a valid field in Loki 2.9.x (causes
-      # "field not found" parse error and CrashLoopBackOff) — removed.
-      # compaction_interval and retention_delete_delay ARE valid.
-      retention_enabled: true
-      retention_delete_delay: 2h
+      retention_enabled: false
       compaction_interval: 10m
-      delete_request_store: filesystem
 
     limits_config:
-      # Global retention period — matches the default LOKI_RETENTION_PERIOD (168h = 7d).
-      # Overlays or .env can override this via configmap patches.
-      retention_period: 168h
+      allow_structured_metadata: true
       ingestion_rate_mb: 10
       ingestion_burst_size_mb: 20
-      # FIX: reject_old_samples prevents Loki from silently dropping out-of-order
-      # log lines that arrive outside the ingestion window.
       reject_old_samples: true
       reject_old_samples_max_age: 168h
+      volume_enabled: false
+
+    frontend:
+      max_outstanding_per_tenant: 256
+
+    query_range:
+      align_queries_with_step: true
+      cache_results: false
 
     analytics:
       reporting_enabled: false
@@ -115,7 +112,7 @@ spec:
             runAsNonRoot: true
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
-          image: grafana/loki:2.9.3
+          image: grafana/loki:3.0.0
           args:
             - -config.file=/etc/loki/loki.yaml
           ports:
@@ -167,8 +164,6 @@ metadata:
   labels:
     app: loki
 spec:
-  # Base default: ClusterIP.
-  # Local overlay patches this to NodePort for direct access on Minikube/Kind/etc.
   type: ClusterIP
   ports:
     - port: 3100
@@ -296,7 +291,6 @@ data:
               - __meta_kubernetes_pod_uid
               - __meta_kubernetes_pod_container_name
             target_label: __path__
-          # FIX: drop pods that have no valid log path (avoids empty-matcher scrape errors)
           - action: drop
             regex: ""
             source_labels: [__path__]
@@ -331,7 +325,7 @@ spec:
           operator: Exists
       containers:
         - name: promtail
-          image: grafana/promtail:2.9.3
+          image: grafana/promtail:3.0.0
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false

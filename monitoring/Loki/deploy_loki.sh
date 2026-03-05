@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # /monitoring/Loki/deploy_loki.sh — Deploy Loki log aggregation system
-# Works on all computers
+# Works on all computers (Linux, macOS)
 # Supports all Kubernetes distributions: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s
 # Compatible with all environments: local, production, ArgoCD, direct mode (run.sh)
 
@@ -20,7 +20,6 @@ fi
 export PROJECT_ROOT
 
 # Load shared libraries
-# Prefer bootstrap.sh (used by deploy_monitoring.sh) if available.
 if [[ -f "$PROJECT_ROOT/lib/bootstrap.sh" ]]; then
     source "$PROJECT_ROOT/lib/bootstrap.sh"
 elif [[ -z "$(type -t print_info 2>/dev/null)" ]]; then
@@ -39,7 +38,7 @@ fi
 # Defaults
 : "${LOKI_ENABLED:=true}"
 : "${LOKI_NAMESPACE:=loki}"
-: "${LOKI_VERSION:=2.9.3}"
+: "${LOKI_VERSION:=3.0.0}"
 : "${LOKI_RETENTION_PERIOD:=168h}"
 : "${LOKI_STORAGE_SIZE:=10Gi}"
 : "${LOKI_SERVICE_TYPE:=ClusterIP}"
@@ -55,15 +54,116 @@ export LOKI_ENABLED LOKI_NAMESPACE LOKI_VERSION LOKI_RETENTION_PERIOD \
        LOKI_MEMORY_REQUEST LOKI_MEMORY_LIMIT \
        DEPLOY_TARGET
 
+_overlay_name() {
+    case "${DEPLOY_TARGET}" in
+        local)       echo "local" ;;
+        prod)        echo "prod" ;;
+        production)  echo "prod" ;;   # accept legacy spelling gracefully
+        *)
+            print_error "Unknown DEPLOY_TARGET '${DEPLOY_TARGET}'. Valid values: local, prod"
+            exit 1
+            ;;
+    esac
+}
+
+_random_port() {
+    if command -v shuf >/dev/null 2>&1; then
+        shuf -i 30000-32767 -n 1
+    else
+        # RANDOM is 0-32767; scale to 30000-32767
+        echo $(( (RANDOM % 2768) + 30000 ))
+    fi
+}
+
+_count_json_vcts() {
+    local json
+    json="$(cat)"
+
+    if command -v jq >/dev/null 2>&1; then
+        echo "$json" | jq '(.spec.volumeClaimTemplates // []) | length' 2>/dev/null || echo "0"
+    elif command -v python3 >/dev/null 2>&1; then
+        echo "$json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+vcts = data.get('spec', {}).get('volumeClaimTemplates') or []
+print(len(vcts))
+" 2>/dev/null || echo "0"
+    elif command -v python >/dev/null 2>&1; then
+        echo "$json" | python -c "
+import sys, json
+data = json.load(sys.stdin)
+vcts = data.get('spec', {}).get('volumeClaimTemplates') or []
+print(len(vcts))
+" 2>/dev/null || echo "0"
+    else
+        local count
+        count=$(echo "$json" | grep -c '"volumeClaimTemplates"' 2>/dev/null || echo "0")
+        echo "$count"
+    fi
+}
+
+_get_live_vct_count() {
+    local namespace="$1"
+    kubectl get statefulset loki -n "$namespace" -o json 2>/dev/null \
+        | _count_json_vcts \
+        || echo "0"
+}
+
+_get_overlay_vct_count() {
+    local overlay_path="$1"
+    local result
+    result=$(kubectl apply -k "$overlay_path" --dry-run=client -o json 2>/dev/null) || {
+        echo "unknown"
+        return
+    }
+
+    # The dry-run output is a List; extract the StatefulSet item.
+    if command -v jq >/dev/null 2>&1; then
+        echo "$result" | jq '
+          [.items[] | select(.kind == "StatefulSet" and .metadata.name == "loki")]
+          | if length > 0
+            then .[0].spec.volumeClaimTemplates // [] | length
+            else 0
+            end
+        ' 2>/dev/null || echo "unknown"
+    elif command -v python3 >/dev/null 2>&1; then
+        echo "$result" | python3 -c "
+import sys, json
+items = json.load(sys.stdin).get('items', [])
+for item in items:
+    if item.get('kind') == 'StatefulSet' and item.get('metadata', {}).get('name') == 'loki':
+        vcts = item.get('spec', {}).get('volumeClaimTemplates') or []
+        print(len(vcts))
+        sys.exit(0)
+print(0)
+" 2>/dev/null || echo "unknown"
+    elif command -v python >/dev/null 2>&1; then
+        echo "$result" | python -c "
+import sys, json
+items = json.load(sys.stdin).get('items', [])
+for item in items:
+    if item.get('kind') == 'StatefulSet' and item.get('metadata', {}).get('name') == 'loki':
+        vcts = item.get('spec', {}).get('volumeClaimTemplates') or []
+        print(len(vcts))
+        sys.exit(0)
+print(0)
+" 2>/dev/null || echo "unknown"
+    else
+        # Fallback: grep for volumeClaimTemplates in the raw JSON
+        local count
+        count=$(echo "$result" | grep -c '"volumeClaimTemplates"' 2>/dev/null || echo "0")
+        echo "$count"
+    fi
+}
+
 # Kubernetes distribution detection
-# Honours K8S_DISTRIBUTION if already exported by run.sh / deploy_monitoring.sh.
 detect_k8s_distribution() {
     if [[ -n "${K8S_DISTRIBUTION:-}" ]]; then
         print_info "K8S_DISTRIBUTION already set: ${K8S_DISTRIBUTION} (from parent process)"
         return 0
     fi
 
-    local k8s_dist="kubernetes"   # safe fallback
+    local k8s_dist="kubernetes"
 
     if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
         k8s_dist="minikube"
@@ -86,7 +186,6 @@ detect_k8s_distribution() {
     export K8S_DISTRIBUTION="$k8s_dist"
 }
 
-# Determine Loki access URL for the post-deploy info box
 get_loki_url() {
     local port=3100
     case "$K8S_DISTRIBUTION" in
@@ -109,9 +208,6 @@ get_loki_url() {
     esac
 }
 
-# Verify Loki /ready endpoint via a short-lived port-forward
-
-# Script-level global — must be outside the function so the EXIT trap can see it
 _LOKI_PF_PID=""
 
 _cleanup_loki_pf() {
@@ -132,20 +228,18 @@ verify_loki_endpoint() {
         return 0
     fi
 
-    # Pick a random local port in the 30000–32767 range to avoid conflicts
+    # FIX: use portable _random_port() instead of shuf (not available on macOS)
     local local_port
-    local_port=$(shuf -i 30000-32767 -n 1 2>/dev/null || echo "30100")
+    local_port=$(_random_port)
 
     print_step "Verifying Loki /ready via port-forward (local port ${local_port})..."
 
-    # Register cleanup trap BEFORE starting the background process
     trap _cleanup_loki_pf EXIT INT TERM
 
     kubectl port-forward "pod/$loki_pod" "${local_port}:3100" \
         -n "$LOKI_NAMESPACE" >/dev/null 2>&1 &
     _LOKI_PF_PID=$!
 
-    # Give port-forward time to establish
     sleep 3
 
     local attempts=0
@@ -164,35 +258,6 @@ verify_loki_endpoint() {
     _cleanup_loki_pf
 }
 
-# Count volumeClaimTemplates on the live StatefulSet.
-_get_live_vct_count() {
-    local namespace="$1"
-    kubectl get statefulset loki -n "$namespace" -o json 2>/dev/null \
-        | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-vcts = data.get('spec', {}).get('volumeClaimTemplates') or []
-print(len(vcts))
-" 2>/dev/null || echo "0"
-}
-
-# Count volumeClaimTemplates that the kustomize overlay would produce (dry-run).
-_get_overlay_vct_count() {
-    local overlay_path="$1"
-    kubectl apply -k "$overlay_path" --dry-run=client -o json 2>/dev/null \
-        | python3 -c "
-import sys, json
-items = json.load(sys.stdin).get('items', [])
-for item in items:
-    if item.get('kind') == 'StatefulSet' and item.get('metadata', {}).get('name') == 'loki':
-        vcts = item.get('spec', {}).get('volumeClaimTemplates') or []
-        print(len(vcts))
-        sys.exit(0)
-print(0)
-" 2>/dev/null || echo "unknown"
-}
-
-# Main deployment function
 deploy_loki() {
     print_section "LOKI LOG AGGREGATION" "📜"
 
@@ -203,40 +268,54 @@ deploy_loki() {
 
     detect_k8s_distribution
 
-    print_kv "Distribution" "${K8S_DISTRIBUTION}"
-    print_kv "Namespace"    "${LOKI_NAMESPACE}"
-    print_kv "Version"      "${LOKI_VERSION}"
-    print_kv "Retention"    "${LOKI_RETENTION_PERIOD}"
+    # 'prod' and 'production' both map to the overlays/prod directory.
+    local overlay_dir
+    overlay_dir=$(_overlay_name)
+    local overlay_path="$PROJECT_ROOT/monitoring/Loki/overlays/${overlay_dir}"
+
+    print_kv "Distribution"  "${K8S_DISTRIBUTION}"
+    print_kv "Namespace"     "${LOKI_NAMESPACE}"
+    print_kv "Version"       "${LOKI_VERSION}"
+    print_kv "Retention"     "${LOKI_RETENTION_PERIOD}"
     print_kv "Deploy Target" "${DEPLOY_TARGET}"
+    print_kv "Overlay"       "${overlay_dir}"
     echo ""
 
-    # Validate the overlay path exists before attempting kubectl apply
-    local overlay_path="$PROJECT_ROOT/monitoring/Loki/overlays/${DEPLOY_TARGET}"
     if [[ ! -d "$overlay_path" ]]; then
         print_error "Kustomize overlay not found: ${overlay_path}"
-        print_info "Valid targets: local, production"
+        print_info "Valid targets: local, prod"
         print_info "Set DEPLOY_TARGET in your .env file"
         exit 1
     fi
 
-    # Create namespace
+    if [[ "$overlay_dir" == "local" ]]; then
+        print_warning "Local overlay uses emptyDir — Loki log data does NOT persist across pod restarts."
+        print_warning "This is intentional for local development. Do not use DEPLOY_TARGET=local in production."
+        echo ""
+    fi
+
     print_subsection "Creating Namespace"
     kubectl create namespace "$LOKI_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
     print_success "Namespace ready: ${BOLD}${LOKI_NAMESPACE}${RESET}"
 
-    # Recreate StatefulSet if volumeClaimTemplates changed
     print_step "Checking for StatefulSet volumeClaimTemplates conflict..."
     if kubectl get statefulset loki -n "$LOKI_NAMESPACE" >/dev/null 2>&1; then
         local existing_vct_count overlay_vct_count
-        # BUG FIX: use dedicated helpers that parse proper JSON (see _get_live_vct_count above)
         existing_vct_count=$(_get_live_vct_count "$LOKI_NAMESPACE")
         overlay_vct_count=$(_get_overlay_vct_count "$overlay_path")
 
-        if [[ "$existing_vct_count" != "$overlay_vct_count" ]]; then
+        if [[ "$overlay_vct_count" == "unknown" ]]; then
+            print_warning "Could not determine overlay VCT count — skipping conflict check"
+        elif [[ "$existing_vct_count" != "$overlay_vct_count" ]]; then
             print_step "volumeClaimTemplates changed (existing: ${existing_vct_count} VCT(s), overlay: ${overlay_vct_count} VCT(s))"
-            print_step "Deleting existing Loki StatefulSet (PVCs are preserved)..."
+
+            if [[ "$overlay_dir" == "local" ]]; then
+                print_warning "Deleting Loki StatefulSet — emptyDir means all in-memory log data will be lost."
+            else
+                print_warning "Deleting Loki StatefulSet to apply VCT change. Existing PVCs are preserved."
+            fi
+
             kubectl delete statefulset loki -n "$LOKI_NAMESPACE" --ignore-not-found
-            # Wait for pods to terminate before re-creating
             print_step "Waiting for Loki pods to terminate..."
             kubectl wait --for=delete pod -l app=loki -n "$LOKI_NAMESPACE" --timeout=120s 2>/dev/null || true
             print_success "StatefulSet deleted — will be re-created by kustomize apply"
@@ -245,7 +324,6 @@ deploy_loki() {
         fi
     fi
 
-    # Remove stale Promtail DaemonSet only if it exists
     print_step "Checking for stale Promtail DaemonSet..."
     if kubectl get daemonset promtail -n "$LOKI_NAMESPACE" >/dev/null 2>&1; then
         print_step "Removing stale Promtail DaemonSet before re-applying..."
@@ -255,35 +333,24 @@ deploy_loki() {
         print_info "No stale Promtail DaemonSet found — skipping delete"
     fi
 
-    # Apply via Kustomize overlay
-    print_subsection "Deploying Loki & Promtail (overlay: ${DEPLOY_TARGET})"
+    print_subsection "Deploying Loki & Promtail (overlay: ${overlay_dir})"
     kubectl apply -k "$overlay_path"
     print_success "Manifests applied"
 
-    # Wait for Loki StatefulSet
     print_step "Waiting for Loki rollout..."
     if kubectl rollout status statefulset/loki -n "$LOKI_NAMESPACE" --timeout=300s; then
         print_success "Loki StatefulSet is rolled out"
     else
         print_warning "Loki rollout had issues — collecting diagnostics..."
-        echo ""
-        echo " kubectl describe pod loki-0"
         kubectl describe pod loki-0 -n "$LOKI_NAMESPACE" 2>/dev/null \
             || kubectl describe pod -l app=loki -n "$LOKI_NAMESPACE" 2>/dev/null || true
-        echo ""
-        echo " kubectl logs loki-0 (last 60 lines)"
         kubectl logs loki-0 -n "$LOKI_NAMESPACE" --tail=60 2>/dev/null \
             || kubectl logs -l app=loki -n "$LOKI_NAMESPACE" --tail=60 2>/dev/null || true
-        echo ""
-        echo " Previous container logs (if restarted)"
         kubectl logs loki-0 -n "$LOKI_NAMESPACE" --previous --tail=60 2>/dev/null || true
-        echo ""
     fi
 
-    # Verify HTTP endpoint
     verify_loki_endpoint
 
-    # Wait for Promtail DaemonSet
     print_step "Waiting for Promtail rollout..."
     if kubectl rollout status daemonset/promtail -n "$LOKI_NAMESPACE" --timeout=180s; then
         print_success "Promtail DaemonSet is rolled out"
@@ -294,13 +361,11 @@ deploy_loki() {
 
     print_success "Loki & Promtail deployed successfully"
 
-    # Resource status
     print_divider
     print_subsection "Loki Resource Status"
     kubectl get all -n "$LOKI_NAMESPACE"
     print_divider
 
-    # Access info
     local url
     url=$(get_loki_url)
 

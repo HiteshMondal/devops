@@ -1,8 +1,10 @@
 # /monitoring/prometheus_grafana/grafana.yaml
-# ─────────────────────────────────────────────────────────────────────────────
+
 # ARGOCD / DIRECT APPLY — hardcoded defaults. Never contains ${} placeholders.
 # For shell-based deployment (deploy_monitoring.sh), grafana.yaml.tpl is used.
-# ─────────────────────────────────────────────────────────────────────────────
+#
+# Works in both environments: ArgoCD and direct
+# Supports: Minikube · Kind · K3s · K8s · EKS · GKE · AKS · MicroK8s
 
 apiVersion: v1
 kind: ConfigMap
@@ -10,7 +12,7 @@ metadata:
   name: grafana-datasources
   namespace: monitoring
 data:
-  prometheus.yaml: |
+  datasources.yaml: |
     apiVersion: 1
     datasources:
     - name: Prometheus
@@ -20,45 +22,18 @@ data:
       url: http://prometheus:9090
       isDefault: true
       editable: true
+
     - name: Loki
       type: loki
       uid: loki
       access: proxy
-      # Cluster-internal DNS — works on all k8s distributions without
-      # any external exposure of Loki. Matches loki Service in loki namespace.
       url: http://loki.loki.svc.cluster.local:3100
       isDefault: false
       editable: true
+      jsonData:
+        maxLines: 1000
+        timeout: 60
 ---
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: grafana-dashboard-provider
-  namespace: monitoring
-data:
-  dashboards.yaml: |
-    apiVersion: 1
-    providers:
-    - name: 'default'
-      orgId: 1
-      folder: ''
-      type: file
-      disableDeletion: false
-      updateIntervalSeconds: 10
-      allowUiUpdates: true
-      options:
-        path: /var/lib/grafana/dashboards
----
-
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: grafana-dashboards
-  namespace: monitoring
-data: {}
-
----
-
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -104,7 +79,7 @@ spec:
         runAsNonRoot: true
       containers:
       - name: grafana
-        image: grafana/grafana:10.2.2
+        image: grafana/grafana:10.4.7
         ports:
         - name: http
           containerPort: 3000
@@ -119,12 +94,12 @@ spec:
             secretKeyRef:
               name: grafana-secrets
               key: admin-password
-        - name: GF_PATHS_PROVISIONING
-          value: /etc/grafana/provisioning
         - name: GF_AUTH_ANONYMOUS_ENABLED
           value: "false"
         - name: GF_SERVER_ROOT_URL
           value: "%(protocol)s://%(domain)s:%(http_port)s/"
+        - name: GF_PATHS_PROVISIONING
+          value: /etc/grafana/provisioning
         resources:
           requests:
             cpu: 100m
@@ -137,22 +112,22 @@ spec:
           mountPath: /var/lib/grafana
         - name: grafana-datasources
           mountPath: /etc/grafana/provisioning/datasources
-        - name: grafana-dashboards-provider
-          mountPath: /etc/grafana/provisioning/dashboards
-        - name: grafana-dashboards
-          mountPath: /var/lib/grafana/dashboards
         livenessProbe:
           httpGet:
             path: /api/health
             port: 3000
           initialDelaySeconds: 30
           periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 5
         readinessProbe:
           httpGet:
             path: /api/health
             port: 3000
           initialDelaySeconds: 5
           periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
       volumes:
       - name: grafana-storage
         persistentVolumeClaim:
@@ -160,12 +135,6 @@ spec:
       - name: grafana-datasources
         configMap:
           name: grafana-datasources
-      - name: grafana-dashboards-provider
-        configMap:
-          name: grafana-dashboard-provider
-      - name: grafana-dashboards
-        configMap:
-          name: grafana-dashboards
 ---
 apiVersion: v1
 kind: Service
