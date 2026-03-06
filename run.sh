@@ -87,9 +87,10 @@ configure_dockerhub_username() {
 }
 clear
 print_divider
-print_section "DevOps Project — Deployment Runner" "🚀"
+print_section "DevOps Project  --  Deployment Runner" ">"
 print_kv "Project Root" "${PROJECT_ROOT}"
-print_kv "Supports"     "Minikube · Kind · K3s · K8s · EKS · GKE · AKS · MicroK8s"
+print_kv "Supports"     "Minikube  Kind  K3s  K8s  EKS  GKE  AKS  MicroK8s"
+print_divider
 
 # LOAD & VALIDATE .env
 print_subsection "Loading Environment Configuration"
@@ -102,17 +103,18 @@ if [[ -f "$ENV_FILE" ]]; then
 
     # Check for quoted numeric values
     if grep -qE '^(REPLICAS|APP_PORT|MIN_REPLICAS|MAX_REPLICAS)=["'\'']' "$PROJECT_ROOT/.env"; then
-        echo "⚠️  WARNING: Numeric values should NOT be quoted in .env"
+        print_warning "Numeric values should NOT be quoted in .env"
         echo ""
-        echo "Found quoted numeric values:"
-        grep -E '^(REPLICAS|APP_PORT|MIN_REPLICAS|MAX_REPLICAS)=["'\'']' "$PROJECT_ROOT/.env" || true
+        echo -e "  ${BOLD}${YELLOW}Found quoted numeric values:${RESET}"
+        grep -E '^(REPLICAS|APP_PORT|MIN_REPLICAS|MAX_REPLICAS)=["'\'']' "$PROJECT_ROOT/.env" \
+            | sed "s/^/     ${YELLOW}/" | sed "s/$/${RESET}/" || true
         echo ""
-        echo "These should be:"
-        echo "  REPLICAS=2          (not REPLICAS=\"2\")"
-        echo "  APP_PORT=3000       (not APP_PORT='3000')"
+        echo -e "  ${DIM}Correct format:${RESET}"
+        echo -e "     ${ACCENT_CMD}REPLICAS=2${RESET}     ${DIM}(not REPLICAS=\"2\")${RESET}"
+        echo -e "     ${ACCENT_CMD}APP_PORT=3000${RESET}  ${DIM}(not APP_PORT='3000')${RESET}"
         echo ""
     else
-        echo "✅ Numeric values are correctly unquoted"
+        print_success "Numeric values are correctly unquoted"
     fi
 
     # Check for required variables
@@ -126,18 +128,19 @@ if [[ -f "$ENV_FILE" ]]; then
     done
 
     if [[ ${#missing_vars[@]} -gt 0 ]]; then
-        echo "⚠️  WARNING: Missing required variables:"
+        print_warning "Missing required variables in .env:"
         for var in "${missing_vars[@]}"; do
-            echo "   - $var"
+            echo -e "     ${BOLD}${RED}*${RESET}  ${BOLD}${var}${RESET}"
         done
         echo ""
     else
-        echo "✅ All required variables are present"
+        print_success "All required variables are present"
     fi
 else
-    echo "❌ .env file not found!"
-    echo "Create a .env file"
-    echo "Open dotenv_example to see how to configure .env file"
+    print_error ".env file not found!"
+    echo ""
+    print_info "Create a .env file in the project root."
+    print_info "Open ${BOLD}dotenv_example${RESET} to see the required configuration."
     exit 1
 fi
 
@@ -159,21 +162,24 @@ ask() {
     fi
     while true; do
         echo ""
-        echo -e "  ${BOLD}${WHITE}${prompt}${RESET}"
+        echo -e "  ${BOLD}${BRIGHT_WHITE}${prompt}${RESET}"
+        print_thin_divider
         if [[ "$is_bool" == true ]]; then
-            echo -e "  ${ACCENT_KEY}Options:${RESET} true/false"
+            echo -e "  ${ACCENT_KEY}Options:${RESET}  ${ACCENT_CMD}true${RESET}  /  ${ACCENT_CMD}false${RESET}"
         else
-            echo -e "  ${ACCENT_KEY}Options:${RESET}"
             local i=1
             for opt in "${options[@]}"; do
-                local mark=""
-                [[ "$opt" == "$default" ]] && mark="(default)"
-                echo -e "    $i) $opt $mark"
+                if [[ "$opt" == "$default" ]]; then
+                    echo -e "    ${BOLD}${BRIGHT_GREEN}${i})${RESET}  ${BOLD}${BRIGHT_WHITE}${opt}${RESET}  ${DIM}(default)${RESET}"
+                else
+                    echo -e "    ${DIM}${i})${RESET}  ${opt}"
+                fi
                 ((i++))
             done
         fi
+        echo ""
         local input
-        read -rp "$(echo -e "  ${BOLD}Enter choice [${default}]:${RESET} ")" input
+        read -rp "$(echo -e "  ${BOLD}${CYAN}Enter choice${RESET} ${DIM}[${default}]${RESET}${BOLD}${CYAN}:${RESET} ")" input
         input="${input:-$default}"
         if [[ "$input" =~ ^[0-9]+$ ]] && [[ "$is_bool" == false ]]; then
             if (( input >= 1 && input <= ${#options[@]} )); then
@@ -227,8 +233,9 @@ print_subsection "Checking Prerequisites"
 # Sudo check
 if command -v sudo >/dev/null 2>&1; then
     if ! id -nG "$USER" | grep -qw docker; then
-        print_info "${ACCENT_CMD} User not in docker group"
-        print_info "Fix with:${ACCENT_CMD}$USER sudo usermod -aG docker $USER && newgrp docker${RESET}"
+        print_error "User ${BOLD}${USER}${RESET}${RED} is not in the docker group${RESET}"
+        print_info  "Fix with:"
+        print_cmd   "" "sudo usermod -aG docker $USER && newgrp docker"
         exit 1
     fi
     print_success "Docker group access OK (sudo not required)"
@@ -237,13 +244,20 @@ fi
 # Tool versions
 echo ""
 print_step "Detected tool versions:"
-docker    --version 2>/dev/null | head -1 | sed 's/^/     /' || echo -e "     ${DIM}docker:    not found${RESET}"
-kubectl   version --client --short 2>/dev/null | head -1 | sed 's/^/     /' \
-    || kubectl version --client 2>/dev/null | grep "Client Version" | sed 's/^/     /' \
-    || echo -e "     ${DIM}kubectl:   not found${RESET}"
-terraform --version 2>/dev/null | head -1 | sed 's/^/     /' || true
-tofu      version 2>/dev/null  | head -1 | sed 's/^/     /' || true
-aws       --version 2>/dev/null | head -1 | sed 's/^/     /' || true
+echo ""
+docker    --version 2>/dev/null | head -1 | sed "s/^/     ${BOLD}/" | sed "s/$/${RESET}/" \
+    || echo -e "     ${DIM}docker:     not found${RESET}"
+kubectl   version --client --short 2>/dev/null | head -1 \
+    | sed "s/^/     ${BOLD}/" | sed "s/$/${RESET}/" \
+    || kubectl version --client 2>/dev/null | grep "Client Version" \
+    | sed "s/^/     ${BOLD}/" | sed "s/$/${RESET}/" \
+    || echo -e "     ${DIM}kubectl:    not found${RESET}"
+terraform --version 2>/dev/null | head -1 \
+    | sed "s/^/     ${BOLD}/" | sed "s/$/${RESET}/" || true
+tofu      version 2>/dev/null  | head -1 \
+    | sed "s/^/     ${BOLD}/" | sed "s/$/${RESET}/" || true
+aws       --version 2>/dev/null | head -1 \
+    | sed "s/^/     ${BOLD}/" | sed "s/$/${RESET}/" || true
 echo ""
 
 # Required tools
@@ -322,12 +336,16 @@ detect_k8s_cluster
 : "${DEPLOY_MODE:?Set DEPLOY_MODE in .env  (argocd or direct)}"
 
 echo ""
+print_divider
+echo -e "  ${BOLD}${BRIGHT_WHITE}Deployment Plan${RESET}"
+print_thin_divider
 print_kv "Deploy Target"   "${DEPLOY_TARGET}"
 print_kv "Deploy Mode"     "${DEPLOY_MODE}"
 if [[ "${DEPLOY_TARGET}" == "prod" ]]; then
     print_kv "Cloud Provider"  "${CLOUD_PROVIDER:-aws}"
     print_kv "Infra Action"    "${INFRA_ACTION:-plan}"
 fi
+print_divider
 echo ""
 
 # LOCAL CLUSTER SETUP  (Minikube, Kind, K3s, MicroK8s)
@@ -404,7 +422,7 @@ build_image() {
 # SHOW DIRECT-MODE ACCESS INFO
 show_direct_access_info() {
     echo ""
-    print_section "APPLICATION ACCESS" "🌐"
+    print_section "APPLICATION ACCESS" ">"
     print_kv "Distribution" "${K8S_DISTRIBUTION}"
     echo ""
 
@@ -415,10 +433,10 @@ show_direct_access_info() {
             node_port=$(kubectl get svc "${APP_NAME}-service" -n "$NAMESPACE" \
                 -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
             if [[ -n "$node_port" ]]; then
-                print_access_box "APPLICATION" "🚀" \
+                print_access_box "APPLICATION" ">" \
                     "URL:Application URL:http://${ip}:${node_port}"
             fi
-            print_access_box "MINIKUBE DASHBOARD" "📊" \
+            print_access_box "MINIKUBE DASHBOARD" ">" \
                 "CMD:Open Kubernetes Dashboard:|minikube dashboard"
             ;;
         kind)
@@ -426,7 +444,7 @@ show_direct_access_info() {
             node_port=$(kubectl get svc "${APP_NAME}-service" -n "$NAMESPACE" \
                 -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
             if [[ -n "$node_port" ]]; then
-                print_access_box "APPLICATION" "🚀" \
+                print_access_box "APPLICATION" ">" \
                     "URL:Application URL:http://localhost:${node_port}"
             fi
             ;;
@@ -438,28 +456,28 @@ show_direct_access_info() {
             node_port=$(kubectl get svc "${APP_NAME}-service" -n "$NAMESPACE" \
                 -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
             if [[ -n "$node_port" ]]; then
-                print_access_box "APPLICATION" "🚀" \
+                print_access_box "APPLICATION" ">" \
                     "URL:Application URL:http://${node_ip}:${node_port}"
             fi
             ;;
         eks|gke|aks)
-            print_access_box "APPLICATION" "🚀" \
-                "CMD:Get external IP/hostname:|kubectl get svc ${APP_NAME}-service -n ${NAMESPACE}" \
-                "BLANK:" \
+            print_access_box "APPLICATION" ">" \
+                "CMD:Get external IP / hostname:|kubectl get svc ${APP_NAME}-service -n ${NAMESPACE}" \
                 "CMD:Get ingress address:|kubectl get ingress -n ${NAMESPACE}"
             ;;
         *)
-            print_access_box "APPLICATION" "🚀" \
-                "CMD:Step 1 — Start port-forward:|kubectl port-forward svc/${APP_NAME}-service ${APP_PORT}:80 -n ${NAMESPACE}" \
-                "BLANK:" \
-                "URL:Step 2 — Open in browser:http://localhost:${APP_PORT}"
+            print_access_box "APPLICATION" ">" \
+                "NOTE:App is inside the cluster -- use port-forward to reach it locally" \
+                "SEP:" \
+                "CMD:Step 1  --  Start port-forward:|kubectl port-forward svc/${APP_NAME}-service ${APP_PORT}:80 -n ${NAMESPACE}" \
+                "URL:Step 2  --  Open in browser:http://localhost:${APP_PORT}"
             ;;
     esac
 }
 
 # DEPLOYMENT: LOCAL
 if [[ "$DEPLOY_TARGET" == "local" ]]; then
-    print_section "DEPLOYING TO LOCAL KUBERNETES" "🖥"
+    print_section "DEPLOYING TO LOCAL KUBERNETES" ">"
 
     setup_local_cluster
     build_image
@@ -479,7 +497,7 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
 
 # DEPLOYMENT: PRODUCTION
 elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
-    print_section "DEPLOYING TO PRODUCTION (CLOUD)" "☁"
+    print_section "DEPLOYING TO PRODUCTION (CLOUD)" ">"
     print_kv "Cloud Provider" "${CLOUD_PROVIDER:-aws}"
     print_kv "Infra Action"   "${INFRA_ACTION:-plan}"
     echo ""
@@ -560,14 +578,16 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
         trivy
         configure_gitlab
 
-        print_section "PRODUCTION DEPLOYMENT COMPLETE" "✅"
+        print_section "PRODUCTION DEPLOYMENT COMPLETE" "+"
         print_kv "Cluster"        "${K8S_DISTRIBUTION}"
         print_kv "Cloud Provider" "${CLOUD_PROVIDER:-aws}"
         echo ""
-        print_access_box "VERIFY DEPLOYMENT" "🔍" \
-            "CMD:Check services:|kubectl get svc -n ${NAMESPACE}" \
-            "CMD:Check ingress:|kubectl get ingress -n ${NAMESPACE}" \
-            "CMD:Check pods:|kubectl get pods -n ${NAMESPACE}"
+        print_access_box "VERIFY DEPLOYMENT" ">" \
+            "NOTE:Use these commands to confirm the deployment is healthy" \
+            "SEP:" \
+            "CMD:Check all services:|kubectl get svc -n ${NAMESPACE}" \
+            "CMD:Check ingress rules:|kubectl get ingress -n ${NAMESPACE}" \
+            "CMD:Check pod status:|kubectl get pods -n ${NAMESPACE}"
     fi
 
 else

@@ -174,13 +174,13 @@ validate_required_vars() {
     if [[ ${#missing_vars[@]} -gt 0 ]]; then
         print_error "Missing required environment variables:"
         for var in "${missing_vars[@]}"; do
-            echo -e "     ${RED}●${RESET} ${BOLD}${var}${RESET}"
+            echo -e "     ${RED}*${RESET} ${BOLD}${var}${RESET}"
         done
         echo ""
         print_info "Set these in:"
         echo -e "     ${ACCENT_KEY}Local:${RESET}  ${ACCENT_CMD}.env${RESET} file"
-        echo -e "     ${ACCENT_KEY}GitHub:${RESET} Repository → Settings → Secrets and Variables"
-        echo -e "     ${ACCENT_KEY}GitLab:${RESET} Settings → CI/CD → Variables"
+        echo -e "     ${ACCENT_KEY}GitHub:${RESET} Repository -> Settings -> Secrets and Variables"
+        echo -e "     ${ACCENT_KEY}GitLab:${RESET} Settings -> CI/CD -> Variables"
         exit 1
     fi
 
@@ -306,7 +306,7 @@ PYEOF
 deploy_kubernetes() {
     local environment=${1:-local}
 
-    print_section "KUBERNETES DEPLOYMENT  (Direct Mode)" "☸"
+    print_section "KUBERNETES DEPLOYMENT  (Direct Mode)" ">"
 
     print_kv "Environment" "${environment}"
     print_kv "Mode"        "$([ "$CI_MODE" == "true" ] && echo "CI/CD" || echo "Local")"
@@ -414,28 +414,29 @@ deploy_kubernetes() {
 
     print_divider
 
-    # HIGH-VISIBILITY ACCESS INFO
+    #  HIGH-VISIBILITY ACCESS INFO
     local app_url
     app_url=$(get_access_url "${APP_NAME}-service" "$NAMESPACE")
 
     echo ""
     case "$app_url" in
         port-forward-required)
-            print_access_box "APPLICATION ACCESS" "🚀" \
-                "CMD:Step 1 — Start port-forward:|kubectl port-forward svc/${APP_NAME}-service ${APP_PORT}:80 -n ${NAMESPACE}" \
-                "BLANK:" \
-                "URL:Step 2 — Open in browser:http://localhost:${APP_PORT}"
+            print_access_box "APPLICATION ACCESS" ">" \
+                "NOTE:App is inside the cluster — use port-forward to reach it from your machine" \
+                "SEP:" \
+                "CMD:Step 1  --  Start port-forward:|kubectl port-forward svc/${APP_NAME}-service ${APP_PORT}:80 -n ${NAMESPACE}" \
+                "URL:Step 2  --  Open in browser:http://localhost:${APP_PORT}"
             ;;
         pending-loadbalancer)
-            print_access_box "APPLICATION ACCESS" "🚀" \
-                "NOTE:LoadBalancer IP is still provisioning — check again shortly." \
+            print_access_box "APPLICATION ACCESS" ">" \
+                "NOTE:LoadBalancer IP is still provisioning — check again in a moment." \
                 "CMD:Check LoadBalancer status:|kubectl get svc ${APP_NAME}-service -n ${NAMESPACE}"
             ;;
         minikube-cli-missing)
             print_warning "Minikube CLI not found — install it to get the access URL automatically"
             ;;
         *)
-            print_access_box "APPLICATION ACCESS" "🚀" \
+            print_access_box "APPLICATION ACCESS" ">" \
                 "URL:Application URL:${app_url}"
             ;;
     esac
@@ -459,13 +460,13 @@ deploy_kubernetes() {
         esac
 
         if [[ -n "$hosts_entry" ]]; then
-            print_access_box "INGRESS ACCESS" "🌐" \
+            print_access_box "INGRESS ACCESS" ">" \
                 "URL:Ingress URL:http://${INGRESS_HOST}" \
                 "SEP:" \
-                "TEXT:Add to /etc/hosts:" \
-                "CMD:|${hosts_entry}"
+                "NOTE:Add the following line to /etc/hosts to resolve the ingress hostname:" \
+                "CMD:hosts entry:|${hosts_entry}"
         else
-            print_access_box "INGRESS ACCESS" "🌐" \
+            print_access_box "INGRESS ACCESS" ">" \
                 "URL:Ingress URL:http://${INGRESS_HOST}"
         fi
     fi

@@ -178,11 +178,12 @@ argocd_login() {
         admin_pass=$(kubectl -n "$ARGOCD_NAMESPACE" get secret argocd-initial-admin-secret \
             -o jsonpath="{.data.password}" 2>/dev/null | base64 -d 2>/dev/null || echo "")
         echo ""
-        print_access_box "ARGO CD DEFAULT ADMIN CREDENTIALS" "🔐" \
+        print_access_box "ARGO CD DEFAULT ADMIN CREDENTIALS" ">" \
             "CRED:Username:admin" \
             "CRED:Password:${admin_pass}" \
-            "BLANK:" \
-            "TEXT:Password retrieved from argocd-initial-admin-secret"
+            "SEP:" \
+            "TEXT:Password retrieved from: argocd-initial-admin-secret" \
+            "NOTE:Change this password after your first login"
         if [[ -z "$admin_pass" ]]; then
             print_error "Could not retrieve ArgoCD initial admin password"
             print_info "Set ARGOCD_ADMIN_PASSWORD in your .env file"
@@ -205,7 +206,7 @@ argocd_login() {
         SERVICE_PORT=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
             -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || echo "443")
 
-        print_step "Starting port-forward: localhost:${ARGOCD_LOCAL_PORT} → argocd-server:${SERVICE_PORT}"
+        print_step "Starting port-forward: localhost:${ARGOCD_LOCAL_PORT} -> argocd-server:${SERVICE_PORT}"
         kubectl port-forward svc/argocd-server -n "$ARGOCD_NAMESPACE" \
             "${ARGOCD_LOCAL_PORT}:${SERVICE_PORT}" --address 127.0.0.1 >/dev/null 2>&1 &
 
@@ -459,33 +460,38 @@ show_argocd_access() {
     print_divider
 
     if [[ -n "$EXTERNAL_IP" ]]; then
-        print_access_box "ARGO CD ACCESS" "🐙" \
+        print_access_box "ARGO CD ACCESS" ">" \
             "URL:ArgoCD UI:https://${EXTERNAL_IP}" \
             "SEP:" \
             "CRED:Username:admin" \
-            "CRED:Password:${ARGOCD_ADMIN_PASS}"
+            "CRED:Password:${ARGOCD_ADMIN_PASS}" \
+            "SEP:" \
+            "NOTE:Push commits to '${GIT_REPO_BRANCH}' — ArgoCD auto-syncs on every push."
 
     elif [[ -n "$EXTERNAL_HOST" ]]; then
-        print_access_box "ARGO CD ACCESS" "🐙" \
+        print_access_box "ARGO CD ACCESS" ">" \
             "URL:ArgoCD UI:https://${EXTERNAL_HOST}" \
             "SEP:" \
             "CRED:Username:admin" \
-            "CRED:Password:${ARGOCD_ADMIN_PASS}"
+            "CRED:Password:${ARGOCD_ADMIN_PASS}" \
+            "SEP:" \
+            "NOTE:Push commits to '${GIT_REPO_BRANCH}' — ArgoCD auto-syncs on every push."
 
     else
         SERVICE_PORT=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
             -o jsonpath='{.spec.ports[?(@.name=="https")].port}' 2>/dev/null || echo "443")
         [[ -z "$SERVICE_PORT" ]] && SERVICE_PORT="443"
 
-        print_access_box "ARGO CD ACCESS  (Local Cluster — Port Forward Required)" "🐙" \
-            "CMD:Step 1 — Start port-forward:|kubectl port-forward svc/argocd-server -n ${ARGOCD_NAMESPACE} ${ARGOCD_LOCAL_PORT}:${SERVICE_PORT}" \
-            "BLANK:" \
-            "URL:Step 2 — Open ArgoCD UI:https://localhost:${ARGOCD_LOCAL_PORT}" \
+        print_access_box "ARGO CD ACCESS  --  Local Cluster (Port-Forward)" ">" \
+            "NOTE:ArgoCD is not exposed externally — tunnel to it with port-forward" \
+            "SEP:" \
+            "CMD:Step 1  --  Start port-forward:|kubectl port-forward svc/argocd-server -n ${ARGOCD_NAMESPACE} ${ARGOCD_LOCAL_PORT}:${SERVICE_PORT}" \
+            "URL:Step 2  --  Open ArgoCD UI:https://localhost:${ARGOCD_LOCAL_PORT}" \
             "SEP:" \
             "CRED:Username:admin" \
             "CRED:Password:${ARGOCD_ADMIN_PASS}" \
-            "BLANK:" \
-            "TEXT:Push commits to '${GIT_REPO_BRANCH}' — ArgoCD auto-syncs on every push."
+            "SEP:" \
+            "NOTE:Push commits to '${GIT_REPO_BRANCH}' — ArgoCD auto-syncs on every push."
     fi
 
     print_divider
@@ -503,7 +509,7 @@ cleanup_portforward() {
 
 # MAIN
 deploy_argo() {
-    print_section "ARGO CD DEPLOYMENT" "🐙"
+    print_section "ARGO CD DEPLOYMENT" ">"
 
     print_kv "Target"    "${DEPLOY_TARGET}"
     print_kv "App"       "${APP_NAME}"
@@ -554,7 +560,7 @@ deploy_argo() {
         print_info "CI mode — skipping health check (ArgoCD will auto-sync)"
     fi
 
-    print_section "ARGO CD DEPLOYMENT COMPLETE" "✅"
+    print_section "ARGO CD DEPLOYMENT COMPLETE" "+"
     print_info "Argo CD is now managing your deployments."
     print_info "Push commits to ${BOLD}${GIT_REPO_BRANCH}${RESET} and ArgoCD will auto-sync."
     echo ""

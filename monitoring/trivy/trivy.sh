@@ -260,7 +260,7 @@ deploy_trivy() {
 
 # MAIN
 trivy_main() {
-    print_section "TRIVY TOOLS DEPLOYMENT" "🔒"
+    print_section "TRIVY SECURITY SCANNER" ">"
 
     print_kv "Trivy Scanner"        "${TRIVY_ENABLED}"
     print_kv "Metrics Exporter"     "${TRIVY_METRICS_ENABLED}"
@@ -279,23 +279,26 @@ trivy_main() {
 
     print_divider
 
-    print_access_box "TRIVY METRICS ACCESS" "🛡" \
-        "CMD:Step 1 — Start port-forward:|kubectl port-forward -n ${TRIVY_NAMESPACE} svc/trivy-exporter ${TRIVY_METRICS_PORT}:${TRIVY_METRICS_PORT}" \
-        "BLANK:" \
-        "CMD:Step 2 — Verify metrics endpoint:|curl http://localhost:${TRIVY_METRICS_PORT}/metrics | grep trivy" \
-        "BLANK:" \
-        "URL:Step 3 — Check Prometheus targets (Status → Targets):http://localhost:9090/targets"
+    #  ACCESS + USAGE INFO
+    print_access_box "TRIVY METRICS ACCESS" ">" \
+        "NOTE:Three steps to verify Trivy is scraping and exporting metrics" \
+        "SEP:" \
+        "CMD:Step 1  --  Start port-forward:|kubectl port-forward -n ${TRIVY_NAMESPACE} svc/trivy-exporter ${TRIVY_METRICS_PORT}:${TRIVY_METRICS_PORT}" \
+        "CMD:Step 2  --  Query metrics endpoint:|curl http://localhost:${TRIVY_METRICS_PORT}/metrics | grep trivy" \
+        "SEP:" \
+        "URL:Step 3  --  Prometheus targets (Status -> Targets):http://localhost:9090/targets"
 
-    print_access_box "TRIVY GRAFANA DASHBOARD IDs  (Dashboards → Import)" "📋" \
+    print_access_box "TRIVY GRAFANA DASHBOARD IDs" ">" \
+        "NOTE:In Grafana:  Dashboards  ->  New  ->  Import  ->  paste ID below" \
+        "SEP:" \
         "CRED:Trivy Workload Vulnerabilities:17046" \
-        "CRED:Trivy Operator — Vulnerabilities:16337"
+        "CRED:Trivy Operator -- Vulnerabilities:16337"
 
-    print_access_box "VIEW SCAN RESULTS" "🔍" \
+    print_access_box "VIEW SCAN RESULTS" ">" \
         "CMD:View initial scan logs:|kubectl logs -n ${TRIVY_NAMESPACE} job/trivy-initial-scan" \
-        "BLANK:" \
-        "CMD:Watch ongoing scans:|kubectl get pods -n ${TRIVY_NAMESPACE} -w"
+        "CMD:Watch ongoing scans in real-time:|kubectl get pods -n ${TRIVY_NAMESPACE} -w"
 
-    print_section "TRIVY DEPLOYMENT COMPLETE" "✅"
+    print_section "TRIVY DEPLOYMENT COMPLETE" "+"
     print_success "Trivy Scanner:    vulnerability scanning active  (schedule: ${TRIVY_SCAN_SCHEDULE})"
     print_success "Metrics Exporter: Prometheus integration deployed"
     echo ""

@@ -75,7 +75,7 @@ _random_port() {
     fi
 }
 
-# Delete the Loki StatefulSet and block until the object AND its pods are
+# Delete the Loki StatefulSet and block until the object AND its pods are gone
 _delete_loki_statefulset_and_wait() {
     local overlay_dir="$1"
 
@@ -220,7 +220,7 @@ verify_loki_endpoint() {
 
 # Main deployment
 deploy_loki() {
-    print_section "LOKI LOG AGGREGATION" "📜"
+    print_section "LOKI LOG AGGREGATION" ">"
 
     if [[ "$LOKI_ENABLED" != "true" ]]; then
         print_info "Skipping Loki deployment (LOKI_ENABLED=false)"
@@ -315,31 +315,32 @@ deploy_loki() {
     kubectl get all -n "$LOKI_NAMESPACE"
     print_divider
 
-    # Access info
+    #  ACCESS INFO
     local url
     url=$(get_loki_url)
 
     if [[ "$url" == port-forward:* ]]; then
         local port="${url#port-forward:}"
-        print_access_box "LOKI ACCESS" "📜" \
-            "CMD:Step 1 — Start port-forward:|kubectl port-forward svc/loki ${port}:${port} -n ${LOKI_NAMESPACE}" \
-            "BLANK:" \
-            "URL:Step 2 — Loki endpoint:http://localhost:${port}" \
+        print_access_box "LOKI ACCESS" ">" \
+            "NOTE:Loki is running inside the cluster — use port-forward to reach it locally" \
+            "SEP:" \
+            "CMD:Step 1  --  Start port-forward:|kubectl port-forward svc/loki ${port}:${port} -n ${LOKI_NAMESPACE}" \
+            "URL:Step 2  --  Loki endpoint:http://localhost:${port}" \
             "SEP:" \
             "CRED:Grafana datasource URL:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
             "SEP:" \
-            "NOTE:Custom Loki 3.0 dashboard — import the JSON file from your repo:" \
-            "CMD:Dashboard file:|monitoring/dashboards/devops-loki-dashboard.json" \
-            "NOTE:In Grafana: Dashboards → New → Import → Upload JSON file"
+            "NOTE:Custom Loki 3.0 dashboard  --  compatible, no empty-matcher errors" \
+            "CMD:Dashboard file location:|monitoring/dashboards/devops-loki-dashboard.json" \
+            "TEXT:In Grafana:  Dashboards -> New -> Import -> Upload JSON file"
     else
-        print_access_box "LOKI ACCESS" "📜" \
+        print_access_box "LOKI ACCESS" ">" \
             "URL:Loki endpoint:${url}" \
             "SEP:" \
             "CRED:Grafana datasource URL:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
             "SEP:" \
-            "NOTE:Custom Loki 3.0 dashboard — import the JSON file from your repo:" \
-            "CMD:Dashboard file:|monitoring/dashboards/devops-loki-dashboard.json" \
-            "NOTE:In Grafana: Dashboards → New → Import → Upload JSON file"
+            "NOTE:Custom Loki 3.0 dashboard  --  compatible, no empty-matcher errors" \
+            "CMD:Dashboard file location:|monitoring/dashboards/devops-loki-dashboard.json" \
+            "TEXT:In Grafana:  Dashboards -> New -> Import -> Upload JSON file"
     fi
     print_divider
 }

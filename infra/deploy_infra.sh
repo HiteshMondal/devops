@@ -50,23 +50,23 @@ PROVIDER="${2:-${CLOUD_PROVIDER}}"
 case "$ACTION" in
     plan|apply|destroy|output|validate) ;;
     *)
-        print_error "Invalid action: ${ACTION}"
+        print_error "Invalid action: ${BOLD}${ACTION}${RESET}"
         print_info "Usage: $0 [plan|apply|destroy|output|validate] [aws|oci]"
         exit 1
         ;;
 esac
 
 case "$PROVIDER" in
-    aws|terraform) PROVIDER="aws" ;;
+    aws|terraform)       PROVIDER="aws" ;;
     oci|oracle|opentofu) PROVIDER="oci" ;;
     *)
-        print_error "Invalid provider: ${PROVIDER}"
-        print_info "Valid values: aws | oci"
+        print_error "Invalid provider: ${BOLD}${PROVIDER}${RESET}"
+        print_info "Valid values: ${ACCENT_CMD}aws${RESET}  |  ${ACCENT_CMD}oci${RESET}"
         exit 1
         ;;
 esac
 
-# Detect and verify tools
+# TOOL DETECTION
 detect_tools() {
     print_subsection "Detecting Infrastructure Tools"
 
@@ -91,8 +91,8 @@ detect_tools() {
         # Validate AWS credentials
         if ! aws sts get-caller-identity >/dev/null 2>&1; then
             print_error "AWS credentials not configured"
-            print_info "Run: aws configure"
-            print_info "Or set: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION"
+            print_info "Run: ${ACCENT_CMD}aws configure${RESET}"
+            print_info "Or set: ${ACCENT_CMD}AWS_ACCESS_KEY_ID${RESET}, ${ACCENT_CMD}AWS_SECRET_ACCESS_KEY${RESET}, ${ACCENT_CMD}AWS_DEFAULT_REGION${RESET}"
             exit 1
         fi
 
@@ -124,8 +124,8 @@ detect_tools() {
         # Validate OCI credentials
         if [[ -z "${TF_VAR_tenancy_ocid:-}" ]] && [[ ! -f "${OCI_CONFIG_FILE:-$HOME/.oci/config}" ]]; then
             print_error "OCI credentials not configured"
-            print_info "Set TF_VAR_tenancy_ocid, TF_VAR_user_ocid, TF_VAR_fingerprint, TF_VAR_private_key_path"
-            print_info "Or configure ~/.oci/config via: oci setup config"
+            print_info "Set: ${ACCENT_CMD}TF_VAR_tenancy_ocid${RESET}, ${ACCENT_CMD}TF_VAR_user_ocid${RESET}, ${ACCENT_CMD}TF_VAR_fingerprint${RESET}, ${ACCENT_CMD}TF_VAR_private_key_path${RESET}"
+            print_info "Or configure via: ${ACCENT_CMD}oci setup config${RESET}"
             exit 1
         fi
         print_success "OCI credentials detected"
@@ -134,12 +134,13 @@ detect_tools() {
     export IFS_TOOL
 }
 
-# AWS Terraform Deployment
+# AWS  —  TERRAFORM
 deploy_aws() {
-    print_section "AWS INFRASTRUCTURE  (Terraform)" "☁"
-    print_kv "Region"   "${AWS_DEFAULT_REGION:-ap-south-1}"
-    print_kv "Action"   "${ACTION}"
+    print_section "AWS INFRASTRUCTURE  --  Terraform" ">"
+    print_kv "Region"    "${AWS_DEFAULT_REGION:-ap-south-1}"
+    print_kv "Action"    "${ACTION}"
     print_kv "Workspace" "${TF_VAR_environment}"
+    print_divider
     echo ""
 
     # Export AWS vars
@@ -168,7 +169,12 @@ deploy_aws() {
                 -out=tfplan \
                 -var-file="${TERRAFORM_DIR}/terraform.tfvars" 2>/dev/null || \
             terraform plan -out=tfplan
-            print_success "Plan complete — review above before applying"
+
+            echo ""
+            print_access_box "PLAN COMPLETE" ">" \
+                "NOTE:Review the plan above carefully before applying." \
+                "SEP:" \
+                "CMD:Apply when ready:|./deploy_infra.sh apply aws"
             ;;
 
         apply)
@@ -182,7 +188,7 @@ deploy_aws() {
             fi
             print_success "Infrastructure applied!"
 
-            print_subsection "Post-deploy: Configure kubectl"
+            print_subsection "Post-deploy  --  Configure kubectl"
             local cluster_name
             cluster_name=$(terraform output -raw cluster_name 2>/dev/null || echo "")
             if [[ -n "$cluster_name" ]]; then
@@ -192,14 +198,23 @@ deploy_aws() {
                 print_success "kubectl configured for EKS cluster: ${BOLD}${cluster_name}${RESET}"
             fi
 
+            echo ""
             terraform output
+            echo ""
+            print_access_box "AWS EKS  --  Useful Commands" ">" \
+                "CMD:Verify cluster nodes:|kubectl get nodes" \
+                "CMD:Check all namespaces:|kubectl get ns" \
+                "CMD:Destroy infra when done:|./deploy_infra.sh destroy aws"
             ;;
 
         destroy)
-            print_warning "DESTROY will delete ALL infrastructure — this is irreversible!"
+            echo ""
+            print_access_box "DANGER  --  DESTRUCTIVE ACTION" ">" \
+                "NOTE:This will permanently delete ALL AWS infrastructure." \
+                "NOTE:This action cannot be undone. Type 'yes' to confirm below."
             echo ""
             if [[ "${CI:-false}" != "true" ]]; then
-                read -rp "  Type 'yes' to confirm destruction: " confirm
+                read -rp "$(echo -e "  ${BOLD}${RED}Type 'yes' to confirm destruction:${RESET} ")" confirm
                 if [[ "$confirm" != "yes" ]]; then
                     print_info "Destroy cancelled"
                     exit 0
@@ -221,12 +236,13 @@ deploy_aws() {
     cd "$PROJECT_ROOT"
 }
 
-# OCI OpenTofu Deployment
+# OCI  —  OPENTOFU
 deploy_oci() {
-    print_section "ORACLE CLOUD INFRASTRUCTURE  (OpenTofu)" "☁"
+    print_section "ORACLE CLOUD INFRASTRUCTURE  --  OpenTofu" ">"
     print_kv "Region" "${OCI_REGION:-ap-mumbai-1}"
     print_kv "Action" "${ACTION}"
     print_kv "Tool"   "${IFS_TOOL}"
+    print_divider
     echo ""
 
     # Ensure required OCI vars
@@ -243,7 +259,7 @@ deploy_oci() {
             print_success "Loaded OCI credentials from ~/.oci/config"
         else
             print_error "OCI credentials not found"
-            print_info "Set TF_VAR_tenancy_ocid and related vars, or run: oci setup config"
+            print_info "Set TF_VAR_tenancy_ocid and related vars, or run: ${ACCENT_CMD}oci setup config${RESET}"
             exit 1
         fi
     fi
@@ -269,7 +285,12 @@ deploy_oci() {
         plan)
             print_subsection "Planning Infrastructure Changes"
             "$IFS_TOOL" plan -out=tfplan
-            print_success "Plan complete — review above before applying"
+
+            echo ""
+            print_access_box "PLAN COMPLETE" ">" \
+                "NOTE:Review the plan above carefully before applying." \
+                "SEP:" \
+                "CMD:Apply when ready:|./deploy_infra.sh apply oci"
             ;;
 
         apply)
@@ -281,7 +302,7 @@ deploy_oci() {
             fi
             print_success "Infrastructure applied!"
 
-            print_subsection "Post-deploy: Configure kubectl for OKE"
+            print_subsection "Post-deploy  --  Configure kubectl for OKE"
             local cluster_id
             cluster_id=$("$IFS_TOOL" output -raw oke_cluster_id 2>/dev/null || echo "")
             if [[ -n "$cluster_id" ]]; then
@@ -293,25 +314,35 @@ deploy_oci() {
                     print_warning "OCI CLI not found — use generated kubeconfig at $OPENTOFU_DIR/kubeconfig"
             fi
 
-            print_subsection "Post-deploy: Apply ADB credentials"
+            print_subsection "Post-deploy  --  Apply ADB credentials"
             if [[ -f "$OPENTOFU_DIR/wallet/adb-k8s-secret.yaml" ]]; then
                 kubectl create namespace "${NAMESPACE:-devops-app}" --dry-run=client -o yaml | kubectl apply -f -
                 kubectl apply -f "$OPENTOFU_DIR/wallet/adb-k8s-secret.yaml"
                 print_success "ADB credentials applied to cluster"
             fi
 
+            echo ""
             "$IFS_TOOL" output
+
+            echo ""
+            print_access_box "OCI OKE  --  Useful Commands" ">" \
+                "CMD:Verify cluster nodes:|kubectl get nodes" \
+                "CMD:Check all namespaces:|kubectl get ns" \
+                "NOTE:ADB has prevent_destroy=true -- remove from opentofu_rds.tf before destroying." \
+                "CMD:Destroy infra when done:|./deploy_infra.sh destroy oci"
             ;;
 
         destroy)
-            print_warning "DESTROY will delete ALL OCI infrastructure!"
+            echo ""
+            print_access_box "DANGER  --  DESTRUCTIVE ACTION" ">" \
+                "NOTE:This will permanently delete ALL OCI infrastructure." \
+                "NOTE:ADB has prevent_destroy=true -- remove it from opentofu_rds.tf first." \
+                "NOTE:This action cannot be undone. Type 'yes' to confirm below."
             echo ""
             if [[ "${CI:-false}" != "true" ]]; then
-                read -rp "  Type 'yes' to confirm: " confirm
+                read -rp "$(echo -e "  ${BOLD}${RED}Type 'yes' to confirm destruction:${RESET} ")" confirm
                 [[ "$confirm" != "yes" ]] && { print_info "Cancelled"; exit 0; }
             fi
-            # Remove prevent_destroy lifecycle before destroying ADB
-            print_warning "Note: ADB has prevent_destroy=true — remove it from opentofu_rds.tf first"
             "$IFS_TOOL" destroy -auto-approve
             print_success "Infrastructure destroyed"
             ;;
@@ -328,18 +359,23 @@ deploy_oci() {
     cd "$PROJECT_ROOT"
 }
 
-# Main
-print_section "INFRASTRUCTURE DEPLOYMENT" "🏗"
-print_kv "Provider" "$([ "$PROVIDER" == "aws" ] && echo "AWS (Terraform)" || echo "Oracle Cloud (OpenTofu)")"
+# MAIN
+print_section "INFRASTRUCTURE DEPLOYMENT" ">"
+echo ""
+print_kv "Provider" "$([ "$PROVIDER" == "aws" ] && echo "AWS  (Terraform)" || echo "Oracle Cloud  (OpenTofu)")"
 print_kv "Action"   "${ACTION}"
+print_kv "Project"  "${TF_VAR_project_name}"
+print_kv "Env"      "${TF_VAR_environment}"
 echo ""
 
 detect_tools
 
+print_divider
+echo ""
 if [[ "$PROVIDER" == "aws" ]]; then
     deploy_aws
 else
     deploy_oci
 fi
 
-print_section "INFRASTRUCTURE  ${ACTION^^}  COMPLETE" "✅"
+print_section "INFRASTRUCTURE  ${ACTION^^}  COMPLETE" "+"

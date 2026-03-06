@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# ============================================================================
 # /cicd/gitlab/configure_gitlab.sh
 # Description: Guides the user to commit code and register a GitLab Runner
-# ============================================================================
 
 # Resolve PROJECT_ROOT only if not already defined
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
@@ -12,143 +10,89 @@ source "${PROJECT_ROOT}/lib/bootstrap.sh"
 
 configure_gitlab () {
     echo ""
-    echo "╔════════════════════════════════════════════════════════════════════════════╗"
-    echo "║                      🚀 GITLAB CI/CD SETUP GUIDE                           ║"
-    echo "╚════════════════════════════════════════════════════════════════════════════╝"
-    echo ""
-    
+    print_section "GITLAB CI/CD SETUP GUIDE" "+"
+
     # Auto-detect project root (two levels up from this script)
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-    
-    cd "$PROJECT_ROOT" || { 
-        echo -e "${RED}❌ Cannot cd to project root: $PROJECT_ROOT${RESET}"
+
+    cd "$PROJECT_ROOT" || {
+        echo -e "${RED}  [x]  Cannot cd to project root: $PROJECT_ROOT${RESET}"
         return 1
     }
-    
+
     if [ ! -d .git ]; then
-        echo -e "${YELLOW}⚠️  Not a Git repository. Skipping GitLab CI/CD setup.${RESET}"
+        print_warning "Not a Git repository. Skipping GitLab CI/CD setup."
         return 0
     fi
-    
-    # Git Status and Commit
-    echo "╔════════════════════════════════════════════════════════════════════════════╗"
-    echo "║                    STEP 1️⃣  GIT REPOSITORY STATUS                          ║"
-    echo "╚════════════════════════════════════════════════════════════════════════════╝"
+
+    print_subsection "STEP 1  --  GIT REPOSITORY STATUS"
     echo ""
     git status
     echo ""
-    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-    echo "  │  ⚡ COMMIT CHANGES (If changes exist)                                  │"
-    echo "  ├────────────────────────────────────────────────────────────────────────┤"
-    echo "  │                                                                        │"
-    echo "  │     \$ git add .                                                       │"
-    echo "  │     \$ git commit -m 'Your commit message'                             │"
-    echo "  │                                                                        │"
-    echo "  └────────────────────────────────────────────────────────────────────────┘"
-    echo ""
-    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-    echo "  │  ⚡ PUSH TO GITLAB                                                     │"
-    echo "  ├────────────────────────────────────────────────────────────────────────┤"
-    echo "  │                                                                        │"
-    echo "  │     \$ git push gitlab main                                            │"
-    echo "  │                                                                        │"
-    echo "  └────────────────────────────────────────────────────────────────────────┘"
-    echo ""
+
+    print_access_box "COMMIT & PUSH CHANGES" "+" \
+        "NOTE:Stage and commit any pending changes before pushing" \
+        "BLANK:" \
+        "CMD:Stage all changes:|git add ." \
+        "CMD:Commit with message:|git commit -m 'Your commit message'" \
+        "SEP:" \
+        "NOTE:Push your branch to GitLab to trigger the pipeline" \
+        "BLANK:" \
+        "CMD:Push to GitLab main:|git push gitlab main"
+
     echo_separator
+
+    print_subsection "STEP 2  --  REGISTER GITLAB RUNNER  (Docker Executor)"
     echo ""
-    
-    # Register GitLab Runner
-    echo "╔════════════════════════════════════════════════════════════════════════════╗"
-    echo "║              STEP 2️⃣  REGISTER GITLAB RUNNER (Docker Executor)             ║"
-    echo "╚════════════════════════════════════════════════════════════════════════════╝"
-    echo ""
-    echo "  Follow the interactive prompts with this command:"
-    echo ""
-    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-    echo "  │  ⚡ RUNNER REGISTRATION COMMAND                                        │"
-    echo "  ├────────────────────────────────────────────────────────────────────────┤"
-    echo "  │                                                                        │"
-    echo "  │     \$ sudo gitlab-runner register \\                                  │"
-    echo "  │         --url https://gitlab.com/ \\                                   │"
-    echo "  │         --registration-token <YOUR_REGISTRATION_TOKEN> \\              │"
-    echo "  │         --executor docker \\                                           │"
-    echo "  │         --docker-image ubuntu:22.04 \\                                 │"
-    echo "  │         --description 'devops-runner' \\                               │"
-    echo "  │         --tag-list 'devops,ci' \\                                      │"
-    echo "  │         --run-untagged='false'                                         │"
-    echo "  │                                                                        │"
-    echo "  └────────────────────────────────────────────────────────────────────────┘"
-    echo ""
+
+    print_access_box "RUNNER REGISTRATION COMMAND" "+" \
+        "NOTE:Follow the interactive prompts after running this command" \
+        "BLANK:" \
+        "CMD:Register GitLab Runner:|sudo gitlab-runner register \\" \
+        "CMD:|    --url https://gitlab.com/ \\" \
+        "CMD:|    --registration-token <YOUR_REGISTRATION_TOKEN> \\" \
+        "CMD:|    --executor docker \\" \
+        "CMD:|    --docker-image ubuntu:22.04 \\" \
+        "CMD:|    --description 'devops-runner' \\" \
+        "CMD:|    --tag-list 'devops,ci' \\" \
+        "CMD:|    --run-untagged='false'"
+
     echo_separator
+
+    print_subsection "STEP 3  --  START GITLAB RUNNER"
     echo ""
-    
-    # Start GitLab Runner
-    echo "╔════════════════════════════════════════════════════════════════════════════╗"
-    echo "║                    STEP 3️⃣  START GITLAB RUNNER                            ║"
-    echo "╚════════════════════════════════════════════════════════════════════════════╝"
-    echo ""
-    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-    echo "  │  ⚡ START RUNNER COMMAND                                               │"
-    echo "  ├────────────────────────────────────────────────────────────────────────┤"
-    echo "  │                                                                        │"
-    echo "  │     \$ sudo gitlab-runner start                                        │"
-    echo "  │                                                                        │"
-    echo "  └────────────────────────────────────────────────────────────────────────┘"
-    echo ""
-    echo "  ┌────────────────────────────────────────────────────────────────────────┐"
-    echo "  │  📋 VERIFY RUNNER STATUS                                               │"
-    echo "  ├────────────────────────────────────────────────────────────────────────┤"
-    echo "  │                                                                        │"
-    echo "  │     \$ sudo gitlab-runner status                                       │"
-    echo "  │                                                                        │"
-    echo "  └────────────────────────────────────────────────────────────────────────┘"
-    echo ""
+
+    print_access_box "START & VERIFY RUNNER" "+" \
+        "CMD:Start the runner:|sudo gitlab-runner start" \
+        "BLANK:" \
+        "CMD:Check runner status:|sudo gitlab-runner status"
+
     echo_separator
+
+    print_subsection "STEP 4  --  VERIFY RUNNER IN GITLAB UI"
     echo ""
-    
-    # Verify in GitLab UI
-    echo "╔════════════════════════════════════════════════════════════════════════════╗"
-    echo "║                  STEP 4️⃣  VERIFY RUNNER IN GITLAB UI                       ║"
-    echo "╚════════════════════════════════════════════════════════════════════════════╝"
-    echo ""
-    echo "  ┌───────────────────────────────────────────────────────────────────────┐"
-    echo "  │  🌐 GITLAB RUNNER VERIFICATION STEPS                                  │"
-    echo "  ├───────────────────────────────────────────────────────────────────────┤"
-    echo "  │                                                                       │"
-    echo "  │  1. Open your GitLab project in browser                               │"
-    echo "  │                                                                       │"
-    echo "  │  2. Navigate to:                                                      │"
-    echo "  │     Settings → CI/CD → Runners                                        │"
-    echo "  │                                                                       │"
-    echo "  │  3. Verify runner is listed as 'active' with tags:                    │"
-    echo "  │     ✓ devops                                                          │"
-    echo "  │     ✓ ci                                                              │"
-    echo "  │                                                                       │"
-    echo "  └───────────────────────────────────────────────────────────────────────┘"
-    echo ""
-    echo "  ┌───────────────────────────────────────────────────────────────────────┐"
-    echo "  │  👉 GITLAB PROJECT URL                                                │"
-    echo "  ├───────────────────────────────────────────────────────────────────────┤"
-    echo "  │                                                                       │"
-    echo "  │     https://gitlab.com/<your-username>/<your-project>                 │"
-    echo "  │                                                                       │"
-    echo "  └───────────────────────────────────────────────────────────────────────┘"
-    echo ""
+
+    print_access_box "GITLAB UI VERIFICATION STEPS" "+" \
+        "NOTE:Open your GitLab project in a browser and navigate to:" \
+        "TEXT:  Settings  ->  CI/CD  ->  Runners" \
+        "BLANK:" \
+        "NOTE:Confirm the runner is listed as active with both tags:" \
+        "CRED:Tag 1:devops" \
+        "CRED:Tag 2:ci" \
+        "SEP:" \
+        "URL:Your GitLab Project:https://gitlab.com/<your-username>/<your-project>"
+
     echo_separator
+
+    print_section "GITLAB CI/CD SETUP COMPLETE" "+"
     echo ""
-    
-    # Success Message
-    echo "╔════════════════════════════════════════════════════════════════════════════╗"
-    echo "║                    ✅ GITLAB CI/CD SETUP COMPLETE!                         ║"
-    echo "╚════════════════════════════════════════════════════════════════════════════╝"
+    print_success "GitLab Runner is configured and ready to process pipelines."
     echo ""
-    echo "  Your GitLab CI/CD runner is now configured and ready to use."
-    echo ""
-    echo "  📋 Next Steps:"
-    echo "     • Push code changes to trigger pipeline"
-    echo "     • Monitor pipeline execution in GitLab UI"
-    echo "     • Check runner logs: sudo gitlab-runner logs"
+    print_info "Next steps:"
+    print_step "Push code changes to trigger the pipeline"
+    print_step "Monitor pipeline execution in the GitLab UI"
+    print_step "Check runner logs:  sudo gitlab-runner logs"
     echo ""
     echo_separator
 }

@@ -184,7 +184,7 @@ substitute_env_vars() {
     if grep -qE '\$\{[A-Z_]+\}' "$temp_file"; then
         print_warning "Unsubstituted variables in $(basename "$file"):"
         grep -oE '\$\{[A-Z_]+\}' "$temp_file" | sort -u | head -5 | while read -r var; do
-            echo -e "     ${YELLOW}● ${var}${RESET}"
+            echo -e "     ${YELLOW}* ${var}${RESET}"
         done
     fi
 
@@ -270,7 +270,7 @@ create_prometheus_configmap() {
     if grep -qE '\$\{[A-Z_]+\}' "$temp_config"; then
         print_warning "Unsubstituted variables in prometheus.yml"
         grep -oE '\$\{[A-Z_]+\}' "$temp_config" | sort -u | while read -r var; do
-            echo -e "     ${YELLOW}● ${var}${RESET}"
+            echo -e "     ${YELLOW}* ${var}${RESET}"
         done
     fi
 
@@ -333,7 +333,7 @@ substitute_env_vars_to_file() {
     if grep -qE '\$\{[A-Z_]+\}' "$temp_file"; then
         print_warning "Unsubstituted variables in $(basename "$src"):"
         grep -oE '\$\{[A-Z_]+\}' "$temp_file" | sort -u | head -5 | while read -r var; do
-            echo -e "     ${YELLOW}● ${var}${RESET}"
+            echo -e "     ${YELLOW}* ${var}${RESET}"
         done
     fi
 
@@ -344,7 +344,7 @@ substitute_env_vars_to_file() {
 deploy_monitoring() {
     sleep 2
 
-    print_section "MONITORING STACK DEPLOYMENT" "📊"
+    print_section "MONITORING STACK DEPLOYMENT" ">"
     print_kv "Mode"      "$([ "$CI_MODE" == "true" ] && echo "CI/CD" || echo "Local")"
     print_kv "Namespace" "${PROMETHEUS_NAMESPACE}"
     echo ""
@@ -501,9 +501,11 @@ deploy_monitoring() {
 
     print_divider
 
-    # Access info
+    # ------------------------------------------------------------------
+    #  ACCESS INFO
+    # ------------------------------------------------------------------
     echo ""
-    print_section "MONITORING ACCESS" "📊"
+    print_section "MONITORING ACCESS" ">"
     print_kv "Distribution" "${K8S_DISTRIBUTION}"
     echo ""
 
@@ -513,23 +515,24 @@ deploy_monitoring() {
     case "$prometheus_url" in
         port-forward:*)
             local port="${prometheus_url#port-forward:}"
-            print_access_box "PROMETHEUS" "🔍" \
-                "CMD:Step 1 — Start port-forward:|kubectl port-forward svc/prometheus ${port}:${port} -n ${PROMETHEUS_NAMESPACE}" \
-                "BLANK:" \
-                "URL:Step 2 — Open Prometheus UI:http://localhost:${port}"
+            print_access_box "PROMETHEUS" ">" \
+                "NOTE:Prometheus is inside the cluster — expose it with port-forward" \
+                "SEP:" \
+                "CMD:Step 1  --  Start port-forward:|kubectl port-forward svc/prometheus ${port}:${port} -n ${PROMETHEUS_NAMESPACE}" \
+                "URL:Step 2  --  Open Prometheus UI:http://localhost:${port}"
             ;;
         pending-loadbalancer)
-            print_access_box "PROMETHEUS" "🔍" \
-                "NOTE:LoadBalancer is still provisioning." \
+            print_access_box "PROMETHEUS" ">" \
+                "NOTE:LoadBalancer is still provisioning — check again shortly." \
                 "CMD:Check status:|kubectl get svc prometheus -n ${PROMETHEUS_NAMESPACE}"
             ;;
         minikube-cli-missing)
-            print_access_box "PROMETHEUS" "🔍" \
+            print_access_box "PROMETHEUS" ">" \
                 "NOTE:minikube CLI not found — use port-forward to access Prometheus." \
                 "CMD:Port-forward:|kubectl port-forward svc/prometheus 9090:9090 -n ${PROMETHEUS_NAMESPACE}"
             ;;
         *)
-            print_access_box "PROMETHEUS" "🔍" \
+            print_access_box "PROMETHEUS" ">" \
                 "URL:Prometheus UI:${prometheus_url}"
             ;;
     esac
@@ -541,16 +544,17 @@ deploy_monitoring() {
         case "$grafana_url" in
             port-forward:*)
                 local port="${grafana_url#port-forward:}"
-                print_access_box "GRAFANA" "📈" \
-                    "CMD:Step 1 — Start port-forward:|kubectl port-forward svc/grafana ${port}:${port} -n ${PROMETHEUS_NAMESPACE}" \
-                    "BLANK:" \
-                    "URL:Step 2 — Open Grafana UI:http://localhost:${port}" \
+                print_access_box "GRAFANA" ">" \
+                    "NOTE:Grafana is inside the cluster — expose it with port-forward" \
+                    "SEP:" \
+                    "CMD:Step 1  --  Start port-forward:|kubectl port-forward svc/grafana ${port}:${port} -n ${PROMETHEUS_NAMESPACE}" \
+                    "URL:Step 2  --  Open Grafana UI:http://localhost:${port}" \
                     "SEP:" \
                     "CRED:Username:${GRAFANA_ADMIN_USER}" \
                     "CRED:Password:${GRAFANA_ADMIN_PASSWORD}"
                 ;;
             pending-loadbalancer)
-                print_access_box "GRAFANA" "📈" \
+                print_access_box "GRAFANA" ">" \
                     "NOTE:LoadBalancer is still provisioning." \
                     "CMD:Check status:|kubectl get svc grafana -n ${PROMETHEUS_NAMESPACE}" \
                     "SEP:" \
@@ -558,7 +562,7 @@ deploy_monitoring() {
                     "CRED:Password:${GRAFANA_ADMIN_PASSWORD}"
                 ;;
             minikube-cli-missing)
-                print_access_box "GRAFANA" "📈" \
+                print_access_box "GRAFANA" ">" \
                     "NOTE:minikube CLI not found — use port-forward to access Grafana." \
                     "CMD:Port-forward:|kubectl port-forward svc/grafana ${GRAFANA_PORT}:${GRAFANA_PORT} -n ${PROMETHEUS_NAMESPACE}" \
                     "SEP:" \
@@ -566,7 +570,7 @@ deploy_monitoring() {
                     "CRED:Password:${GRAFANA_ADMIN_PASSWORD}"
                 ;;
             *)
-                print_access_box "GRAFANA" "📈" \
+                print_access_box "GRAFANA" ">" \
                     "URL:Grafana UI:${grafana_url}" \
                     "SEP:" \
                     "CRED:Username:${GRAFANA_ADMIN_USER}" \
@@ -576,23 +580,21 @@ deploy_monitoring() {
     fi
 
     # Dashboard import instructions
-    print_access_box "GRAFANA DASHBOARDS" "📋" \
-        "BLANK:" \
-        "NOTE:── Kubernetes & Infrastructure — paste ID in Dashboards → New → Import ──" \
+    print_access_box "GRAFANA DASHBOARDS  --  Import by ID or JSON" ">" \
+        "NOTE:-- Kubernetes & Infrastructure  (Dashboards -> New -> Import -> paste ID) --" \
         "CRED:Node Exporter Full:1860" \
         "CRED:Kubernetes Cluster (Prometheus):6417" \
         "CRED:kube-state-metrics v2:13332" \
-        "BLANK:" \
-        "NOTE:── Loki Logging — upload JSON file (pre-made dashboards break on Loki 3.0) ──" \
-        "NOTE:Custom DevOps Loki dashboard is Loki 3.0 compatible — no empty-matcher errors" \
-        "CMD:Step 1 — In Grafana:|Dashboards → New → Import" \
-        "CMD:Step 2 — Click:|Upload dashboard JSON file" \
-        "CMD:Step 3 — Select:|monitoring/dashboards/devops-loki-dashboard.json" \
-        "CMD:Step 4 — Set datasource:|Loki → loki  then click Import" \
-        "BLANK:" \
-        "NOTE:── Notes ──" \
-        "NOTE:Datasource 'Prometheus' uid=prometheus is pre-configured" \
-        "NOTE:Datasource 'Loki'       uid=loki       is pre-configured"
+        "SEP:" \
+        "NOTE:-- Loki Logging  (custom JSON, Loki 3.0 compatible, no empty-matcher errors) --" \
+        "CMD:Step 1  --  In Grafana:|Dashboards  ->  New  ->  Import" \
+        "CMD:Step 2  --  Click:|Upload dashboard JSON file" \
+        "CMD:Step 3  --  Select:|monitoring/dashboards/devops-loki-dashboard.json" \
+        "CMD:Step 4  --  Set datasource:|Loki  ->  loki  then click Import" \
+        "SEP:" \
+        "NOTE:-- Pre-configured datasource UIDs --" \
+        "CRED:Prometheus UID:prometheus" \
+        "CRED:Loki UID:loki"
 
     print_subsection "Monitored Targets"
     print_target "Kubernetes API Server"

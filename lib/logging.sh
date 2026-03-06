@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # lib/logging.sh -- Structured logging primitives
 # Requires: colors.sh to be sourced first
-# Pure ASCII separators (= and -) for maximum terminal compatibility.
-# No vertical lines, no box-drawing or Unicode characters.
+# Pure ASCII separators for maximum terminal compatibility.
+# No Unicode box-drawing characters.
 
 # SEPARATORS
 _SEP_HEAVY="  ============================================================================"
 _SEP_LIGHT="  ----------------------------------------------------------------------------"
+_SEP_STAR="  ******************************************************************************"
+_SEP_DASH="  ______________________________________________________________________________"
 
 print_divider() {
     echo -e "${BOLD}${BLUE}${_SEP_HEAVY}${RESET}"
@@ -25,9 +27,20 @@ print_thin_divider() {
 print_section() {
     local title="$1"
     local icon="${2:->}"
+    local width=78
+    local pad="  "
+    local label="${icon}  ${title}"
+    local label_len=${#label}
+    local left_fill=$(( (width - label_len - 2) / 2 ))
+    local right_fill=$(( width - label_len - 2 - left_fill ))
+    local left_bar=""
+    local right_bar=""
+    for ((i=0; i<left_fill; i++)); do left_bar+="="; done
+    for ((i=0; i<right_fill; i++)); do right_bar+="="; done
+
     echo ""
     echo -e "${BOLD}${BRIGHT_CYAN}${_SEP_HEAVY}${RESET}"
-    echo -e "  ${BOLD}${BRIGHT_CYAN}${icon}${RESET}  ${BOLD}${BRIGHT_WHITE}${title}${RESET}"
+    echo -e "${pad}${BOLD}${BRIGHT_CYAN}[${RESET}  ${BOLD}${BRIGHT_WHITE}${icon}  ${title}${RESET}  ${BOLD}${BRIGHT_CYAN}]${RESET}"
     echo -e "${BOLD}${BRIGHT_CYAN}${_SEP_HEAVY}${RESET}"
     echo ""
 }
@@ -35,18 +48,18 @@ print_section() {
 # Subsection -- yellow >> label with dim - rule underneath
 print_subsection() {
     echo ""
-    echo -e "  ${BOLD}${YELLOW}>> $1${RESET}"
+    echo -e "  ${BOLD}${YELLOW}>>${RESET}  ${BOLD}${BRIGHT_YELLOW}$1${RESET}"
     echo -e "${DIM}${YELLOW}${_SEP_LIGHT}${RESET}"
 }
 
 # LOG LEVELS
 
 print_step() {
-    echo -e "  ${BOLD}${CYAN}>>${RESET} $1"
+    echo -e "  ${BOLD}${CYAN}  ->  ${RESET}$1"
 }
 
 print_success() {
-    echo -e "  ${BOLD}${BRIGHT_GREEN}[OK]${RESET} ${GREEN}$1${RESET}"
+    echo -e "  ${BOLD}${BG_GREEN}${BRIGHT_WHITE} OK ${RESET}  ${BRIGHT_GREEN}$1${RESET}"
 }
 
 print_info() {
@@ -54,11 +67,11 @@ print_info() {
 }
 
 print_warning() {
-    echo -e "  ${BOLD}${YELLOW}[!]${RESET} ${YELLOW}$1${RESET}"
+    echo -e "  ${BOLD}${BG_YELLOW}${BLACK} !! ${RESET}  ${YELLOW}$1${RESET}"
 }
 
 print_error() {
-    echo -e "  ${BOLD}${RED}[x]${RESET} ${RED}$1${RESET}"
+    echo -e "  ${BOLD}${BG_RED}${BRIGHT_WHITE} XX ${RESET}  ${RED}$1${RESET}"
 }
 
 print_warn() {
@@ -71,7 +84,7 @@ print_warn() {
 print_url() {
     local label="$1"
     local url="$2"
-    echo -e "     ${DIM}${label}${RESET}  ${BOLD}${BRIGHT_CYAN}${url}${RESET}"
+    echo -e "     ${DIM}${label}${RESET}  ${BOLD}${ACCENT_URL}${url}${RESET}"
 }
 
 # Shell command with optional label
@@ -79,14 +92,14 @@ print_cmd() {
     local label="$1"
     local cmd="$2"
     [[ -n "$label" ]] && echo -e "     ${DIM}${label}${RESET}"
-    echo -e "     ${BOLD}${YELLOW}\$${RESET} ${BRIGHT_WHITE}${cmd}${RESET}"
+    echo -e "     ${BOLD}${YELLOW}\$${RESET} ${ACCENT_CMD}${cmd}${RESET}"
 }
 
 # Key / value credential line
 print_credential() {
     local label="$1"
     local value="$2"
-    echo -e "     ${DIM}${label}${RESET}  ${BOLD}${YELLOW}${value}${RESET}"
+    echo -e "     ${DIM}${label}${RESET}  ${BOLD}${ACCENT}${value}${RESET}"
 }
 
 # Checklist item
@@ -108,17 +121,22 @@ print_deploy_summary() {
     print_thin_divider
 }
 
+# ===========================================================================
 # ACCESS INFO BOX
-# ASCII-only design: = rules top & bottom, - rule for SEP, content inside.
+# ===========================================================================
+#
+# Pure ASCII bordered box with color-coded content sections.
+# Top/bottom border uses = signs, inner separator uses - signs.
+# Left edge uses | for a structured column feel.
 #
 # Usage: print_access_box "TITLE" "ICON_OR_PREFIX" "TYPE:content" ...
 #
 # Line types:
-#   URL:LABEL:https://...      label row then indented URL
-#   CMD:LABEL|command          optional label then "$ cmd"
-#   CRED:Label:value           key / value pair
+#   URL:LABEL:https://...      arrow + bold underlined URL
+#   CMD:LABEL|command          $ prompt with bold orange command
+#   CRED:Label:value           dim label + bold gold value
 #   SEP:                       inner light -- rule
-#   BLANK:                     empty line
+#   BLANK:                     empty padded line
 #   TEXT:some note             dim prose line
 #   NOTE:warning text          yellow [!] warning line
 
@@ -128,13 +146,27 @@ print_access_box() {
     shift 2
     local lines=("$@")
 
-    local HEAVY="${BOLD}${CYAN}${_SEP_HEAVY}${RESET}"
-    local LIGHT="${DIM}${CYAN}${_SEP_LIGHT}${RESET}"
+    # Border characters (pure ASCII)
+    local TOP="${BOLD}${BRIGHT_CYAN}+============================================================================+${RESET}"
+    local BOT="${BOLD}${BRIGHT_CYAN}+============================================================================+${RESET}"
+    local INNER="${DIM}${CYAN}|  --------------------------------------------------------------------------  |${RESET}"
+    local EDGE_L="${BOLD}${BRIGHT_CYAN}|${RESET}"
+    local EDGE_R="${BOLD}${BRIGHT_CYAN}|${RESET}"
 
-    echo -e "$HEAVY"
-    echo -e "  ${BOLD}${CYAN}${icon}${RESET}  ${BOLD}${BRIGHT_WHITE}${title}${RESET}"
-    echo -e "$HEAVY"
+    # Title bar
+    local title_text="${icon}  ${title}"
+    # Pad title line to fill width (78 chars inner)
+    local inner_width=76
+    local title_len=${#title_text}
+    local pad_right=$(( inner_width - title_len - 2 ))
+    local spaces=""
+    for ((i=0; i<pad_right; i++)); do spaces+=" "; done
+
     echo ""
+    echo -e "$TOP"
+    echo -e "${EDGE_L}  ${BOLD}${BRIGHT_CYAN}${icon}${RESET}  ${BOLD}${BRIGHT_WHITE}${title}${RESET}${spaces}${EDGE_R}"
+    echo -e "$BOT"
+    echo -e "${EDGE_L}                                                                            ${EDGE_R}"
 
     for line in "${lines[@]}"; do
         local type="${line%%:*}"
@@ -144,43 +176,45 @@ print_access_box() {
             URL)
                 local lbl="${rest%%:*}"
                 local url="${rest#*:}"
-                echo -e "  ${DIM}${lbl}${RESET}"
-                echo -e "     ${BOLD}${BRIGHT_CYAN}${url}${RESET}"
-                echo ""
+                echo -e "${EDGE_L}  ${DIM}${lbl}${RESET}                                                              ${EDGE_R}"
+                echo -e "${EDGE_L}    ${BOLD}${BRIGHT_GREEN}-->  ${ACCENT_URL}${url}${RESET}"
+                echo -e "${EDGE_L}                                                                            ${EDGE_R}"
                 ;;
             CMD)
                 local clbl="${rest%%|*}"
                 local cmd="${rest#*|}"
-                [[ -n "$clbl" && "$clbl" != "$cmd" ]] && echo -e "  ${DIM}${clbl}${RESET}"
-                echo -e "     ${BOLD}${YELLOW}\$${RESET} ${BRIGHT_WHITE}${cmd}${RESET}"
-                echo ""
+                [[ -n "$clbl" && "$clbl" != "$cmd" ]] && \
+                    echo -e "${EDGE_L}  ${DIM}${clbl}${RESET}"
+                echo -e "${EDGE_L}    ${BOLD}${YELLOW}\$${RESET}  ${ACCENT_CMD}${cmd}${RESET}"
+                echo -e "${EDGE_L}                                                                            ${EDGE_R}"
                 ;;
             CRED)
                 local clbl="${rest%%:*}"
                 local cval="${rest#*:}"
-                echo -e "  ${DIM}${clbl}${RESET}  ${BOLD}${YELLOW}${cval}${RESET}"
+                echo -e "${EDGE_L}  ${ACCENT_KEY}${clbl}${RESET}  ${BOLD}${ACCENT}${cval}${RESET}"
                 ;;
             SEP)
-                echo ""
-                echo -e "$LIGHT"
-                echo ""
+                echo -e "${EDGE_L}                                                                            ${EDGE_R}"
+                echo -e "$INNER"
+                echo -e "${EDGE_L}                                                                            ${EDGE_R}"
                 ;;
             BLANK)
-                echo ""
+                echo -e "${EDGE_L}                                                                            ${EDGE_R}"
                 ;;
             TEXT)
-                echo -e "  ${DIM}${rest}${RESET}"
+                echo -e "${EDGE_L}  ${DIM}${rest}${RESET}"
                 ;;
             NOTE)
-                echo -e "  ${BOLD}${YELLOW}[!]${RESET} ${YELLOW}${rest}${RESET}"
+                echo -e "${EDGE_L}  ${BOLD}${YELLOW}[!]${RESET}  ${YELLOW}${rest}${RESET}"
                 ;;
             *)
-                echo -e "  ${line}"
+                echo -e "${EDGE_L}  ${line}"
                 ;;
         esac
     done
 
-    echo -e "$HEAVY"
+    echo -e "${EDGE_L}                                                                            ${EDGE_R}"
+    echo -e "$BOT"
     echo ""
 }
 
