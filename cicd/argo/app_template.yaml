@@ -27,7 +27,7 @@ spec:
   source:
     repoURL: ${GIT_REPO_URL}
     targetRevision: ${GIT_REPO_BRANCH}
-    path: monitoring/Loki
+    path: monitoring/Loki/overlays/prod
   destination:
     server: https://kubernetes.default.svc
     namespace: ${LOKI_NAMESPACE}

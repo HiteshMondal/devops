@@ -34,13 +34,12 @@ source "${PROJECT_ROOT}/lib/bootstrap.sh"
 : "${INGRESS_HOST:=devops-app.local}"
 : "${ARGOCD_SYNC_WAVE_ENABLED:=true}"
 
-# Port-forward setup (gRPC-web tunnels all CLI traffic over HTTPS port-forward)
 ARGOCD_LOCAL_PORT=8080
 export ARGOCD_LOCAL_PORT
 
 ARGOCD_SERVER=""
 ARGOCD_ADMIN_PASS=""
-ARGOCD_USE_GRPC_WEB=false   # set to true by argocd_login when port-forwarding
+ARGOCD_USE_GRPC_WEB=false
 export ARGOCD_SERVER ARGOCD_ADMIN_PASS ARGOCD_USE_GRPC_WEB
 
 # Git repo auto-detection
@@ -70,14 +69,13 @@ argocd_cmd() {
 
 # port-forward health guard
 assert_portforward_alive() {
-    [[ "$ARGOCD_USE_GRPC_WEB" != "true" ]] && return 0   # cloud path: no port-forward
+    [[ "$ARGOCD_USE_GRPC_WEB" != "true" ]] && return 0
     if [[ -z "${ARGOCD_PF_PID:-}" ]]; then
         print_error "Port-forward PID is not set — cannot verify tunnel is alive"
         exit 1
     fi
     if ! kill -0 "$ARGOCD_PF_PID" 2>/dev/null; then
         print_error "ArgoCD port-forward (PID ${ARGOCD_PF_PID}) died — restarting"
-        # Attempt restart
         local SERVICE_PORT
         SERVICE_PORT=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
             -o jsonpath='{.spec.ports[?(@.name=="https")].port}' 2>/dev/null || echo "443")
@@ -97,7 +95,7 @@ assert_portforward_alive() {
     fi
 }
 
-#  INSTALL ARGO CD CLI
+# INSTALL ARGO CD CLI
 install_argocd_cli() {
     if command -v argocd >/dev/null 2>&1; then
         print_success "ArgoCD CLI already installed: $(argocd version --client --short 2>/dev/null | head -1)"
@@ -127,7 +125,7 @@ install_argocd_cli() {
     fi
 }
 
-#  INSTALL ARGO CD ON CLUSTER
+# INSTALL ARGO CD ON CLUSTER
 install_argocd_server() {
     print_subsection "Installing Argo CD on Cluster"
 
@@ -145,7 +143,6 @@ install_argocd_server() {
     fi
 
     print_step "Waiting for ArgoCD core components..."
-
     kubectl rollout status deployment/argocd-server -n "$ARGOCD_NAMESPACE" --timeout=300s
     kubectl rollout status deployment/argocd-repo-server -n "$ARGOCD_NAMESPACE" --timeout=300s
     kubectl rollout status deployment/argocd-dex-server -n "$ARGOCD_NAMESPACE" --timeout=300s
@@ -169,7 +166,7 @@ argocd_is_installed() {
     kubectl get deployment argocd-server -n "$ARGOCD_NAMESPACE" >/dev/null 2>&1
 }
 
-#  LOGIN TO ARGOCD
+# LOGIN TO ARGOCD
 argocd_login() {
     print_subsection "Logging in to Argo CD"
 
@@ -192,7 +189,6 @@ argocd_login() {
         fi
     fi
 
-    # Try external IP first (cloud clusters)
     ARGOCD_SERVER=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
         -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
 
@@ -200,7 +196,6 @@ argocd_login() {
     ARGOCD_SERVER=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
         -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
 
-    # No external address — port-forward for local clusters
     if [[ -z "$ARGOCD_SERVER" ]]; then
         local SERVICE_PORT
         SERVICE_PORT=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
@@ -228,7 +223,6 @@ argocd_login() {
 
         ARGOCD_SERVER="localhost:${ARGOCD_LOCAL_PORT}"
         ARGOCD_USE_GRPC_WEB=true
-        # ARGOCD_OPTS kept for any direct argocd invocations outside argocd_cmd()
         export ARGOCD_OPTS="--grpc-web"
         print_info "gRPC-web mode enabled (all CLI calls tunnel over HTTPS port-forward)"
     fi
@@ -250,7 +244,7 @@ argocd_login() {
     export ARGOCD_ADMIN_PASS
 }
 
-#  GENERATE APPLICATION MANIFESTS
+# GENERATE APPLICATION MANIFESTS
 generate_argocd_apps() {
     local required_vars=(
         GIT_REPO_URL GIT_REPO_BRANCH DEPLOY_TARGET APP_NAME
@@ -279,7 +273,7 @@ generate_argocd_apps() {
     print_success "Generated: ${BOLD}${GENERATED_DIR}/apps.yaml${RESET}"
 }
 
-#  REGISTER GIT REPO
+# REGISTER GIT REPO
 argocd_add_repo() {
     print_subsection "Registering Git Repository with Argo CD"
 
@@ -321,7 +315,7 @@ argocd_add_repo() {
     print_success "Repository registered: ${BOLD}${REPO_URL}${RESET}"
 }
 
-#  APPLY & SYNC APPLICATIONS
+# APPLY APPLICATIONS
 apply_argocd_apps() {
     print_subsection "Applying Argo CD Applications"
 
@@ -332,8 +326,28 @@ apply_argocd_apps() {
     print_success "ArgoCD Applications applied to cluster"
 }
 
+# SYNC APPLICATIONS — sequential with wait between each app.
+_wait_for_app() {
+    local app="$1"
+    local timeout="${2:-300}"
+
+    assert_portforward_alive
+
+    if ! argocd_cmd app get "$app" >/dev/null 2>&1; then
+        print_warning "App not found: ${app} — skipping wait"
+        return 0
+    fi
+
+    print_step "Waiting for: ${BOLD}${app}${RESET}  (timeout: ${timeout}s)"
+    argocd_cmd app wait "$app" \
+        --sync \
+        --health \
+        --timeout "$timeout" \
+        || print_warning "Timeout or issue waiting for ${app} — ArgoCD will continue to self-heal"
+}
+
 sync_argocd_apps() {
-    print_subsection "Syncing Argo CD Applications (ordered)"
+    print_subsection "Syncing Argo CD Applications (sequential — respects sync-wave order)"
 
     assert_portforward_alive
 
@@ -345,19 +359,67 @@ sync_argocd_apps() {
     )
 
     for app in "${apps[@]}"; do
-        if argocd_cmd app get "$app" >/dev/null 2>&1; then
-            print_step "Syncing: ${BOLD}${app}${RESET}"
-            argocd_cmd app sync "$app" --async || print_warning "Sync queued for: $app"
+        assert_portforward_alive
+
+        if ! argocd_cmd app get "$app" >/dev/null 2>&1; then
+            print_warning "App not found yet: ${app} — it may appear after ArgoCD processes the manifest"
+            # Give ArgoCD a moment to register the application before continuing.
+            sleep 5
+            if ! argocd_cmd app get "$app" >/dev/null 2>&1; then
+                print_warning "App still not found: ${app} — skipping sync, will auto-sync"
+                continue
+            fi
+        fi
+
+        print_step "Syncing: ${BOLD}${app}${RESET}"
+
+        # Retry loop: if "another operation is in progress" back off and retry.
+        local sync_attempts=0
+        local sync_max=5
+        local synced=false
+
+        while [[ $sync_attempts -lt $sync_max ]]; do
+            local sync_out sync_exit
+            sync_out=$(argocd_cmd app sync "$app" 2>&1) && sync_exit=0 || sync_exit=$?
+
+            if [[ $sync_exit -eq 0 ]]; then
+                synced=true
+                break
+            fi
+
+            if echo "$sync_out" | grep -q "another operation is already in progress"; then
+                sync_attempts=$((sync_attempts + 1))
+                print_warning "Operation in progress for ${app} — waiting 15s before retry (${sync_attempts}/${sync_max})"
+                sleep 15
+            else
+                # Non-retryable error — log and move on
+                print_warning "Sync failed for ${app}: ${sync_out}"
+                break
+            fi
+        done
+
+        if [[ "$synced" == true ]]; then
+            print_success "Sync triggered for: ${BOLD}${app}${RESET}"
         else
-            print_warning "App not found yet (will auto-sync): ${app}"
+            print_warning "Could not trigger sync for ${app} — ArgoCD auto-sync will handle it"
+        fi
+
+        # Wait for this app to become healthy before syncing the next one.
+        # This preserves sync-wave semantics and prevents the "in progress" race.
+        if [[ "${CI:-false}" != "true" ]]; then
+            _wait_for_app "$app" 300
+        else
+            print_info "CI mode — skipping blocking wait for ${app}"
         fi
     done
 
-    print_success "Sync initiated for all apps"
+    print_success "All apps synced"
 }
 
+# wait_for_apps is kept for backward compatibility but sync_argocd_apps now
+# blocks on each app, so this becomes a lightweight final health check.
 wait_for_apps() {
-    print_subsection "Waiting for Applications to Sync & Become Healthy"
+    print_subsection "Final Health Check"
 
     assert_portforward_alive
 
@@ -370,16 +432,19 @@ wait_for_apps() {
 
     for app in "${apps[@]}"; do
         if argocd_cmd app get "$app" >/dev/null 2>&1; then
-            print_step "Waiting for: ${BOLD}${app}${RESET}  (timeout: 5m)"
-            argocd_cmd app wait "$app" --sync --health --timeout 300 \
-                || print_warning "Timeout waiting for ${app} — check ArgoCD UI"
+            local health
+            health=$(argocd_cmd app get "$app" \
+                -o json 2>/dev/null | \
+                grep -o '"health":{"status":"[^"]*"' | head -1 | \
+                grep -o '"[^"]*"$' | tr -d '"' || echo "Unknown")
+            print_kv "$app" "${health}"
         fi
     done
 
-    print_success "All apps are healthy!"
+    print_success "Health check complete — check ArgoCD UI for details"
 }
 
-#  DISPLAY ACCESS INFORMATION
+# DISPLAY ACCESS INFORMATION
 show_argocd_access() {
     local EXTERNAL_IP EXTERNAL_HOST SERVICE_PORT
 
@@ -432,7 +497,7 @@ cleanup_portforward() {
     fi
 }
 
-# MAIN — deploy_argo (called by run.sh)
+# MAIN
 deploy_argo() {
     print_section "ARGO CD DEPLOYMENT" "🐙"
 
@@ -459,7 +524,6 @@ deploy_argo() {
     print_subsection "Step 3 — Login and Access"
     argocd_login
 
-    # HIGH-VISIBILITY ACCESS INFO
     show_argocd_access
 
     print_subsection "Step 4 — Register Git Repository"
@@ -471,14 +535,19 @@ deploy_argo() {
     print_subsection "Step 6 — Apply Applications"
     apply_argocd_apps
 
-    print_subsection "Step 7 — Sync Applications"
+    # Give ArgoCD a moment to register all four Application objects before
+    # the sync loop starts querying them.
+    print_step "Waiting 10s for ArgoCD to register applications..."
+    sleep 10
+
+    print_subsection "Step 7 — Sync Applications (sequential)"
     sync_argocd_apps
 
     if [[ "${CI:-false}" != "true" ]]; then
-        print_subsection "Step 8 — Wait for Healthy State"
+        print_subsection "Step 8 — Final Health Check"
         wait_for_apps
     else
-        print_info "CI mode — skipping health wait (ArgoCD will auto-sync)"
+        print_info "CI mode — skipping health check (ArgoCD will auto-sync)"
     fi
 
     print_section "ARGO CD DEPLOYMENT COMPLETE" "✅"
