@@ -53,7 +53,7 @@ data:
         cache_location: /loki/cache
         cache_ttl: 24h
         # shared_store is intentionally omitted — Loki 3.0 infers it from
-        # schema_config.  Adding it triggers a deprecation warning.
+        # schema_config. Adding it triggers a deprecation warning.
       filesystem:
         directory: /loki/chunks
 
@@ -70,6 +70,7 @@ data:
       reject_old_samples: true
       reject_old_samples_max_age: 168h
       volume_enabled: false
+      max_label_names_per_series: 30
 
     frontend:
       max_outstanding_per_tenant: 256
@@ -273,44 +274,57 @@ data:
           max_retries: 20
 
     scrape_configs:
-      - job_name: kubernetes-pods
+      # Job 1: CRI / containerd format — /var/log/pods
+      # Works on: Kind, K3s, EKS, GKE, AKS, MicroK8s, bare-metal
+      - job_name: kubernetes-pods-cri
         kubernetes_sd_configs:
           - role: pod
         pipeline_stages:
           - cri: {}
+          - labeldrop:
+              # Drop high-cardinality Helm/K8s metadata labels copied by labelmap.
+              # Helm-managed pods (node-exporter, kube-state-metrics, etc.) carry
+              # 8+ app.kubernetes.io/* labels which push streams over Loki's label
+              # limit. After dropping these each stream has ≤10 labels.
+              - app_kubernetes_io_component
+              - app_kubernetes_io_instance
+              - app_kubernetes_io_managed_by
+              - app_kubernetes_io_part_of
+              - app_kubernetes_io_version
+              - helm_sh_chart
+              - controller_revision_hash
+              - pod_template_hash
+              - pod_template_generation
+              - statefulset_kubernetes_io_pod_name
         relabel_configs:
           - source_labels: [__meta_kubernetes_pod_node_name]
             target_label: __host__
 
-          # Capture all pod labels verbatim (e.g. app=devops-app).
+          # Copy ALL pod labels verbatim — sets `app` if the pod has an `app` label.
           - action: labelmap
             regex: __meta_kubernetes_pod_label_(.+)
 
-          # Step 1: seed app from the plain "app" pod label (most common).
-          # labelmap above already copies it, but we re-state it explicitly
-          # so the priority chain below can override only when it is absent.
-          - source_labels: [__meta_kubernetes_pod_label_app]
-            regex: (.+)
-            action: replace
-            target_label: app
-
-          # Step 2: fallback to app.kubernetes.io/name when plain app is absent.
+          # Fallback 1: use app.kubernetes.io/name when plain `app` is absent.
           - source_labels: [app, __meta_kubernetes_pod_label_app_kubernetes_io_name]
-            # Only replace when the current app value is empty AND k8s name is set.
             regex: ;(.+)
             action: replace
             target_label: app
             replacement: $1
 
-          # Step 3: final fallback — use the container name so app is NEVER empty.
-          # This prevents Loki's "empty-compatible matcher" parse error when
-          # dashboards use app=~".*" or app!="".
+          # Fallback 2: use container name so `app` is NEVER empty.
+          # Prevents Loki 3.0 "empty-compatible matcher" parse errors.
           - source_labels: [app, __meta_kubernetes_pod_container_name]
-            # Only fires when app is still empty.
             regex: ;(.+)
             action: replace
             target_label: app
             replacement: $1
+
+          # Fallback 3: last resort — namespace so logs are never dropped.
+          - source_labels: [app, __meta_kubernetes_namespace]
+            regex: ;(.+)
+            action: replace
+            target_label: app
+            replacement: unknown-$1
 
           - action: replace
             replacement: $1
@@ -332,6 +346,7 @@ data:
             source_labels: [__meta_kubernetes_pod_container_name]
             target_label: container
 
+          # CRI path: /var/log/pods/<namespace>_<pod>_<uid>/<container>/<index>.log
           - replacement: /var/log/pods/*$1/*.log
             separator: /
             source_labels:
@@ -339,7 +354,95 @@ data:
               - __meta_kubernetes_pod_container_name
             target_label: __path__
 
-          # Drop any target where __path__ resolved to empty (stale/terminating pods).
+          # Drop stale/terminating pods where __path__ resolved to empty.
+          - action: drop
+            regex: ""
+            source_labels: [__path__]
+
+          - action: keep
+            regex: .+
+            source_labels: [app]
+
+      # Job 2: Docker JSON format — /var/lib/docker/containers
+      # Works on: Minikube (docker driver), Docker Desktop
+      # Uses /var/log/containers symlinks → /var/lib/docker/containers
+      - job_name: kubernetes-pods-docker
+        kubernetes_sd_configs:
+          - role: pod
+        pipeline_stages:
+          - docker: {}
+          - labeldrop:
+              - app_kubernetes_io_component
+              - app_kubernetes_io_instance
+              - app_kubernetes_io_managed_by
+              - app_kubernetes_io_part_of
+              - app_kubernetes_io_version
+              - helm_sh_chart
+              - controller_revision_hash
+              - pod_template_hash
+              - pod_template_generation
+              - statefulset_kubernetes_io_pod_name
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: __host__
+
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+
+          # Fallback 1: app.kubernetes.io/name
+          - source_labels: [app, __meta_kubernetes_pod_label_app_kubernetes_io_name]
+            regex: ;(.+)
+            action: replace
+            target_label: app
+            replacement: $1
+
+          # Fallback 2: container name
+          - source_labels: [app, __meta_kubernetes_pod_container_name]
+            regex: ;(.+)
+            action: replace
+            target_label: app
+            replacement: $1
+
+          # Fallback 3: namespace
+          - source_labels: [app, __meta_kubernetes_namespace]
+            regex: ;(.+)
+            action: replace
+            target_label: app
+            replacement: unknown-$1
+
+          - action: replace
+            replacement: $1
+            separator: /
+            source_labels:
+              - __meta_kubernetes_namespace
+              - __meta_kubernetes_pod_name
+            target_label: job
+
+          - action: replace
+            source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+
+          - action: replace
+            source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+
+          - action: replace
+            source_labels: [__meta_kubernetes_pod_container_name]
+            target_label: container
+
+          # Docker path: /var/log/containers/<pod>_<ns>_<container>-<id>.log
+          # Symlinks resolve into /var/lib/docker/containers/<id>/<id>-json.log
+          - source_labels:
+              - __meta_kubernetes_pod_name
+              - __meta_kubernetes_namespace
+              - __meta_kubernetes_pod_container_name
+              - __meta_kubernetes_pod_uid
+            target_label: __path__
+            replacement: /var/log/containers/$1_$2_$3-*.log
+            regex: (.+);(.+);(.+);(.+)
+            action: replace
+            separator: ";"
+
           - action: drop
             regex: ""
             source_labels: [__path__]
@@ -412,6 +515,12 @@ spec:
             - name: pods
               mountPath: /var/log/pods
               readOnly: true
+            - name: containers
+              mountPath: /var/log/containers
+              readOnly: true
+            - name: dockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
@@ -421,11 +530,17 @@ spec:
         - name: varlog
           hostPath:
             path: /var/log
-            type: Directory
+            # type omitted — no strict check, works on all distros including
+            # Minikube where paths may be overlay-mounted or symlinked.
         - name: pods
           hostPath:
             path: /var/log/pods
-            type: Directory
+        - name: containers
+          hostPath:
+            path: /var/log/containers
+        - name: dockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
         - name: tmp
           emptyDir: {}
 

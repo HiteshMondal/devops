@@ -414,7 +414,7 @@ deploy_loki() {
             "CRED:Grafana datasource URL:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
             "SEP:" \
             "NOTE:Custom Loki 3.0 dashboard — import the JSON file from your repo:" \
-            "CMD:Dashboard file:|monitoring/devops-loki-dashboard.json" \
+            "CMD:Dashboard file:|monitoring/loki/devops-loki-dashboard.json" \
             "NOTE:In Grafana: Dashboards → New → Import → Upload JSON file"
     else
         print_access_box "LOKI ACCESS" "📜" \
@@ -423,7 +423,7 @@ deploy_loki() {
             "CRED:Grafana datasource URL:http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100" \
             "SEP:" \
             "NOTE:Custom Loki 3.0 dashboard — import the JSON file from your repo:" \
-            "CMD:Dashboard file:|monitoring/devops-loki-dashboard.json" \
+            "CMD:Dashboard file:|monitoring/loki/devops-loki-dashboard.json" \
             "NOTE:In Grafana: Dashboards → New → Import → Upload JSON file"
     fi
     print_divider

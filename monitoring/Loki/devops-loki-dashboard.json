@@ -673,6 +673,6 @@
   "timezone": "browser",
   "title": "DevOps — Loki Logging",
   "uid": "devops-loki-v1",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

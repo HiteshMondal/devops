@@ -588,7 +588,7 @@ deploy_monitoring() {
         "NOTE:Custom DevOps Loki dashboard is Loki 3.0 compatible — no empty-matcher errors" \
         "CMD:Step 1 — In Grafana:|Dashboards → New → Import" \
         "CMD:Step 2 — Click:|Upload dashboard JSON file" \
-        "CMD:Step 3 — Select:|monitoring/devops-loki-dashboard.json" \
+        "CMD:Step 3 — Select:|monitoring/lokidevops-loki-dashboard.json" \
         "CMD:Step 4 — Set datasource:|Loki → loki  then click Import" \
         "BLANK:" \
         "NOTE:── Notes ──" \
