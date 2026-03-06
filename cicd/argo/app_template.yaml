@@ -27,7 +27,7 @@ spec:
   source:
     repoURL: ${GIT_REPO_URL}
     targetRevision: ${GIT_REPO_BRANCH}
-    path: monitoring/Loki/overlays/prod
+    path: monitoring/Loki/overlays/${DEPLOY_TARGET}
   destination:
     server: https://kubernetes.default.svc
     namespace: ${LOKI_NAMESPACE}
@@ -227,3 +227,7 @@ spec:
       kind: Deployment
       jsonPointers:
         - /spec/replicas
+    - group: networking.k8s.io
+      kind: Ingress
+      jsonPointers:
+        - /status    

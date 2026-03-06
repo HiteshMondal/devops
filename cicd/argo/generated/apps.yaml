@@ -27,7 +27,7 @@ spec:
   source:
     repoURL: https://github.com/HiteshMondal/devops.git
     targetRevision: main
-    path: monitoring/Loki/overlays/prod
+    path: monitoring/Loki/overlays/local
   destination:
     server: https://kubernetes.default.svc
     namespace: loki
@@ -227,3 +227,7 @@ spec:
       kind: Deployment
       jsonPointers:
         - /spec/replicas
+    - group: networking.k8s.io
+      kind: Ingress
+      jsonPointers:
+        - /status    

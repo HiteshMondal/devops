@@ -582,7 +582,6 @@ deploy_monitoring() {
         "CRED:Node Exporter Full:1860" \
         "CRED:Kubernetes Cluster (Prometheus):6417" \
         "CRED:kube-state-metrics v2:13332" \
-        "CRED:K8s Resource Requests:9614" \
         "BLANK:" \
         "NOTE:── Loki Logging — upload JSON file (pre-made dashboards break on Loki 3.0) ──" \
         "NOTE:Custom DevOps Loki dashboard is Loki 3.0 compatible — no empty-matcher errors" \

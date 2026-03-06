@@ -405,9 +405,10 @@ sync_argocd_apps() {
         fi
 
         # Wait for this app to become healthy before syncing the next one.
-        # This preserves sync-wave semantics and prevents the "in progress" race.
+        local app_timeout=300
+        [[ "$app" == "${APP_NAME}-${DEPLOY_TARGET}" ]] && app_timeout=60
         if [[ "${CI:-false}" != "true" ]]; then
-            _wait_for_app "$app" 300
+            _wait_for_app "$app" "$app_timeout"
         else
             print_info "CI mode — skipping blocking wait for ${app}"
         fi
@@ -435,7 +436,7 @@ wait_for_apps() {
             local health
             health=$(argocd_cmd app get "$app" \
                 -o json 2>/dev/null | \
-                grep -o '"health":{"status":"[^"]*"' | head -1 | \
+                grep -o '"status":"[^"]*"' | head -1 | \
                 grep -o '"[^"]*"$' | tr -d '"' || echo "Unknown")
             print_kv "$app" "${health}"
         fi
