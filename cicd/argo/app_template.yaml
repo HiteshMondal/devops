@@ -123,13 +123,13 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: ${APP_NAME}-security
+  name: ${APP_NAME}-trivy
   namespace: ${ARGOCD_NAMESPACE}
   labels:
     app.kubernetes.io/name: trivy
     environment: ${DEPLOY_TARGET}
     managed-by: argocd
-    component: security
+    component: trivy
   annotations:
     argocd.argoproj.io/sync-wave: "4"
   finalizers:
@@ -149,7 +149,7 @@ spec:
   source:
     repoURL: ${GIT_REPO_URL}
     targetRevision: ${GIT_REPO_BRANCH}
-    path: Security/trivy
+    path: monitoring/trivy
 
   destination:
     server: https://kubernetes.default.svc
