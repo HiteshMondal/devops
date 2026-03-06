@@ -12,7 +12,7 @@ stages:
   - deploy-prod
   - monitoring
   - loki
-  - security
+  - trivy
   - cleanup
 
 variables:
@@ -99,7 +99,7 @@ variables:
   LOKI_MEMORY_REQUEST: ${LOKI_MEMORY_REQUEST:-256Mi}
   LOKI_MEMORY_LIMIT: ${LOKI_MEMORY_LIMIT:-1Gi}
 
-  # Security / Trivy Configuration
+  # Trivy Configuration
   TRIVY_ENABLED: ${TRIVY_ENABLED:-true}
   TRIVY_NAMESPACE: ${TRIVY_NAMESPACE:-trivy-system}
   TRIVY_VERSION: ${TRIVY_VERSION:-0.48.0}
@@ -491,9 +491,9 @@ deploy-loki:
   rules:
     - if: '$LOKI_ENABLED == "true"'
 
-# SECURITY STAGE
-deploy-security:
-  stage: security
+# TRIVY STAGE
+deploy-trivy:
+  stage: trivy
   image: docker:24
   services:
     - docker:24-dind
@@ -510,24 +510,24 @@ deploy-security:
     - echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
   script: |
     echo "============================================================================"
-    echo "Deploying Security Tools (Trivy Scanner + Metrics Exporter)"
+    echo "Deploying Trivy Tools (Trivy Scanner + Metrics Exporter)"
     echo "============================================================================"
-    kind create cluster --name devops-security --wait 60s
-    export KUBECONFIG="$(kind get kubeconfig-path --name="devops-security")"
+    kind create cluster --name devops-trivy --wait 60s
+    export KUBECONFIG="$(kind get kubeconfig-path --name="devops-trivy")"
     kubectl cluster-info
     export PROJECT_ROOT=$CI_PROJECT_DIR
-    source "$CI_PROJECT_DIR/Security/security.sh"
-    security
+    source "$CI_PROJECT_DIR/monitoring/trivy/trivy.sh"
+    trivy
     echo ""
-    echo "✅ Security tools deployed successfully"
+    echo "✅ Trivy deployed successfully"
     echo ""
     echo "============================================================================"
-    echo "Security Stack Information"
+    echo "Trivy Stack Information"
     echo "============================================================================"
     kubectl get pods -n $TRIVY_NAMESPACE || true
     kubectl get svc -n $TRIVY_NAMESPACE || true
     kubectl get cronjobs -n $TRIVY_NAMESPACE || true
-    kind delete cluster --name devops-security
+    kind delete cluster --name devops-trivy
   rules:
     - if: '$TRIVY_ENABLED == "true"'
 

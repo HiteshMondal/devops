@@ -1,4 +1,4 @@
-# /Security/trivy/deployment.yaml
+# /monitoring/trivy/deployment.yaml
 # ArgoCD-compatible: all ${VAR} placeholders replaced with hardcoded values.
 
 apiVersion: apps/v1

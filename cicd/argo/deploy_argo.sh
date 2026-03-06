@@ -50,13 +50,13 @@ fi
 : "${GIT_REPO_PATH_APP:=kubernetes/base}"
 : "${GIT_REPO_PATH_MONITORING:=monitoring/prometheus_grafana}"
 : "${GIT_REPO_PATH_LOKI:=monitoring/Loki}"
-: "${GIT_REPO_PATH_SECURITY:=Security/trivy}"
+: "${GIT_REPO_PATH_TRIVY:=monitoring/trivy}"
 
 export ARGOCD_NAMESPACE ARGOCD_VERSION DEPLOY_TARGET NAMESPACE APP_NAME
 export PROMETHEUS_NAMESPACE LOKI_NAMESPACE TRIVY_NAMESPACE
 export INGRESS_ENABLED INGRESS_HOST
 export GIT_REPO_URL GIT_REPO_BRANCH
-export GIT_REPO_PATH_APP GIT_REPO_PATH_MONITORING GIT_REPO_PATH_LOKI GIT_REPO_PATH_SECURITY
+export GIT_REPO_PATH_APP GIT_REPO_PATH_MONITORING GIT_REPO_PATH_LOKI GIT_REPO_PATH_TRIVY
 
 # argocd CLI wrapper
 argocd_cmd() {
@@ -82,6 +82,7 @@ assert_portforward_alive() {
         kubectl port-forward svc/argocd-server -n "$ARGOCD_NAMESPACE" \
             "${ARGOCD_LOCAL_PORT}:${SERVICE_PORT}" --address 127.0.0.1 >/dev/null 2>&1 &
         ARGOCD_PF_PID=$!
+        disown "$ARGOCD_PF_PID" 2>/dev/null || true
         export ARGOCD_PF_PID
         local ready=false
         for i in {1..10}; do
@@ -355,7 +356,7 @@ sync_argocd_apps() {
         "${APP_NAME}-${DEPLOY_TARGET}"
         "${APP_NAME}-monitoring"
         "${APP_NAME}-loki"
-        "${APP_NAME}-security"
+        "${APP_NAME}-trivy"
     )
 
     for app in "${apps[@]}"; do
@@ -428,7 +429,7 @@ wait_for_apps() {
         "${APP_NAME}-${DEPLOY_TARGET}"
         "${APP_NAME}-monitoring"
         "${APP_NAME}-loki"
-        "${APP_NAME}-security"
+        "${APP_NAME}-trivy"
     )
 
     for app in "${apps[@]}"; do
@@ -493,7 +494,9 @@ show_argocd_access() {
 # Cleanup
 cleanup_portforward() {
     if [[ -n "${ARGOCD_PF_PID:-}" ]]; then
-        kill "$ARGOCD_PF_PID" 2>/dev/null || true
+        disown "$ARGOCD_PF_PID" 2>/dev/null || true
+        print_info "ArgoCD port-forward left running in background (PID ${ARGOCD_PF_PID})"
+        print_info "To stop it: kill ${ARGOCD_PF_PID}"
         unset ARGOCD_PF_PID
     fi
 }

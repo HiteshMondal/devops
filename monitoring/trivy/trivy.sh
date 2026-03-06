@@ -1,6 +1,6 @@
 #!/bin/bash
-# Security/security.sh — Deploy security tools (Trivy with Metrics Exporter)
-# Usage: ./security.sh
+# monitoring/trivy/trivy.sh — Deploy trivy tools (Trivy with Metrics Exporter)
+# Usage: ./trivy.sh
 
 set -euo pipefail
 
@@ -10,8 +10,8 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     return 1 2>/dev/null || exit 1
 fi
 
-# Resolve PROJECT_ROOT once
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# Resolve PROJECT_ROOT once.
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 readonly PROJECT_ROOT
 
 # Load env safely
@@ -48,7 +48,7 @@ export TRIVY_METRICS_ENABLED TRIVY_METRICS_PORT
 # Prerequisite check
 require_command envsubst "Install gettext package (apt-get install gettext / brew install gettext)"
 
-#  BUILD & PUSH IMAGES
+# BUILD & PUSH IMAGES
 build_trivy_images() {
     if [[ "${TRIVY_BUILD_IMAGES}" != "true" ]]; then
         print_info "Skipping image build (TRIVY_BUILD_IMAGES=false)"
@@ -90,7 +90,7 @@ sys.exit(1)
         --no-cache \
         --build-arg TRIVY_VERSION="${TRIVY_VERSION}" \
         -t "${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}" \
-        "$PROJECT_ROOT/Security/trivy/trivy-runner" \
+        "$PROJECT_ROOT/monitoring/trivy/trivy-runner" \
         || { print_error "Failed to build trivy-runner"; exit 1; }
 
     print_step "Pushing trivy-runner..."
@@ -104,7 +104,7 @@ sys.exit(1)
         --no-cache \
         --build-arg TRIVY_VERSION="${TRIVY_VERSION}" \
         -t "${DOCKERHUB_USERNAME}/trivy-exporter:${TRIVY_IMAGE_TAG}" \
-        "$PROJECT_ROOT/Security/trivy" \
+        "$PROJECT_ROOT/monitoring/trivy" \
         || { print_error "Failed to build trivy-exporter"; exit 1; }
 
     print_step "Pushing trivy-exporter..."
@@ -114,8 +114,7 @@ sys.exit(1)
     print_success "trivy-exporter pushed: ${BOLD}${DOCKERHUB_USERNAME}/trivy-exporter:${TRIVY_IMAGE_TAG}${RESET}"
 }
 
-#  IMMUTABILITY HELPERS
-
+# IMMUTABILITY HELPERS
 reconcile_pvc() {
     local name="$1"
     local namespace="$2"
@@ -188,7 +187,7 @@ reconcile_initial_scan_job() {
     print_success "Job ${job_name} deleted — will be recreated by apply"
 }
 
-#  DEPLOY TRIVY TO CLUSTER
+# DEPLOY TRIVY TO CLUSTER
 deploy_trivy() {
     if [[ "${TRIVY_ENABLED}" != "true" ]]; then
         print_info "Skipping Trivy deployment (TRIVY_ENABLED=false)"
@@ -208,11 +207,11 @@ deploy_trivy() {
     reconcile_initial_scan_job "$TRIVY_NAMESPACE"
 
     print_step "Applying Trivy scan CronJob..."
-    envsubst < "$PROJECT_ROOT/Security/trivy/trivy-scan.yaml" | kubectl apply -f -
+    envsubst < "$PROJECT_ROOT/monitoring/trivy/trivy-scan.yaml" | kubectl apply -f -
 
     if [[ "${TRIVY_METRICS_ENABLED}" == "true" ]]; then
         print_step "Deploying Trivy Metrics Exporter..."
-        envsubst < "$PROJECT_ROOT/Security/trivy/deployment.yaml" | kubectl apply -f -
+        envsubst < "$PROJECT_ROOT/monitoring/trivy/deployment.yaml" | kubectl apply -f -
     else
         print_info "Metrics Exporter skipped (TRIVY_METRICS_ENABLED=false)"
     fi
@@ -233,28 +232,35 @@ deploy_trivy() {
         print_success "Initial Trivy scan complete"
     fi
 
-    # Verify metrics endpoint
-    print_step "Verifying metrics endpoint..."
-    sleep 5
-    if kubectl get pods -n "$TRIVY_NAMESPACE" -l app=trivy-exporter \
-        --field-selector=status.phase=Running 2>/dev/null | grep -q trivy-exporter; then
-        print_success "Trivy exporter pod is running"
+    # Wait properly for the exporter to be ready before testing the metrics endpoint
+    if [[ "${TRIVY_METRICS_ENABLED}" == "true" ]]; then
+        print_step "Waiting for Trivy exporter to become ready..."
+        if kubectl wait --for=condition=ready pod \
+            -l app=trivy-exporter \
+            -n "$TRIVY_NAMESPACE" \
+            --timeout=120s 2>/dev/null; then
+            print_success "Trivy exporter pod is ready"
 
-        if kubectl run curl-test --image=curlimages/curl:latest --rm -i \
-            --restart=Never -n "$TRIVY_NAMESPACE" \
-            -- curl -s "http://trivy-exporter:${TRIVY_METRICS_PORT}/metrics" 2>/dev/null | grep -q "trivy_"; then
-            print_success "Metrics endpoint is responding"
+            if kubectl run curl-test --image=curlimages/curl:latest --rm -i \
+                --restart=Never -n "$TRIVY_NAMESPACE" \
+                -- curl -sf "http://trivy-exporter:${TRIVY_METRICS_PORT}/metrics" 2>/dev/null \
+                | grep -q "trivy_"; then
+                print_success "Metrics endpoint is responding with trivy_ metrics"
+            else
+                print_warning "Metrics endpoint is up but no trivy_ metrics yet"
+                print_info "This is normal on first deploy — reports may still be loading"
+                print_info "Metrics will appear after SCAN_INTERVAL (${SCAN_INTERVAL:-300}s)"
+            fi
         else
-            print_warning "Metrics endpoint not yet ready (may need more time to initialise)"
+            print_warning "Trivy exporter pod did not become ready within 120s"
+            print_info "Check pod events: kubectl describe pod -l app=trivy-exporter -n ${TRIVY_NAMESPACE}"
         fi
-    else
-        print_warning "Trivy exporter pod not running yet — it may still be starting"
     fi
 }
 
-#  MAIN
-security() {
-    print_section "SECURITY TOOLS DEPLOYMENT" "🔒"
+# MAIN
+trivy_main() {
+    print_section "TRIVY TOOLS DEPLOYMENT" "🔒"
 
     print_kv "Trivy Scanner"        "${TRIVY_ENABLED}"
     print_kv "Metrics Exporter"     "${TRIVY_METRICS_ENABLED}"
@@ -282,14 +288,14 @@ security() {
 
     print_access_box "TRIVY GRAFANA DASHBOARD IDs  (Dashboards → Import)" "📋" \
         "CRED:Trivy Workload Vulnerabilities:17046" \
-        "CRED:Trivy Operator — Vulnerabilities:16337" \
+        "CRED:Trivy Operator — Vulnerabilities:16337"
 
     print_access_box "VIEW SCAN RESULTS" "🔍" \
         "CMD:View initial scan logs:|kubectl logs -n ${TRIVY_NAMESPACE} job/trivy-initial-scan" \
         "BLANK:" \
         "CMD:Watch ongoing scans:|kubectl get pods -n ${TRIVY_NAMESPACE} -w"
 
-    print_section "SECURITY DEPLOYMENT COMPLETE" "✅"
+    print_section "TRIVY DEPLOYMENT COMPLETE" "✅"
     print_success "Trivy Scanner:    vulnerability scanning active  (schedule: ${TRIVY_SCAN_SCHEDULE})"
     print_success "Metrics Exporter: Prometheus integration deployed"
     echo ""
@@ -297,5 +303,5 @@ security() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    security
+    trivy_main
 fi

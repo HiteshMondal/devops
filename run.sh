@@ -50,8 +50,8 @@ deploy_loki() {
     bash "$PROJECT_ROOT/monitoring/Loki/deploy_loki.sh"
 }
 
-security() {
-    bash "$PROJECT_ROOT/Security/security.sh"
+trivy() {
+    bash "$PROJECT_ROOT/monitoring/trivy/trivy.sh"
 }
 
 deploy_infra() {
@@ -472,7 +472,7 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
         deploy_kubernetes local
         deploy_monitoring
         deploy_loki
-        security
+        trivy
         configure_gitlab
         show_direct_access_info
     fi
@@ -557,7 +557,7 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
         deploy_kubernetes prod
         deploy_monitoring
         deploy_loki
-        security
+        trivy
         configure_gitlab
 
         print_section "PRODUCTION DEPLOYMENT COMPLETE" "✅"

@@ -1,4 +1,4 @@
-# /Security/trivy/Dockerfile
+# /monitoring/trivy/Dockerfile
 
 FROM python:3.11-slim
 

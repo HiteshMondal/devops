@@ -14,7 +14,7 @@ stages:
   - deploy-prod
   - monitoring
   - loki
-  - security
+  - trivy
   - cleanup
 
 include:
