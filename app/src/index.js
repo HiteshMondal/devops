@@ -143,10 +143,14 @@ app.use(express.json());
 
 app.use((req, res, next) => {
   activeConnections.inc();
-  const start = Date.now();
+  const start = process.hrtime.bigint();
+  let finalized = false;
 
-  res.on('finish', () => {
-    const duration = (Date.now() - start) / 1000;
+  const finalizeRequestMetrics = () => {
+    if (finalized) return;
+    finalized = true;
+
+    const duration = Number(process.hrtime.bigint() - start) / 1e9;
     const route    = req.route ? req.route.path : req.path;
     const labels   = { method: req.method, route, status_code: res.statusCode };
 
@@ -163,7 +167,10 @@ app.use((req, res, next) => {
     if (res.statusCode >= 500)      { tick5xx++; requestErrorRate.inc(labels); }
     else if (res.statusCode >= 400) { tick4xx++; requestErrorRate.inc(labels); }
     else                            { tick2xx++; }
-  });
+  };
+
+  res.once('finish', finalizeRequestMetrics);
+  res.once('close', finalizeRequestMetrics);
 
   next();
 });
