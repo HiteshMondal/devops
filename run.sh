@@ -89,7 +89,7 @@ clear
 print_divider
 print_section "DevOps Project  --  Deployment Runner" ">"
 print_kv "Project Root" "${PROJECT_ROOT}"
-print_kv "Supports"     "Minikube  Kind  K3s  K8s  EKS  GKE  AKS  MicroK8s"
+print_kv "Supports"     "Minikube  Kind  K3s  K8s  EKS  GKE  AKS  MicroK8s  |  Terraform  OpenTofu  Pulumi"
 print_divider
 
 # LOAD & VALIDATE .env
@@ -214,7 +214,7 @@ if is_interactive; then
         print_divider
         print_subsection "Production Infrastructure Options"
         echo ""
-        ask CLOUD_PROVIDER "Cloud provider / IaC tool" "${CLOUD_PROVIDER:-aws}" aws oci
+        ask CLOUD_PROVIDER "Cloud provider / IaC tool" "${CLOUD_PROVIDER:-aws}" aws oci azure
         ask INFRA_ACTION   "Infrastructure action"     "${INFRA_ACTION:-plan}"  plan apply destroy
     fi
 

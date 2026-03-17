@@ -1,0 +1,15 @@
+# /devops/infra/Pulumi/Pulumi.yaml
+
+name: devops-app-azure
+runtime:
+  name: python
+  options:
+    virtualenv: venv
+description: >
+  Azure Free Tier infrastructure for the DevOps project.
+  AKS (Free control plane) + PostgreSQL Flexible Server (Burstable B1ms)
+  + optional ACR Basic. All resources tagged and minimal-cost.
+
+config:
+  azure-native:location:
+    default: eastus

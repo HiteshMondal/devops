@@ -1,0 +1,15 @@
+# pulumi.prod.yaml — production stack configuration
+# Sensitive values (db_password) should be set via:
+#   pulumi config set --secret db_password "YourSecurePassword"
+# and will be stored encrypted in your Pulumi state backend.
+
+config:
+  devops-app-azure:app_name: devops-app
+  devops-app-azure:namespace: devops-app
+  devops-app-azure:azure_location: eastus
+  devops-app-azure:app_port: "3000"
+  devops-app-azure:db_username: devops_admin
+  devops-app-azure:docker_image_tag: latest
+  devops-app-azure:skip_acr: "false"
+  # db_password is intentionally absent here — set it as a secret:
+  #   pulumi config set --secret db_password "YourPassword" --stack prod

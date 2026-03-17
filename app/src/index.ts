@@ -1,16 +1,14 @@
-// /app/src/index.js
 'use strict';
 
-const express = require('express');
-const morgan  = require('morgan');
-const promClient = require('prom-client');
-const http   = require('http');
-const path   = require('path');
-const os     = require('os');
+import express, { Request, Response, NextFunction } from 'express';
+import morgan from 'morgan';
+import * as promClient from 'prom-client';
+import http from 'http';
+import os from 'os';
 
 const app    = express();
 const server = http.createServer(app);
-const PORT   = process.env.APP_PORT || 3000;
+const PORT: number = parseInt(process.env.APP_PORT ?? '3000', 10);
 
 //  PROMETHEUS METRICS
 const register = new promClient.Registry();
@@ -69,51 +67,71 @@ register.registerMetric(appInfo);
 register.registerMetric(memoryUsedGauge);
 register.registerMetric(requestErrorRate);
 
-appInfo.set({
-  version: process.env.APP_VERSION || '2.0.0',
-  name:    process.env.APP_NAME    || 'devops-app',
-  env:     process.env.NODE_ENV    || 'development',
-}, 1);
+appInfo.set(
+  {
+    version: process.env.APP_VERSION || '2.0.0',
+    name:    process.env.APP_NAME    || 'devops-app',
+    env:     process.env.NODE_ENV    || 'development',
+  },
+  1,
+);
 
 //  IN-MEMORY METRICS RING BUFFER  (for live dashboard)
-const RING_SIZE = 60;   // 60 samples → 1 min of history at 1s interval
+const RING_SIZE = 60; // 60 samples → 1 min of history at 1s interval
 
-const ring = {
+interface StatusCount {
+  '2xx': number;
+  '4xx': number;
+  '5xx': number;
+}
+
+interface Ring {
+  timestamps:   number[];
+  cpu:          number[];
+  memPct:       number[];
+  rps:          number[];
+  p99:          number[];
+  statusCounts: StatusCount[];
+}
+
+const ring: Ring = {
   timestamps:   [],
   cpu:          [],
   memPct:       [],
-  rps:          [],   // requests per second
-  p99:          [],   // estimated p99 latency (ms)
-  statusCounts: [],   // { '2xx':n, '4xx':n, '5xx':n } per tick
+  rps:          [],
+  p99:          [],
+  statusCounts: [],
 };
 
-let prevCpuUsage = process.cpuUsage();
-let prevCpuTime  = Date.now();
-let tickReqCount = 0;
-let tickDurSum   = 0;
-let tickDurCount = 0;
-let tick2xx = 0, tick4xx = 0, tick5xx = 0;
+let prevCpuUsage  = process.cpuUsage();
+let prevCpuTime   = Date.now();
+let tickReqCount  = 0;
+let tickDurSum    = 0;
+let tickDurCount  = 0;
+let tick2xx       = 0;
+let tick4xx       = 0;
+let tick5xx       = 0;
 
-function pushRing(key, value) {
-  ring[key].push(value);
+function pushRing<K extends keyof Ring>(key: K, value: Ring[K][number]): void {
+  (ring[key] as Ring[K][number][]).push(value);
   if (ring[key].length > RING_SIZE) ring[key].shift();
 }
 
 const startTime = Date.now();
 
-setInterval(() => {
-  const now       = Date.now();
-  const totalMem  = os.totalmem();
-  const freeMem   = os.freemem();
-  const memUsed   = totalMem - freeMem;
-  const memPct    = Math.round((memUsed / totalMem) * 100);
+setInterval((): void => {
+  const now      = Date.now();
+  const totalMem = os.totalmem();
+  const freeMem  = os.freemem();
+  const memUsed  = totalMem - freeMem;
+  const memPct   = Math.round((memUsed / totalMem) * 100);
 
   // CPU delta
-  const curCpu   = process.cpuUsage(prevCpuUsage);
-  const elapsed  = (now - prevCpuTime) * 1000; // µs
-  const cpuPct   = Math.min(100, Math.round(((curCpu.user + curCpu.system) / elapsed) * 100));
-  prevCpuUsage   = process.cpuUsage();
-  prevCpuTime    = now;
+  const curCpu  = process.cpuUsage(prevCpuUsage);
+  const elapsed = (now - prevCpuTime) * 1000; // µs
+  const cpuPct  = Math.min(100, Math.round(((curCpu.user + curCpu.system) / elapsed) * 100));
+  prevCpuUsage  = process.cpuUsage();
+  prevCpuTime   = now;
 
   const avgLatency = tickDurCount > 0 ? Math.round((tickDurSum / tickDurCount) * 1000) : 0;
 
@@ -135,20 +153,18 @@ setInterval(() => {
   tick2xx = 0; tick4xx = 0; tick5xx = 0;
 }, 1000);
 
-// ─────────────────────────────────────────────
 //  MIDDLEWARE
-// ─────────────────────────────────────────────
 app.use(morgan('combined'));
 app.use(express.json());
 
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction): void => {
   activeConnections.inc();
   const start = Date.now();
 
-  res.on('finish', () => {
+  res.on('finish', (): void => {
     const duration = (Date.now() - start) / 1000;
-    const route    = req.route ? req.route.path : req.path;
-    const labels   = { method: req.method, route, status_code: res.statusCode };
+    const route    = req.route ? (req.route.path as string) : req.path;
+    const labels   = { method: req.method, route, status_code: String(res.statusCode) };
 
     httpRequestDuration.observe(labels, duration);
     httpRequestTotal.inc(labels);
@@ -738,7 +754,6 @@ function drawDonut(s2, s4, s5) {
   ].filter(s => s.val > 0);
 
   if (segments.length === 0) {
-    // empty ring
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI*2);
     ctx.arc(cx, cy, ir, 0, Math.PI*2, true);
@@ -759,7 +774,6 @@ function drawDonut(s2, s4, s5) {
     startAngle += sweep;
   }
 
-  // center hole bg
   ctx.beginPath();
   ctx.arc(cx, cy, ir - 2, 0, Math.PI*2);
   ctx.fillStyle = '#0d1117';
@@ -784,7 +798,6 @@ function drawMain(rpsData, latData) {
   drawLine(ctx, rpsData, w, h, '#00e5ff', 'rgba(0,229,255,.08)', 0, maxRps);
   drawLine(ctx, latData, w, h, '#00ff9d', 'rgba(0,255,157,.05)', 0, maxLat);
 
-  // Y-axis labels
   ctx.font = '9px Share Tech Mono';
   ctx.fillStyle = 'rgba(122,155,176,.6)';
   ctx.fillText('RPS', 4, 12);
@@ -848,7 +861,6 @@ const evtSrc = new EventSource('/api/stream');
 evtSrc.addEventListener('tick', e => {
   const d = JSON.parse(e.data);
 
-  // KPI cards
   const rps = d.rps[d.rps.length-1] ?? 0;
   const lat = d.p99[d.p99.length-1] ?? 0;
   const cpu = d.cpu[d.cpu.length-1] ?? 0;
@@ -864,13 +876,11 @@ evtSrc.addEventListener('tick', e => {
   document.getElementById('kpiCpuBar').style.width = cpu + '%';
   document.getElementById('kpiMemBar').style.width = mem + '%';
 
-  // gauges
   document.getElementById('gCpu').style.width = cpu + '%';
   document.getElementById('gCpuPct').textContent = cpu + '%';
   document.getElementById('gMem').style.width = mem + '%';
   document.getElementById('gMemPct').textContent = mem + '%';
 
-  // donut
   const sc = d.statusCounts;
   const tot2 = sc.reduce((a,b) => a + (b['2xx']||0), 0);
   const tot4 = sc.reduce((a,b) => a + (b['4xx']||0), 0);
@@ -882,10 +892,8 @@ evtSrc.addEventListener('tick', e => {
   document.getElementById('leg5xx').textContent = tot5;
   drawDonut(tot2, tot4, tot5);
 
-  // main chart
   drawMain(d.rps, d.p99);
 
-  // system info
   const si = d.sysInfo;
   document.getElementById('syUptime').textContent   = si.uptime;
   document.getElementById('syPlatform').textContent = si.platform;
@@ -899,7 +907,6 @@ evtSrc.addEventListener('request', e => {
   const d = JSON.parse(e.data);
   appendLog(d.ts, d.method, d.path, d.status, d.duration);
 
-  // endpoint tracking
   const key = d.method + ' ' + d.path;
   epCounts[key] = (epCounts[key] || 0) + 1;
   totalReqs++;
@@ -922,10 +929,14 @@ drawDonut(0,0,0);
 </html>`;
 
 //  SSE  (Server-Sent Events — live data stream)
-const sseClients = new Set();
+const sseClients = new Set<Response>();
+
+interface SseResponse extends Response {
+  _isSseConn?: boolean;
+}
 
 // Broadcast every tick
-setInterval(() => {
+setInterval((): void => {
   if (sseClients.size === 0) return;
 
   const mem = process.memoryUsage();
@@ -952,15 +963,15 @@ setInterval(() => {
   }
 }, 1000);
 
-// Utility formatters
-function fmtBytes(b) {
+//  UTILITY FORMATTERS
+function fmtBytes(b: number): string {
   if (b < 1024)       return b + ' B';
   if (b < 1048576)    return (b / 1024).toFixed(1) + ' KB';
   if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
   return (b / 1073741824).toFixed(2) + ' GB';
 }
 
-function fmtDuration(sec) {
+function fmtDuration(sec: number): string {
   const d = Math.floor(sec / 86400);
   const h = Math.floor((sec % 86400) / 3600);
   const m = Math.floor((sec % 3600) / 60);
@@ -973,29 +984,32 @@ function fmtDuration(sec) {
 //  ROUTES
 
 // Dashboard
-app.get('/', (req, res) => {
+app.get('/', (_req: Request, res: Response): void => {
   res.setHeader('Content-Type', 'text/html');
   res.send(DASHBOARD_HTML);
 });
 
 // SSE endpoint
-app.get('/api/stream', (req, res) => {
-  res.setHeader('Content-Type',  'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection',    'keep-alive');
+app.get('/api/stream', (req: Request, res: SseResponse): void => {
+  res.setHeader('Content-Type',      'text/event-stream');
+  res.setHeader('Cache-Control',     'no-cache');
+  res.setHeader('Connection',        'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
   res.write(': connected\n\n');
   sseClients.add(res);
-
-  // Emit request events via closure (attached to this SSE connection)
   res._isSseConn = true;
 
-  req.on('close', () => { sseClients.delete(res); });
+  req.on('close', (): void => { sseClients.delete(res); });
 });
 
 // Broadcast request event to all SSE clients
-function broadcastRequest(method, urlPath, status, duration) {
+function broadcastRequest(
+  method:   string,
+  urlPath:  string,
+  status:   number,
+  duration: number,
+): void {
   if (sseClients.size === 0) return;
   const payload = JSON.stringify({
     ts:       Date.now(),
@@ -1010,10 +1024,10 @@ function broadcastRequest(method, urlPath, status, duration) {
   }
 }
 
-// Hook into the existing middleware to also broadcast requests
-app.use((req, res, next) => {
+// Hook into existing middleware to also broadcast requests
+app.use((req: Request, res: Response, next: NextFunction): void => {
   const start = Date.now();
-  res.on('finish', () => {
+  res.on('finish', (): void => {
     if (req.path === '/api/stream' || req.path === '/metrics') return;
     broadcastRequest(req.method, req.path, res.statusCode, (Date.now() - start) / 1000);
   });
@@ -1021,7 +1035,7 @@ app.use((req, res, next) => {
 });
 
 // Health check
-app.get('/health', (req, res) => {
+app.get('/health', (_req: Request, res: Response): void => {
   res.status(200).json({
     status:    'healthy',
     timestamp: new Date().toISOString(),
@@ -1030,7 +1044,7 @@ app.get('/health', (req, res) => {
 });
 
 // Readiness
-app.get('/ready', (req, res) => {
+app.get('/ready', (_req: Request, res: Response): void => {
   res.status(200).json({
     status:    'ready',
     timestamp: new Date().toISOString(),
@@ -1038,13 +1052,13 @@ app.get('/ready', (req, res) => {
 });
 
 // Prometheus metrics
-app.get('/metrics', async (req, res) => {
+app.get('/metrics', async (_req: Request, res: Response): Promise<void> => {
   res.set('Content-Type', register.contentType);
   res.end(await register.metrics());
 });
 
 // API status (richer)
-app.get('/api/status', (req, res) => {
+app.get('/api/status', (_req: Request, res: Response): void => {
   const mem = process.memoryUsage();
   res.json({
     status:    'ok',
@@ -1056,11 +1070,11 @@ app.get('/api/status', (req, res) => {
       rss:       fmtBytes(mem.rss),
       external:  fmtBytes(mem.external),
     },
-    cpu:       process.cpuUsage(),
-    platform:  process.platform,
-    arch:      process.arch,
+    cpu:         process.cpuUsage(),
+    platform:    process.platform,
+    arch:        process.arch,
     nodeVersion: process.version,
-    env:       process.env.NODE_ENV || 'development',
+    env:         process.env.NODE_ENV || 'development',
     ring: {
       rps: ring.rps.slice(-5),
       p99: ring.p99.slice(-5),
@@ -1071,14 +1085,14 @@ app.get('/api/status', (req, res) => {
 });
 
 // Slow endpoint (latency testing)
-app.get('/api/slow', async (req, res) => {
+app.get('/api/slow', async (_req: Request, res: Response): Promise<void> => {
   const delay = Math.random() * 2000;
-  await new Promise(resolve => setTimeout(resolve, delay));
+  await new Promise<void>(resolve => setTimeout(resolve, delay));
   res.json({ message: 'Slow endpoint', delay: `${delay.toFixed(0)}ms` });
 });
 
 // Echo POST
-app.post('/api/data', (req, res) => {
+app.post('/api/data', (req: Request, res: Response): void => {
   res.status(201).json({
     message:   'Data received',
     data:      req.body,
@@ -1087,25 +1101,25 @@ app.post('/api/data', (req, res) => {
 });
 
 // Error injection (for testing)
-app.get('/api/error', (req, res) => {
+app.get('/api/error', (_req: Request, res: Response): void => {
   res.status(500).json({ error: 'Intentional error for testing' });
 });
 
 // 404 JSON
-app.use((req, res) => {
-  res.status(404).json({ error: 'Not Found', path: req.path });
+app.use((_req: Request, res: Response): void => {
+  res.status(404).json({ error: 'Not Found', path: _req.path });
 });
 
 // Error handler
-app.use((err, req, res, _next) => {
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction): void => {
   console.error('Error:', err);
   res.status(500).json({ error: 'Internal Server Error', message: err.message });
 });
 
 //  SERVER STARTUP
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', (): void => {
   console.log('='.repeat(70));
-  console.log('🚀  DevOps Application v2.0.0');
+  console.log('🚀  DevOps Application v2.0.0 (TypeScript)');
   console.log('='.repeat(70));
   console.log(`📍  Server   : http://0.0.0.0:${PORT}`);
   console.log(`📊  Dashboard: http://0.0.0.0:${PORT}/`);
@@ -1116,16 +1130,19 @@ server.listen(PORT, '0.0.0.0', () => {
 });
 
 // Graceful shutdown
-const shutdown = (signal) => {
+const shutdown = (signal: string): void => {
   console.log(`\n${signal} received — graceful shutdown…`);
-  server.close(() => {
+  server.close((): void => {
     console.log('✅ HTTP server closed');
     process.exit(0);
   });
-  setTimeout(() => { console.error('⚠️  Forced shutdown'); process.exit(1); }, 10000);
+  setTimeout((): void => {
+    console.error('⚠️  Forced shutdown');
+    process.exit(1);
+  }, 10000);
 };
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT',  () => shutdown('SIGINT'));
+process.on('SIGTERM', (): void => shutdown('SIGTERM'));
+process.on('SIGINT',  (): void => shutdown('SIGINT'));
 
-module.exports = app;
+export default app;

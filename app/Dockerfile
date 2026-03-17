@@ -1,22 +1,34 @@
-# /app/Dockerfile
+#  Stage 1: Build 
+FROM node:18-alpine AS builder
 
-# Use official Node.js LTS image
+WORKDIR /build
+
+# Copy dependency files first (cache-friendly)
+COPY package*.json tsconfig.json ./
+
+# Install ALL dependencies (including devDependencies for tsc)
+RUN npm install
+
+# Copy source
+COPY src ./src
+
+# Compile TypeScript → JavaScript
+RUN npm run build
+
+# Stage 2: Runtime 
 FROM node:18-alpine
 
 # Create non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# Set working directory
 WORKDIR /app
 
-# Copy dependency files first (cache-friendly)
+# Copy dependency manifest and install production deps only
 COPY package*.json ./
-
-# Install production dependencies
 RUN npm install --production
 
-# Copy full app source
-COPY . .
+# Copy compiled output from builder stage
+COPY --from=builder /build/dist ./dist
 
 # Fix permissions
 RUN chown -R appuser:appgroup /app
@@ -27,5 +39,5 @@ USER appuser
 # Expose application port
 EXPOSE 3000
 
-# Start application
-CMD ["node", "src/index.js"]
+# Start compiled application
+CMD ["node", "dist/index.js"]

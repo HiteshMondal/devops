@@ -2,6 +2,5 @@ node_modules
 .git
 .gitlab
 .gitignore
-Dockerfile
 .env*
 README.md

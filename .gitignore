@@ -130,3 +130,14 @@ config-demo
 
 # ArgoCD
 #*generated/
+
+# Pulumi state & generated files
+.pulumi/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Never commit secret state files
+*.secret
+Pulumi.*.yaml.bak
