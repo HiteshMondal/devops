@@ -93,54 +93,75 @@ print_kv "Supports"     "Minikube  Kind  K3s  K8s  EKS  GKE  AKS  MicroK8s  |  T
 print_divider
 
 # LOAD & VALIDATE .env
-print_subsection "Loading Environment Configuration"
+print_subsection "Environment Configuration"
 
 ENV_FILE="$PWD/.env"
-if [[ -f "$ENV_FILE" ]]; then
-    set -a
-    source "$ENV_FILE"
-    set +a
 
-    # Check for quoted numeric values
-    if grep -qE '^(REPLICAS|APP_PORT|MIN_REPLICAS|MAX_REPLICAS)=["'\'']' "$PROJECT_ROOT/.env"; then
-        print_warning "Numeric values should NOT be quoted in .env"
-        echo ""
-        echo -e "  ${BOLD}${YELLOW}Found quoted numeric values:${RESET}"
-        grep -E '^(REPLICAS|APP_PORT|MIN_REPLICAS|MAX_REPLICAS)=["'\'']' "$PROJECT_ROOT/.env" \
-            | sed "s/^/     ${YELLOW}/" | sed "s/$/${RESET}/" || true
-        echo ""
-        echo -e "  ${DIM}Correct format:${RESET}"
-        echo -e "     ${ACCENT_CMD}REPLICAS=2${RESET}     ${DIM}(not REPLICAS=\"2\")${RESET}"
-        echo -e "     ${ACCENT_CMD}APP_PORT=3000${RESET}  ${DIM}(not APP_PORT='3000')${RESET}"
-        echo ""
-    else
-        print_success "Numeric values are correctly unquoted"
+# FILE CHECK
+if [[ ! -f "$ENV_FILE" ]]; then
+    print_error ".env file not found"
+    echo ""
+    print_info "Create it using:"
+    print_cmd "" "cp -n dotenv_example .env"
+    echo ""
+    exit 1
+fi
+
+print_success ".env file detected"
+
+# LOAD
+set -a
+source "$ENV_FILE"
+set +a
+
+print_step "Validating .env..."
+
+# VALIDATION
+required_vars=("APP_NAME" "NAMESPACE" "DOCKERHUB_USERNAME" "DOCKER_IMAGE_TAG" "APP_PORT" "REPLICAS")
+missing_vars=()
+invalid_numeric=()
+
+for var in "${required_vars[@]}"; do
+    value="${!var:-}"
+
+    # Missing check
+    if [[ -z "$value" ]]; then
+        missing_vars+=("$var")
     fi
 
-    # Check for required variables
-    required_vars=("APP_NAME" "NAMESPACE" "DOCKERHUB_USERNAME" "DOCKER_IMAGE_TAG" "APP_PORT" "REPLICAS")
-    missing_vars=()
-
-    for var in "${required_vars[@]}"; do
-        if ! grep -q "^${var}=" "$PROJECT_ROOT/.env"; then
-            missing_vars+=("$var")
+    # Numeric validation (no quotes / must be integer)
+    if [[ "$var" =~ ^(APP_PORT|REPLICAS|MIN_REPLICAS|MAX_REPLICAS)$ ]]; then
+        if [[ -n "$value" && ! "$value" =~ ^[0-9]+$ ]]; then
+            invalid_numeric+=("$var=$value")
         fi
-    done
+    fi
+done
 
+echo ""
+
+#  RESULTS 
+if [[ ${#missing_vars[@]} -eq 0 && ${#invalid_numeric[@]} -eq 0 ]]; then
+    print_success "Configuration valid"
+else
     if [[ ${#missing_vars[@]} -gt 0 ]]; then
-        print_warning "Missing required variables in .env:"
+        print_error "Missing variables:"
         for var in "${missing_vars[@]}"; do
-            echo -e "     ${BOLD}${RED}*${RESET}  ${BOLD}${var}${RESET}"
+            echo -e "     ${RED}•${RESET} ${BOLD}${var}${RESET}"
         done
         echo ""
-    else
-        print_success "All required variables are present"
     fi
-else
-    print_error ".env file not found!"
+
+    if [[ ${#invalid_numeric[@]} -gt 0 ]]; then
+        print_warning "Invalid numeric values (must be unquoted integers):"
+        for entry in "${invalid_numeric[@]}"; do
+            echo -e "     ${YELLOW}•${RESET} ${entry}"
+        done
+        echo ""
+        print_info "Example:"
+        echo -e "     ${ACCENT_CMD}APP_PORT=3000${RESET}   ${DIM}(not \"3000\")${RESET}"
+    fi
     echo ""
-    print_info "Create a .env file in the project root."
-    print_info "Open ${BOLD}dotenv_example${RESET} to see the required configuration."
+    print_info "Fix the above issues and re-run"
     exit 1
 fi
 
