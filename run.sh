@@ -292,8 +292,25 @@ detect_k8s_cluster() {
     print_subsection "Detecting Kubernetes Cluster"
 
     if ! kubectl cluster-info >/dev/null 2>&1; then
-        print_error "Cannot connect to Kubernetes cluster"
-        print_info "Ensure kubeconfig is configured and the cluster is running"
+        print_error "Kubernetes cluster is not reachable"
+        echo ""
+        print_info "Try one of the following:"
+        echo ""
+        echo -e "  ${BOLD}Minikube:${RESET}"
+        echo -e "     minikube start"
+        echo -e "     kubectl config use-context minikube"
+        echo ""
+        echo -e "  ${BOLD}Kind:${RESET}"
+        echo -e "     kind get clusters"
+        echo -e "     kind delete cluster   ${DIM}# if cluster is broken${RESET}"
+        echo -e "     kind create cluster"
+        echo -e "     kubectl cluster-info --context kind-kind"
+        echo ""
+        echo -e "  ${BOLD}Check contexts:${RESET}"
+        echo -e "     kubectl config get-contexts"
+        echo -e "     kubectl config use-context <name>"
+        echo ""
+        print_info "Then re-run the script"
         exit 1
     fi
 
@@ -369,11 +386,44 @@ setup_local_cluster() {
             ;;
         kind)
             require_command kind "https://kind.sigs.k8s.io/docs/user/quick-start/"
+
+            {  # wrap local variables in a block
+                local node_container
+                node_container=$(docker ps --format '{{.Names}}' | grep kind-control-plane || true)
+
+                if [[ -z "$node_container" ]]; then
+                    print_step "Creating Kind cluster..."
+
+                    cat > "$WORKDIR/kind-config.yaml" <<-EOF
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 30080
+      - containerPort: 30300
+        hostPort: 30300
+      - containerPort: 30900
+        hostPort: 30900
+      - containerPort: 30430
+        hostPort: 30430
+      - containerPort: 80
+        hostPort: 8081
+      - containerPort: 443
+        hostPort: 8443
+EOF
+
+                    kind create cluster --config "$WORKDIR/kind-config.yaml"
+                else
+                    print_success "Kind cluster already running"
+                fi
+            }
+
             if [[ "${INGRESS_ENABLED:-true}" == "true" ]]; then
                 if ! kubectl get pods -n ingress-nginx >/dev/null 2>&1; then
-                    print_step "Installing NGINX Ingress Controller for Kind..."
+                    print_step "Installing NGINX Ingress Controller..."
                     kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-                    print_step "Waiting for Ingress Controller to become ready..."
                     kubectl wait --namespace ingress-nginx \
                         --for=condition=ready pod \
                         --selector=app.kubernetes.io/component=controller \

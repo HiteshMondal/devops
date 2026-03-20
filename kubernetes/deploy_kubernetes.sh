@@ -97,6 +97,66 @@ detect_k8s_distribution() {
     print_kv "Ingress Class" "${K8S_INGRESS_CLASS}"
 }
 
+#  KIND SUPPORT
+ensure_kind_cluster() {
+    if [[ "${K8S_DISTRIBUTION}" != "kind" ]]; then
+        return
+    fi
+
+    print_subsection "Ensuring Kind Cluster"
+
+    require_command kind "https://kind.sigs.k8s.io/docs/user/quick-start/"
+
+    local node_container
+    node_container=$(docker ps --format '{{.Names}}' | grep kind-control-plane || true)
+
+    if [[ -z "$node_container" ]]; then
+        print_step "Creating Kind cluster with port mappings..."
+
+        cat > "/tmp/kind-config.yaml" <<EOF
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 30080
+      - containerPort: 30300
+        hostPort: 30300
+      - containerPort: 30900
+        hostPort: 30900
+      - containerPort: 30430
+        hostPort: 30430
+      - containerPort: 80
+        hostPort: 8081
+      - containerPort: 443
+        hostPort: 8443
+EOF
+
+        kind create cluster --config /tmp/kind-config.yaml
+        print_success "Kind cluster created"
+    else
+        print_success "Kind cluster already running"
+    fi
+
+    print_subsection "Setting up Kind Ingress"
+
+    if ! kubectl get pods -n ingress-nginx >/dev/null 2>&1; then
+        print_step "Installing NGINX Ingress..."
+
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+
+        kubectl wait --namespace ingress-nginx \
+            --for=condition=ready pod \
+            --selector=app.kubernetes.io/component=controller \
+            --timeout=120s || true
+
+        print_success "Ingress ready"
+    else
+        print_success "Ingress already installed"
+    fi
+}
+
 get_access_url() {
     local service_name="$1"
     local namespace="$2"
@@ -117,7 +177,11 @@ get_access_url() {
             local node_port
             node_port=$(kubectl get svc "$service_name" -n "$namespace" \
                 -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-            [[ -n "$node_port" ]] && echo "http://localhost:$node_port" || echo "port-forward-required"
+            if [[ -n "$node_port" ]]; then
+                echo "http://localhost:$node_port"
+            else
+                echo "port-forward-required"
+            fi
             ;;
         k3s)
             local external_ip node_ip node_port
@@ -313,6 +377,7 @@ deploy_kubernetes() {
     echo ""
 
     detect_k8s_distribution
+    ensure_kind_cluster
     validate_required_vars
 
     : "${REPLICAS:=2}"
