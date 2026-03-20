@@ -147,6 +147,63 @@ curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip
 unzip awscliv2.zip
 sudo ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
 
+#############################################################
+# OPTIONAL: LIGHTWEIGHT GUI (LXDE)
+#############################################################
+echo " Optional: Lightweight Desktop (LXDE)"
+echo ""
+echo "Adds a minimal GUI (mouse, clipboard, terminal)"
+echo "Recommended for VM usage (VirtualBox, etc.)"
+echo ""
+echo "1) Install LXDE"
+echo "2) Skip (CLI only)"
+echo ""
+
+read -rp "Enter choice [1-2]: " gui_choice
+
+case "$gui_choice" in
+    1)
+        echo ""
+        echo "Installing LXDE..."
+        echo ""
+        sudo apt update
+        sudo apt install -y lxde-core lxterminal lightdm
+        echo ""
+        echo "Configuring display manager..."
+        sudo dpkg-reconfigure lightdm
+        echo ""
+        echo "Enabling GUI services..."
+        sudo systemctl enable lightdm
+        sudo systemctl start lightdm
+        echo ""
+        echo " LXDE Installation Complete"
+        echo ""
+        echo "System reboot is required to start GUI properly"
+        echo ""
+
+        read -rp "Reboot now? [Y/n]: " reboot_choice
+        reboot_choice="${reboot_choice:-Y}"
+
+        if [[ "$reboot_choice" =~ ^[Yy]$ ]]; then
+            echo "Rebooting..."
+            sleep 2
+            sudo reboot
+        else
+            echo ""
+            echo "You can reboot later using:"
+            echo "sudo reboot"
+        fi
+        ;;
+    2)
+        echo ""
+        echo "Skipping GUI installation (CLI mode)"
+        ;;
+    *)
+        echo ""
+        echo "Invalid choice — skipping GUI installation"
+        ;;
+esac
+
 echo ""
 echo "========================================"
 echo " Installation Complete"
