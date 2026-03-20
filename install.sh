@@ -1,0 +1,153 @@
+#!/bin/bash
+
+set -e
+
+clear
+echo "========================================"
+echo " DevOps Tools Installer"
+echo "========================================"
+echo ""
+echo "Select your OS:"
+echo "1) Ubuntu"
+echo "2) Debian"
+echo ""
+
+read -rp "Enter choice [1-2]: " choice
+
+case "$choice" in
+    1) OS="ubuntu" ;;
+    2) OS="debian" ;;
+    *) echo "Invalid choice"; exit 1 ;;
+esac
+
+echo ""
+echo "Selected OS: $OS"
+echo ""
+
+# Root check
+if [ "$EUID" -eq 0 ]; then
+    HAS_ROOT=true
+else
+    HAS_ROOT=false
+fi
+
+#############################################################
+# Install Docker 
+#############################################################
+
+if [[ "$OS" == "debian" ]]; then
+
+# Debian
+sudo apt update
+sudo apt install ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/debian
+Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
+Components: stable
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+
+sudo apt update
+
+sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl status docker
+sudo systemctl start docker
+sudo docker run hello-world
+
+elif [[ "$OS" == "ubuntu" ]]; then
+
+# Ubuntu
+sudo apt update
+sudo apt install ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+
+sudo apt update
+sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl status docker
+sudo systemctl start docker
+sudo docker run hello-world
+
+fi
+
+#############################################################
+# Install Kubernetes
+#############################################################
+
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl.sha256"
+echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+
+# Root vs Non-root handling
+if [ "$HAS_ROOT" = true ]; then
+    sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+else
+    echo "No root access — installing kubectl to ~/.local/bin"
+
+    chmod +x kubectl
+    mkdir -p ~/.local/bin
+    mv ./kubectl ~/.local/bin/kubectl
+
+    echo ""
+    echo "Add this to your shell config (~/.bashrc or ~/.zshrc):"
+    echo 'export PATH="$HOME/.local/bin:$PATH"'
+fi
+
+# Minikube
+curl -LO https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
+sudo install minikube-linux-amd64 /usr/local/bin/minikube && rm minikube-linux-amd64
+
+# Kind
+[ $(uname -m) = x86_64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-amd64
+[ $(uname -m) = aarch64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-arm64
+chmod +x ./kind
+sudo mv ./kind /usr/local/bin/kind
+
+#############################################################
+# Terraform
+#############################################################
+
+sudo apt-get update && sudo apt-get install -y gnupg software-properties-common
+wget -O- https://apt.releases.hashicorp.com/gpg | \
+gpg --dearmor | \
+sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
+
+gpg --no-default-keyring \
+--keyring /usr/share/keyrings/hashicorp-archive-keyring.gpg \
+--fingerprint
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(grep -oP '(?<=UBUNTU_CODENAME=).*' /etc/os-release || lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+
+sudo apt update
+sudo apt-get install terraform
+
+#############################################################
+# AWS CLI
+#############################################################
+
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
+
+echo ""
+echo "========================================"
+echo " Installation Complete"
+echo "========================================"
