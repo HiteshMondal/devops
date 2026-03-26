@@ -1,0 +1,25 @@
+# configs/dataset.yaml — Dataset source and schema configuration
+
+source:
+  type:   csv                    # csv | parquet | json | lakefs
+  path:   data/raw/dataset.csv
+
+  # LakeFS source (used when type: lakefs)
+  lakefs:
+    endpoint:    http://localhost:8000
+    repository:  mlops-data
+    branch:      main
+    path:        raw/dataset.csv
+
+schema:
+  target_column:   target
+  id_column:       id             # set to null if none
+  drop_columns:    []
+  numeric_columns: []             # empty = auto-detect
+  categorical_columns: []         # empty = auto-detect
+
+validation:
+  check_nulls:        true
+  null_threshold:     0.2         # max allowed null ratio per column
+  check_duplicates:   true
+  min_rows:           100

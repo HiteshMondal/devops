@@ -308,7 +308,7 @@ metadata:
 data:
   APP_NAME: "${APP_NAME}"
   APP_PORT: "${APP_PORT}"
-  NODE_ENV: "${NODE_ENV:-production}"
+  APP_ENV: "${APP_ENV:-production}"
   LOG_LEVEL: "${LOG_LEVEL:-info}"
   DB_HOST: "${DB_HOST:-localhost}"
   DB_PORT: "${DB_PORT:-5432}"

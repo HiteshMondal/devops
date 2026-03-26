@@ -51,11 +51,11 @@ spec:
             configMapKeyRef:
               name: devops-app-config
               key: APP_PORT
-        - name: NODE_ENV
+        - name: APP_ENV
           valueFrom:
             configMapKeyRef:
               name: devops-app-config
-              key: NODE_ENV
+              key: APP_ENV
         - name: LOG_LEVEL
           valueFrom:
             configMapKeyRef:

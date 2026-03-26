@@ -1,0 +1,69 @@
+# dvc.yaml — DVC pipeline stages
+# Run full pipeline:   dvc repro
+# Run single stage:    dvc repro <stage>
+# Visualize DAG:       dvc dag
+
+stages:
+
+  # ── 1. DATA PREPARATION ────────────────────────────────────────────────────
+  prepare:
+    cmd: python src/main.py prepare
+    deps:
+      - src/main.py
+      - data/raw
+    params:
+      - params.yaml:
+          - data.raw_path
+          - data.processed_path
+          - data.test_size
+          - data.random_seed
+          - data.target_column
+    outs:
+      - data/processed
+
+  # ── 2. FEATURE ENGINEERING ─────────────────────────────────────────────────
+  featurize:
+    cmd: python src/main.py featurize
+    deps:
+      - src/main.py
+      - data/processed
+    params:
+      - params.yaml:
+          - features.scaling
+          - features.encoding
+          - features.max_features
+          - data.features_path
+    outs:
+      - data/features
+
+  # ── 3. TRAINING ────────────────────────────────────────────────────────────
+  train:
+    cmd: python src/main.py train
+    deps:
+      - src/main.py
+      - data/features
+    params:
+      - params.yaml:
+          - train
+    outs:
+      - models/artifacts/model.pkl
+    metrics:
+      - models/artifacts/train_metrics.json:
+          cache: false
+
+  # ── 4. EVALUATION ──────────────────────────────────────────────────────────
+  evaluate:
+    cmd: python src/main.py evaluate
+    deps:
+      - src/main.py
+      - models/artifacts/model.pkl
+      - data/features
+    params:
+      - params.yaml:
+          - evaluate
+    metrics:
+      - models/artifacts/eval_metrics.json:
+          cache: false
+    plots:
+      - models/artifacts/confusion_matrix.json:
+          cache: false

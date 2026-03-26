@@ -1,6 +1,6 @@
 #!/bin/bash
 ###############################################################################
-# clean_reset_all.sh
+# reset.sh
 #
 # Purpose:
 #   Selective or full cleanup and reset of local DevOps tooling.

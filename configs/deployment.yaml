@@ -1,0 +1,33 @@
+# configs/deployment.yaml — Model serving and deployment configuration
+
+model:
+  registry_path:   models/artifacts/model.pkl
+  name:            mlops-model
+  version:         "1.0.0"
+
+serving:
+  host:            0.0.0.0
+  port:            8080
+  workers:         2
+  timeout:         30            # seconds
+
+  # Input/output schema for the serving endpoint
+  input_schema:
+    type:    json
+    fields:  []                  # empty = accept any JSON object
+
+  output_schema:
+    prediction:    float
+    probability:   float
+    label:         string
+
+monitoring:
+  enable_drift_detection:  true
+  drift_check_interval:    3600  # seconds
+  evidently_enabled:       true
+  whylabs_enabled:         false  # set true and add WHYLABS_API_KEY to .env
+
+thresholds:
+  max_prediction_latency_ms:  500
+  min_confidence:             0.5
+  drift_alert_threshold:      0.1

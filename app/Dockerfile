@@ -1,43 +1,57 @@
-#  Stage 1: Build 
-FROM node:18-alpine AS builder
+# app/Dockerfile
+# Multi-stage build — keeps the final image lean
+# Compatible with Docker and Podman
+
+# Stage 1: dependency builder
+FROM python:3.11-slim AS builder
 
 WORKDIR /build
 
-# Copy dependency files first (cache-friendly)
-COPY package*.json tsconfig.json ./
+# System deps needed to compile any C-extension wheels
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install ALL dependencies (including devDependencies for tsc)
-RUN npm install
+COPY requirements.txt .
 
-# Copy source
-COPY src ./src
+RUN pip install --upgrade pip \
+    && pip install --prefix=/install --no-cache-dir -r requirements.txt
 
-# Compile TypeScript → JavaScript
-RUN npm run build
+# Stage 2: runtime image
+FROM python:3.11-slim AS runtime
 
-# Stage 2: Runtime 
-FROM node:18-alpine
-
-# Create non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# Non-root user for security
+RUN groupadd --gid 1001 appgroup \
+    && useradd  --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser
 
 WORKDIR /app
 
-# Copy dependency manifest and install production deps only
-COPY package*.json ./
-RUN npm install --production
+# Copy installed packages from builder
+COPY --from=builder /install /usr/local
 
-# Copy compiled output from builder stage
-COPY --from=builder /build/dist ./dist
+# Copy application source
+COPY src/ ./src/
 
-# Fix permissions
-RUN chown -R appuser:appgroup /app
-
-# Switch to non-root user
+# Switch to non-root
 USER appuser
 
-# Expose application port
+# Environment defaults (overridden by Kubernetes ConfigMap / Secrets)
+ENV APP_NAME=devops-aiml-app \
+    APP_PORT=3000 \
+    APP_ENV=production \
+    MODEL_NAME=baseline-v1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
 EXPOSE 3000
 
-# Start compiled application
-CMD ["node", "dist/index.js"]
+# Healthcheck (mirrors Kubernetes probe)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:3000/health')"
+
+# Production server — single worker per container (scale via Kubernetes replicas)
+CMD ["uvicorn", "src.main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "3000", \
+     "--workers", "1", \
+     "--log-level", "info"]

@@ -49,7 +49,10 @@ source "${PROJECT_ROOT}/lib/bootstrap.sh"
 : "${GRAFANA_MEMORY_LIMIT:=1Gi}"
 : "${TRIVY_NAMESPACE:=trivy-system}"
 : "${LOKI_NAMESPACE:=loki}"
+: "${EVIDENTLY_ENABLED:=true}"
+: "${WHYLABS_ENABLED:=false}"
 
+export EVIDENTLY_ENABLED WHYLABS_ENABLED
 export TRIVY_NAMESPACE LOKI_NAMESPACE
 export PROMETHEUS_ENABLED PROMETHEUS_NAMESPACE PROMETHEUS_RETENTION PROMETHEUS_STORAGE_SIZE
 export PROMETHEUS_SCRAPE_INTERVAL PROMETHEUS_SCRAPE_TIMEOUT
@@ -340,6 +343,85 @@ substitute_env_vars_to_file() {
     mv "$temp_file" "$dst"
 }
 
+deploy_evidently() {
+    if [[ "${EVIDENTLY_ENABLED}" != "true" ]]; then
+        print_info "Evidently disabled (EVIDENTLY_ENABLED=false)"
+        return 0
+    fi
+ 
+    print_subsection "Deploying Evidently (Drift Detection)"
+ 
+    # Ensure the reports directory exists in the project
+    mkdir -p "${PROJECT_ROOT}/monitoring/evidently/reports"
+ 
+    # Run drift detection as a one-off Python job — no cluster resources needed.
+    # It reads data/processed/, writes HTML + JSON reports locally, and exits.
+    if command -v python3 >/dev/null 2>&1; then
+        print_step "Installing evidently (if missing)..."
+        python3 -m pip install --quiet evidently pandas pyyaml \
+            || print_warning "evidently pip install had issues — continuing"
+ 
+        print_step "Running drift detection..."
+        if python3 "${PROJECT_ROOT}/monitoring/evidently/drift_detection.py"; then
+            print_success "Evidently drift report generated"
+            print_kv "Reports dir" "${PROJECT_ROOT}/monitoring/evidently/reports"
+        else
+            print_warning "Evidently drift detection finished with warnings (no reference data yet?)"
+        fi
+    else
+        print_warning "python3 not found — skipping Evidently"
+        print_info "Install Python 3 and re-run, or run manually:"
+        print_cmd "" "python3 monitoring/evidently/drift_detection.py"
+    fi
+}
+ 
+# ── WHYLABS ──────────────────────────────────────────────────────────────────
+deploy_whylabs() {
+    if [[ "${WHYLABS_ENABLED}" != "true" ]]; then
+        print_info "WhyLabs disabled (WHYLABS_ENABLED=false)"
+        print_info "Set WHYLABS_ENABLED=true and add WHYLABS_API_KEY / WHYLABS_ORG_ID / WHYLABS_DATASET_ID to .env"
+        return 0
+    fi
+ 
+    print_subsection "Deploying WhyLabs (Continuous Profiling)"
+ 
+    local missing_vars=()
+    for var in WHYLABS_API_KEY WHYLABS_ORG_ID WHYLABS_DATASET_ID; do
+        [[ -z "${!var:-}" ]] && missing_vars+=("$var")
+    done
+ 
+    if [[ ${#missing_vars[@]} -gt 0 ]]; then
+        print_error "Missing WhyLabs credentials:"
+        for v in "${missing_vars[@]}"; do
+            echo -e "     ${RED}•${RESET} ${BOLD}${v}${RESET}"
+        done
+        print_info "Add the above variables to .env and re-run"
+        return 1
+    fi
+ 
+    if command -v python3 >/dev/null 2>&1; then
+        print_step "Installing whylogs (if missing)..."
+        python3 -m pip install --quiet "whylogs[whylabs]" pandas pyyaml \
+            || print_warning "whylogs pip install had issues — continuing"
+ 
+        print_step "Running WhyLabs profiling..."
+        if python3 "${PROJECT_ROOT}/monitoring/whylabs/whylabs.py"; then
+            print_success "WhyLabs profile uploaded"
+            print_access_box "WHYLABS" ">" \
+                "URL:WhyLabs Dashboard:https://hub.whylabsapp.com" \
+                "SEP:" \
+                "CRED:Org ID:${WHYLABS_ORG_ID}" \
+                "CRED:Dataset ID:${WHYLABS_DATASET_ID}"
+        else
+            print_warning "WhyLabs profiling finished with warnings"
+        fi
+    else
+        print_warning "python3 not found — skipping WhyLabs"
+        print_info "Run manually:"
+        print_cmd "" "python3 monitoring/whylabs/whylabs.py"
+    fi
+}
+
 # Main monitoring deployment
 deploy_monitoring() {
     sleep 2
@@ -603,6 +685,10 @@ deploy_monitoring() {
     print_target "Application:  ${BOLD}${APP_NAME}${RESET}  in namespace ${BOLD}${NAMESPACE}${RESET}"
     [[ -d "$WORK_DIR/kube-state-metrics" ]] && print_target "kube-state-metrics"
     echo ""
+    print_divider
+    deploy_evidently
+    print_divider
+    deploy_whylabs
     print_divider
 }
 

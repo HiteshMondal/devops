@@ -165,6 +165,38 @@ else
     exit 1
 fi
 
+PORTS_REGEX='[0-9]{4,5}:[0-9]{4,5}|localhost:[0-9]{4,5}'
+
+MATCHES=$(grep -RniE "$PORTS_REGEX" . \
+    --exclude-dir={.git,node_modules,dist,build,__pycache__,docs,documentation,generated} \
+    --exclude="*.md" \
+    --exclude="*.txt" \
+    --exclude="*.rst")
+
+if [[ -n "$MATCHES" ]]; then
+
+    DUPLICATE_PORTS=$(echo "$MATCHES" \
+        | grep -oE '[0-9]{4,5}' \
+        | sort \
+        | uniq -d)
+
+    if [[ -n "$DUPLICATE_PORTS" ]]; then
+        print_warning "Duplicate host ports detected across runtime configs:"
+
+        for PORT in $DUPLICATE_PORTS
+        do
+            echo
+            echo "Port $PORT used in:"
+            echo "$MATCHES" \
+                | grep ":$PORT" \
+                | cut -d: -f1 \
+                | sort -u
+        done
+
+        echo
+    fi
+fi
+
 # HELPER FUNCTIONS
 is_interactive() {
     [[ -t 0 && -z "${CI:-}" ]]

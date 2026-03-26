@@ -28,7 +28,7 @@ CPU_TARGET_UTILIZATION=70
 MEMORY_TARGET_UTILIZATION=80
 
 # Runtime configuration
-NODE_ENV=production
+APP_ENV=production
 LOG_LEVEL=info
 
 # Resource requests & limits
