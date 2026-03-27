@@ -12,7 +12,7 @@ build_and_push_image() {
 
     # Use DOCKER_IMAGE_TAG from .env consistently — fall back to git short SHA, then latest
     # IMPORTANT: Must match the newTag set in kustomization.yaml overlays
-    local IMAGE_TAG="${DOCKER_IMAGE_TAG:-$(git -C "${PROJECT_ROOT}" rev-parse --short HEAD 2>/dev/null || echo latest)}"
+    local IMAGE_TAG="${DOCKER_IMAGE_TAG:?DOCKER_IMAGE_TAG must be set before build}"
     local IMAGE_NAME="${DOCKERHUB_USERNAME}/${APP_NAME}:${IMAGE_TAG}"
 
     if [[ -n "${DOCKERHUB_PASSWORD:-}" ]]; then

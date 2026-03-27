@@ -1,5 +1,5 @@
 #!/bin/bash
-# monitoring/trivy/trivy.sh — Deploy trivy tools (Trivy with Metrics Exporter)
+# monitoring/trivy/trivy.sh — Deploy Trivy security scanner with Metrics Exporter
 # Usage: ./trivy.sh
 
 set -euo pipefail
@@ -10,43 +10,18 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     return 1 2>/dev/null || exit 1
 fi
 
-# Resolve PROJECT_ROOT once.
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-readonly PROJECT_ROOT
-
-# Load env safely
-ENV_FILE="$PROJECT_ROOT/.env"
-if [[ -f "$ENV_FILE" ]]; then
-    set -a
-    source "$ENV_FILE"
-    set +a
+if [[ -z "${PROJECT_ROOT:-}" ]]; then
+    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 fi
+readonly PROJECT_ROOT
 
 source "$PROJECT_ROOT/lib/bootstrap.sh"
 
-# Defaults
-: "${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}"
-: "${TRIVY_ENABLED:=true}"
-: "${TRIVY_NAMESPACE:=trivy-system}"
-: "${TRIVY_VERSION:=0.57.1}"
-: "${TRIVY_SEVERITY:=HIGH,CRITICAL}"
-: "${TRIVY_SCAN_SCHEDULE:=0 16-22 * * *}"
-: "${TRIVY_CPU_REQUEST:=500m}"
-: "${TRIVY_CPU_LIMIT:=2000m}"
-: "${TRIVY_MEMORY_REQUEST:=512Mi}"
-: "${TRIVY_MEMORY_LIMIT:=2Gi}"
-: "${TRIVY_METRICS_ENABLED:=true}"
-: "${TRIVY_BUILD_IMAGES:=true}"
-: "${TRIVY_IMAGE_TAG:=1.0}"
-: "${TRIVY_METRICS_PORT:=8082}"
+# Load .env only when a parent process has not already exported APP_NAME
+load_env_if_needed
 
-export TRIVY_ENABLED TRIVY_NAMESPACE TRIVY_VERSION TRIVY_SEVERITY TRIVY_SCAN_SCHEDULE
-export TRIVY_IMAGE_TAG DOCKERHUB_USERNAME
-export TRIVY_CPU_REQUEST TRIVY_CPU_LIMIT TRIVY_MEMORY_REQUEST TRIVY_MEMORY_LIMIT
-export TRIVY_METRICS_ENABLED TRIVY_METRICS_PORT
-
-# Prerequisite check
-require_command envsubst "Install gettext package (apt-get install gettext / brew install gettext)"
+# DOCKERHUB_USERNAME is mandatory — fail early with a clear message
+require_env DOCKERHUB_USERNAME "Set DOCKERHUB_USERNAME in .env"
 
 # BUILD & PUSH IMAGES
 build_trivy_images() {
@@ -232,7 +207,6 @@ deploy_trivy() {
         print_success "Initial Trivy scan complete"
     fi
 
-    # Wait properly for the exporter to be ready before testing the metrics endpoint
     if [[ "${TRIVY_METRICS_ENABLED}" == "true" ]]; then
         print_step "Waiting for Trivy exporter to become ready..."
         if kubectl wait --for=condition=ready pod \
@@ -279,14 +253,13 @@ trivy_main() {
 
     print_divider
 
-    #  ACCESS + USAGE INFO
     print_access_box "TRIVY METRICS ACCESS" ">" \
         "NOTE:Three steps to verify Trivy is scraping and exporting metrics" \
         "SEP:" \
         "CMD:Step 1  --  Start port-forward:|kubectl port-forward -n ${TRIVY_NAMESPACE} svc/trivy-exporter ${TRIVY_METRICS_PORT}:${TRIVY_METRICS_PORT}" \
         "CMD:Step 2  --  Query metrics endpoint:|curl http://localhost:${TRIVY_METRICS_PORT}/metrics | grep trivy" \
         "SEP:" \
-        "URL:Step 3  --  Prometheus targets (Status -> Targets):http://localhost:9090/targets"
+        "URL:Step 3  --  Prometheus targets (Status -> Targets):http://localhost:${PROMETHEUS_PORT}/targets"
 
     print_access_box "TRIVY GRAFANA DASHBOARD IDs" ">" \
         "NOTE:In Grafana:  Dashboards  ->  New  ->  Import  ->  paste ID below" \

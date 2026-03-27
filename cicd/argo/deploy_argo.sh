@@ -10,32 +10,7 @@ if [[ -z "${PROJECT_ROOT:-}" ]]; then
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fi
 
-# Load .env if APP_NAME not already set
-if [[ -z "${APP_NAME:-}" ]]; then
-    ENV_FILE="$PROJECT_ROOT/.env"
-    if [[ -f "$ENV_FILE" ]]; then
-        set -a; source "$ENV_FILE"; set +a
-    fi
-fi
-
 source "${PROJECT_ROOT}/lib/bootstrap.sh"
-
-# Defaults
-: "${ARGOCD_NAMESPACE:=argocd}"
-: "${ARGOCD_VERSION:=v2.10.0}"
-: "${ARGOCD_ADMIN_PASSWORD:=}"
-: "${DEPLOY_TARGET:=local}"
-: "${NAMESPACE:=devops-app}"
-: "${APP_NAME:=devops-app}"
-: "${PROMETHEUS_NAMESPACE:=monitoring}"
-: "${LOKI_NAMESPACE:=loki}"
-: "${TRIVY_NAMESPACE:=trivy-system}"
-: "${INGRESS_ENABLED:=true}"
-: "${INGRESS_HOST:=devops-app.local}"
-: "${ARGOCD_SYNC_WAVE_ENABLED:=true}"
-
-ARGOCD_LOCAL_PORT=8080
-export ARGOCD_LOCAL_PORT
 
 ARGOCD_SERVER=""
 ARGOCD_ADMIN_PASS=""

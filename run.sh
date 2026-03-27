@@ -30,7 +30,6 @@ load_libraries() {
     [[ -n "${PROJECT_ROOT:-}" ]] || { echo "FATAL: PROJECT_ROOT not set"; exit 1; }
     source "$PROJECT_ROOT/lib/colors.sh"
     source "$PROJECT_ROOT/lib/logging.sh"
-    source "$PROJECT_ROOT/lib/guards.sh"
 }
 
 load_libraries
@@ -583,6 +582,11 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
     print_section "DEPLOYING TO LOCAL KUBERNETES" ">"
 
     setup_local_cluster
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        export DOCKER_IMAGE_TAG="$(git rev-parse --short HEAD)"
+    else
+        export DOCKER_IMAGE_TAG="local-$(date +%s)"
+    fi
     build_image
 
     if [[ "$DEPLOY_MODE" == "argocd" ]]; then

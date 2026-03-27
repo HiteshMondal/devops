@@ -1,5 +1,5 @@
 #!/bin/bash
-# /monitoring/deploy_monitoring.sh — Universal Monitoring Deployment Script
+# monitoring/deploy_monitoring.sh — Universal Monitoring Deployment Script
 # Works in both environments: ArgoCD and direct
 # Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s
 # Should work and be compatible with all computers
@@ -26,161 +26,14 @@ fi
 readonly PROJECT_ROOT
 source "${PROJECT_ROOT}/lib/bootstrap.sh"
 
-# Defaults
-: "${PROMETHEUS_ENABLED:=true}"
-: "${PROMETHEUS_NAMESPACE:=monitoring}"
-: "${PROMETHEUS_RETENTION:=15d}"
-: "${PROMETHEUS_STORAGE_SIZE:=10Gi}"
-: "${PROMETHEUS_SCRAPE_INTERVAL:=15s}"
-: "${PROMETHEUS_SCRAPE_TIMEOUT:=10s}"
-: "${GRAFANA_ENABLED:=true}"
-: "${GRAFANA_ADMIN_USER:=admin}"
-: "${GRAFANA_ADMIN_PASSWORD:=admin123}"
-: "${GRAFANA_PORT:=3000}"
-: "${GRAFANA_STORAGE_SIZE:=5Gi}"
-: "${DEPLOY_TARGET:=local}"
-: "${PROMETHEUS_CPU_REQUEST:=500m}"
-: "${PROMETHEUS_CPU_LIMIT:=2000m}"
-: "${PROMETHEUS_MEMORY_REQUEST:=1Gi}"
-: "${PROMETHEUS_MEMORY_LIMIT:=4Gi}"
-: "${GRAFANA_CPU_REQUEST:=100m}"
-: "${GRAFANA_CPU_LIMIT:=500m}"
-: "${GRAFANA_MEMORY_REQUEST:=256Mi}"
-: "${GRAFANA_MEMORY_LIMIT:=1Gi}"
-: "${TRIVY_NAMESPACE:=trivy-system}"
-: "${LOKI_NAMESPACE:=loki}"
-: "${EVIDENTLY_ENABLED:=true}"
-: "${WHYLABS_ENABLED:=false}"
-
-export EVIDENTLY_ENABLED WHYLABS_ENABLED
-export TRIVY_NAMESPACE LOKI_NAMESPACE
-export PROMETHEUS_ENABLED PROMETHEUS_NAMESPACE PROMETHEUS_RETENTION PROMETHEUS_STORAGE_SIZE
-export PROMETHEUS_SCRAPE_INTERVAL PROMETHEUS_SCRAPE_TIMEOUT
-export GRAFANA_ENABLED GRAFANA_ADMIN_USER GRAFANA_ADMIN_PASSWORD GRAFANA_PORT GRAFANA_STORAGE_SIZE
-export DEPLOY_TARGET
-export PROMETHEUS_CPU_REQUEST PROMETHEUS_CPU_LIMIT PROMETHEUS_MEMORY_REQUEST PROMETHEUS_MEMORY_LIMIT
-export GRAFANA_CPU_REQUEST GRAFANA_CPU_LIMIT GRAFANA_MEMORY_REQUEST GRAFANA_MEMORY_LIMIT
-
-# CI mode detection
-if [[ "${CI:-false}" == "true" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ -n "${GITLAB_CI:-}" ]]; then
-    CI_MODE=true
-else
-    CI_MODE=false
-fi
-
-# Kubernetes distribution detection
-detect_k8s_distribution() {
-    print_subsection "Detecting Kubernetes Distribution"
-
-    if [[ -n "${K8S_DISTRIBUTION:-}" ]]; then
-        print_info "K8S_DISTRIBUTION already set: ${K8S_DISTRIBUTION} (from parent process)"
-    else
-        local k8s_dist="unknown"
-
-        if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
-            k8s_dist="minikube"
-        elif kubectl get nodes -o json 2>/dev/null \
-                | grep -q '"node.kubernetes.io/exclude-from-external-load-balancers"' \
-             && kubectl get nodes --no-headers 2>/dev/null | grep -q "kind-"; then
-            k8s_dist="kind"
-        elif kubectl get nodes -o json 2>/dev/null | grep -q '"eks.amazonaws.com"'; then
-            k8s_dist="eks"
-        elif kubectl get nodes -o json 2>/dev/null | grep -q '"cloud.google.com/gke"'; then
-            k8s_dist="gke"
-        elif kubectl get nodes -o json 2>/dev/null | grep -q '"kubernetes.azure.com"'; then
-            k8s_dist="aks"
-        elif kubectl get nodes -o json 2>/dev/null | grep -q '"k3s.io"'; then
-            k8s_dist="k3s"
-        elif kubectl get nodes -o json 2>/dev/null | grep -q '"microk8s.io"'; then
-            k8s_dist="microk8s"
-        else
-            kubectl cluster-info 2>/dev/null | grep -q "Kubernetes" && k8s_dist="kubernetes"
-        fi
-
-        export K8S_DISTRIBUTION="$k8s_dist"
-    fi
-
-    print_success "Distribution: ${BOLD}${K8S_DISTRIBUTION}${RESET}"
-
-    case "$K8S_DISTRIBUTION" in
-        minikube|kind|microk8s)
-            export MONITORING_SERVICE_TYPE="NodePort"
-            ;;
-        k3s|eks|gke|aks)
-            export MONITORING_SERVICE_TYPE="LoadBalancer"
-            ;;
-        *)
-            export MONITORING_SERVICE_TYPE="ClusterIP"
-            ;;
-    esac
-
-    print_kv "Service Type" "${MONITORING_SERVICE_TYPE}"
-}
-
-# Return the access URL for a monitoring service.
-get_monitoring_url() {
-    local service_name="$1"
-    local namespace="$2"
-    local default_port="$3"
-
-    case "$K8S_DISTRIBUTION" in
-        minikube)
-            command -v minikube >/dev/null 2>&1 || { echo "minikube-cli-missing"; return; }
-            local minikube_ip node_port
-            minikube_ip=$(minikube ip 2>/dev/null || echo "localhost")
-            node_port=$(kubectl get svc "$service_name" -n "$namespace" \
-                -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-            [[ -n "$node_port" ]] && echo "http://$minikube_ip:$node_port" || echo "port-forward:$default_port"
-            ;;
-        kind)
-            local node_port
-            node_port=$(kubectl get svc "$service_name" -n "$namespace" \
-                -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-            [[ -n "$node_port" ]] && echo "http://localhost:$node_port" || echo "port-forward:$default_port"
-            ;;
-        k3s|microk8s)
-            local external_ip node_ip node_port
-            external_ip=$(kubectl get svc "$service_name" -n "$namespace" \
-                -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-            if [[ -n "$external_ip" ]]; then
-                echo "http://$external_ip:$default_port"
-            else
-                node_ip=$(kubectl get nodes \
-                    -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
-                    2>/dev/null || echo "localhost")
-                node_port=$(kubectl get svc "$service_name" -n "$namespace" \
-                    -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-                [[ -n "$node_port" ]] && echo "http://$node_ip:$node_port" || echo "port-forward:$default_port"
-            fi
-            ;;
-        eks|gke|aks)
-            local external_ip
-            external_ip=$(kubectl get svc "$service_name" -n "$namespace" \
-                -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || \
-                kubectl get svc "$service_name" -n "$namespace" \
-                -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-            [[ -n "$external_ip" ]] && echo "http://$external_ip:$default_port" || echo "pending-loadbalancer"
-            ;;
-        *)
-            echo "port-forward:$default_port"
-            ;;
-    esac
-}
+CI_MODE="$(detect_ci_mode)"
 
 # YAML processing
 substitute_env_vars() {
     local file=$1
     local temp_file="${file}.tmp"
 
-    export APP_NAME NAMESPACE PROMETHEUS_NAMESPACE TRIVY_NAMESPACE LOKI_NAMESPACE
-    export PROMETHEUS_SCRAPE_INTERVAL PROMETHEUS_SCRAPE_TIMEOUT
-    export PROMETHEUS_CPU_REQUEST PROMETHEUS_CPU_LIMIT
-    export PROMETHEUS_MEMORY_REQUEST PROMETHEUS_MEMORY_LIMIT
-    export PROMETHEUS_RETENTION PROMETHEUS_STORAGE_SIZE
-    export GRAFANA_CPU_REQUEST GRAFANA_CPU_LIMIT
-    export GRAFANA_MEMORY_REQUEST GRAFANA_MEMORY_LIMIT
-    export GRAFANA_STORAGE_SIZE GRAFANA_ADMIN_USER GRAFANA_ADMIN_PASSWORD
-    export GRAFANA_PORT DEPLOY_TARGET K8S_DISTRIBUTION MONITORING_SERVICE_TYPE
+    export_template_vars
 
     envsubst < "$file" > "$temp_file"
 
@@ -192,6 +45,25 @@ substitute_env_vars() {
     fi
 
     mv "$temp_file" "$file"
+}
+
+substitute_env_vars_to_file() {
+    local src="$1"
+    local dst="$2"
+    local temp_file="${dst}.tmp"
+
+    export_template_vars
+
+    envsubst < "$src" > "$temp_file"
+
+    if grep -qE '\$\{[A-Z_]+\}' "$temp_file"; then
+        print_warning "Unsubstituted variables in $(basename "$src"):"
+        grep -oE '\$\{[A-Z_]+\}' "$temp_file" | sort -u | head -5 | while read -r var; do
+            echo -e "     ${YELLOW}* ${var}${RESET}"
+        done
+    fi
+
+    mv "$temp_file" "$dst"
 }
 
 # Helm setup
@@ -263,9 +135,7 @@ create_prometheus_configmap() {
 
     print_step "Creating Prometheus ConfigMap"
 
-    export APP_NAME NAMESPACE PROMETHEUS_NAMESPACE TRIVY_NAMESPACE
-    export PROMETHEUS_SCRAPE_INTERVAL PROMETHEUS_SCRAPE_TIMEOUT
-    export DEPLOY_TARGET K8S_DISTRIBUTION
+    export_template_vars
 
     local temp_config="/tmp/prometheus-config-$$.yml"
     envsubst < "$prometheus_yml" > "$temp_config"
@@ -292,7 +162,7 @@ create_alerts_configmap() {
 
     print_step "Creating Prometheus Alerts ConfigMap"
 
-    export APP_NAME NAMESPACE
+    export_template_vars
 
     local temp_alerts="/tmp/alerts-$$.yml"
     envsubst < "$alerts_yml" > "$temp_alerts"
@@ -316,51 +186,21 @@ process_tpl_files() {
     done
 }
 
-substitute_env_vars_to_file() {
-    local src="$1"
-    local dst="$2"
-    local temp_file="${dst}.tmp"
-
-    export APP_NAME NAMESPACE PROMETHEUS_NAMESPACE TRIVY_NAMESPACE LOKI_NAMESPACE
-    export PROMETHEUS_SCRAPE_INTERVAL PROMETHEUS_SCRAPE_TIMEOUT
-    export PROMETHEUS_CPU_REQUEST PROMETHEUS_CPU_LIMIT
-    export PROMETHEUS_MEMORY_REQUEST PROMETHEUS_MEMORY_LIMIT
-    export PROMETHEUS_RETENTION PROMETHEUS_STORAGE_SIZE
-    export GRAFANA_CPU_REQUEST GRAFANA_CPU_LIMIT
-    export GRAFANA_MEMORY_REQUEST GRAFANA_MEMORY_LIMIT
-    export GRAFANA_STORAGE_SIZE GRAFANA_ADMIN_USER GRAFANA_ADMIN_PASSWORD
-    export GRAFANA_PORT DEPLOY_TARGET K8S_DISTRIBUTION MONITORING_SERVICE_TYPE
-
-    envsubst < "$src" > "$temp_file"
-
-    if grep -qE '\$\{[A-Z_]+\}' "$temp_file"; then
-        print_warning "Unsubstituted variables in $(basename "$src"):"
-        grep -oE '\$\{[A-Z_]+\}' "$temp_file" | sort -u | head -5 | while read -r var; do
-            echo -e "     ${YELLOW}* ${var}${RESET}"
-        done
-    fi
-
-    mv "$temp_file" "$dst"
-}
-
 deploy_evidently() {
     if [[ "${EVIDENTLY_ENABLED}" != "true" ]]; then
         print_info "Evidently disabled (EVIDENTLY_ENABLED=false)"
         return 0
     fi
- 
+
     print_subsection "Deploying Evidently (Drift Detection)"
- 
-    # Ensure the reports directory exists in the project
+
     mkdir -p "${PROJECT_ROOT}/monitoring/evidently/reports"
- 
-    # Run drift detection as a one-off Python job — no cluster resources needed.
-    # It reads data/processed/, writes HTML + JSON reports locally, and exits.
+
     if command -v python3 >/dev/null 2>&1; then
         print_step "Installing evidently (if missing)..."
         python3 -m pip install --quiet evidently pandas pyyaml \
             || print_warning "evidently pip install had issues — continuing"
- 
+
         print_step "Running drift detection..."
         if python3 "${PROJECT_ROOT}/monitoring/evidently/drift_detection.py"; then
             print_success "Evidently drift report generated"
@@ -374,22 +214,21 @@ deploy_evidently() {
         print_cmd "" "python3 monitoring/evidently/drift_detection.py"
     fi
 }
- 
-# ── WHYLABS ──────────────────────────────────────────────────────────────────
+
 deploy_whylabs() {
     if [[ "${WHYLABS_ENABLED}" != "true" ]]; then
         print_info "WhyLabs disabled (WHYLABS_ENABLED=false)"
         print_info "Set WHYLABS_ENABLED=true and add WHYLABS_API_KEY / WHYLABS_ORG_ID / WHYLABS_DATASET_ID to .env"
         return 0
     fi
- 
+
     print_subsection "Deploying WhyLabs (Continuous Profiling)"
- 
+
     local missing_vars=()
     for var in WHYLABS_API_KEY WHYLABS_ORG_ID WHYLABS_DATASET_ID; do
         [[ -z "${!var:-}" ]] && missing_vars+=("$var")
     done
- 
+
     if [[ ${#missing_vars[@]} -gt 0 ]]; then
         print_error "Missing WhyLabs credentials:"
         for v in "${missing_vars[@]}"; do
@@ -398,12 +237,12 @@ deploy_whylabs() {
         print_info "Add the above variables to .env and re-run"
         return 1
     fi
- 
+
     if command -v python3 >/dev/null 2>&1; then
         print_step "Installing whylogs (if missing)..."
         python3 -m pip install --quiet "whylogs[whylabs]" pandas pyyaml \
             || print_warning "whylogs pip install had issues — continuing"
- 
+
         print_step "Running WhyLabs profiling..."
         if python3 "${PROJECT_ROOT}/monitoring/whylabs/whylabs.py"; then
             print_success "WhyLabs profile uploaded"
@@ -432,6 +271,9 @@ deploy_monitoring() {
     echo ""
 
     detect_k8s_distribution
+    resolve_k8s_service_config
+    print_success "Distribution: ${BOLD}${K8S_DISTRIBUTION}${RESET}"
+    print_kv "Service Type" "${MONITORING_SERVICE_TYPE}"
 
     if [[ "${PROMETHEUS_ENABLED:-true}" != "true" ]]; then
         print_warning "Prometheus monitoring is disabled (PROMETHEUS_ENABLED=false)"
@@ -443,11 +285,6 @@ deploy_monitoring() {
 
     WORK_DIR="$(mktemp -d /tmp/monitoring-deployment.XXXXXX)"
     readonly WORK_DIR
-
-    mkdir -p \
-      "$WORK_DIR/monitoring" \
-      "$WORK_DIR/prometheus" \
-      "$WORK_DIR/kube-state-metrics"
 
     cleanup_workdir() {
         [[ -n "${WORK_DIR:-}" ]] || return
@@ -464,13 +301,17 @@ deploy_monitoring() {
 
     if [[ -d "$PROJECT_ROOT/monitoring/prometheus_grafana" ]]; then
         cp -r "$PROJECT_ROOT/monitoring/prometheus_grafana/"* "$WORK_DIR/monitoring/" 2>/dev/null || true
-        # Dashboard ConfigMap is excluded — dashboards are imported via Grafana UI.
         rm -f "$WORK_DIR/monitoring/dashboard-configmap.yaml"
         process_tpl_files "$WORK_DIR/monitoring"
         print_success "Rendered prometheus_grafana templates (dashboard ConfigMap excluded)"
     else
         print_warning "prometheus_grafana directory not found"
     fi
+
+    mkdir -p \
+        "$WORK_DIR/monitoring" \
+        "$WORK_DIR/prometheus" \
+        "$WORK_DIR/kube-state-metrics"
 
     if [[ -d "$PROJECT_ROOT/monitoring/prometheus" ]]; then
         cp -r "$PROJECT_ROOT/monitoring/prometheus/"* "$WORK_DIR/prometheus/" 2>/dev/null || true
@@ -552,7 +393,6 @@ deploy_monitoring() {
         print_subsection "Deploying Grafana"
 
         if [[ -f "$WORK_DIR/monitoring/grafana.yaml" ]]; then
-            # Drop any stale dashboard ConfigMaps from previous deploys.
             kubectl delete configmap grafana-dashboards -n "$PROMETHEUS_NAMESPACE" \
                 --ignore-not-found 2>/dev/null || true
             kubectl delete configmap grafana-dashboard-provider -n "$PROMETHEUS_NAMESPACE" \
@@ -583,16 +423,14 @@ deploy_monitoring() {
 
     print_divider
 
-    # ------------------------------------------------------------------
-    #  ACCESS INFO
-    # ------------------------------------------------------------------
+    # ACCESS INFO
     echo ""
     print_section "MONITORING ACCESS" ">"
     print_kv "Distribution" "${K8S_DISTRIBUTION}"
     echo ""
 
     local prometheus_url
-    prometheus_url=$(get_monitoring_url "prometheus" "$PROMETHEUS_NAMESPACE" "9090")
+    prometheus_url=$(get_service_url "prometheus" "$PROMETHEUS_NAMESPACE" "${PROMETHEUS_PORT}")
 
     case "$prometheus_url" in
         port-forward:*)
@@ -611,7 +449,7 @@ deploy_monitoring() {
         minikube-cli-missing)
             print_access_box "PROMETHEUS" ">" \
                 "NOTE:minikube CLI not found — use port-forward to access Prometheus." \
-                "CMD:Port-forward:|kubectl port-forward svc/prometheus 9090:9090 -n ${PROMETHEUS_NAMESPACE}"
+                "CMD:Port-forward:|kubectl port-forward svc/prometheus ${PROMETHEUS_PORT}:${PROMETHEUS_PORT} -n ${PROMETHEUS_NAMESPACE}"
             ;;
         *)
             print_access_box "PROMETHEUS" ">" \
@@ -621,7 +459,7 @@ deploy_monitoring() {
 
     if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
         local grafana_url
-        grafana_url=$(get_monitoring_url "grafana" "$PROMETHEUS_NAMESPACE" "$GRAFANA_PORT")
+        grafana_url=$(get_service_url "grafana" "$PROMETHEUS_NAMESPACE" "$GRAFANA_PORT")
 
         case "$grafana_url" in
             port-forward:*)
@@ -661,7 +499,6 @@ deploy_monitoring() {
         esac
     fi
 
-    # Dashboard import instructions
     print_access_box "GRAFANA DASHBOARDS  --  Import by ID or JSON" ">" \
         "NOTE:-- Kubernetes & Infrastructure  (Dashboards -> New -> Import -> paste ID) --" \
         "CRED:Node Exporter Full:1860" \

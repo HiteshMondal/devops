@@ -227,3 +227,218 @@ print_url_box() {
     [[ -n "$note" ]] && lines+=("NOTE:${note}")
     print_access_box "${title}" ">>" "${lines[@]}"
 }
+
+require_command() {
+    local cmd="$1"
+    local install_hint="${2:-}"
+    if ! command -v "$cmd" &>/dev/null; then
+        print_error "Required command not found: ${BOLD}${cmd}${RESET}"
+        [[ -n "$install_hint" ]] && print_info "Install: ${ACCENT_CMD}${install_hint}${RESET}"
+        exit 1
+    fi
+}
+
+require_env() {
+    local var="$1"
+    local hint="${2:-}"
+    if [[ -z "${!var:-}" ]]; then
+        print_error "Required environment variable not set: ${BOLD}${var}${RESET}"
+        [[ -n "$hint" ]] && print_info "${hint}"
+        exit 1
+    fi
+}
+
+require_file() {
+    local path="$1"
+    local hint="${2:-}"
+    if [[ ! -f "$path" ]]; then
+        print_error "Required file not found: ${BOLD}${path}${RESET}"
+        [[ -n "$hint" ]] && print_info "${hint}"
+        exit 1
+    fi
+}
+
+require_dir() {
+    local path="$1"
+    local hint="${2:-}"
+    if [[ ! -d "$path" ]]; then
+        print_error "Required directory not found: ${BOLD}${path}${RESET}"
+        [[ -n "$hint" ]] && print_info "${hint}"
+        exit 1
+    fi
+}
+
+#  RANDOM NODEPORT 
+random_nodeport() {
+    if command -v shuf >/dev/null 2>&1; then
+        shuf -i 30000-32767 -n 1
+    else
+        echo $(( (RANDOM % 2768) + 30000 ))
+    fi
+}
+
+#  DOCKER IMAGE TAG FROM GIT 
+set_image_tag_from_git() {
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        export DOCKER_IMAGE_TAG
+        DOCKER_IMAGE_TAG="$(git rev-parse --short HEAD)"
+    else
+        export DOCKER_IMAGE_TAG="local-$(date +%s)"
+    fi
+}
+
+#  KUSTOMIZE OVERLAY PATH RESOLVER 
+resolve_overlay_name() {
+    case "${DEPLOY_TARGET:-local}" in
+        local)       echo "local" ;;
+        prod|production) echo "prod" ;;
+        *)
+            print_error "Unknown DEPLOY_TARGET '${DEPLOY_TARGET}'. Valid values: local, prod"
+            exit 1
+            ;;
+    esac
+}
+
+#  CI MODE 
+detect_ci_mode() {
+    if [[ "${CI:-false}" == "true" ]] \
+    || [[ -n "${GITHUB_ACTIONS:-}" ]] \
+    || [[ -n "${GITLAB_CI:-}" ]]; then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
+#  INTERACTIVE CHECK 
+is_interactive() {
+    [[ -t 0 && -z "${CI:-}" ]]
+}
+
+#  SERVICE TYPE / INGRESS CLASS RESOLUTION 
+resolve_k8s_service_config() {
+    case "${K8S_DISTRIBUTION:-kubernetes}" in
+        minikube|kind|microk8s)
+            export K8S_SERVICE_TYPE="NodePort"
+            export K8S_INGRESS_CLASS="nginx"
+            export K8S_SUPPORTS_LOADBALANCER="false"
+            export MONITORING_SERVICE_TYPE="NodePort"
+            ;;
+        k3s)
+            export K8S_SERVICE_TYPE="NodePort"
+            export K8S_INGRESS_CLASS="traefik"
+            export K8S_SUPPORTS_LOADBALANCER="true"
+            export MONITORING_SERVICE_TYPE="LoadBalancer"
+            ;;
+        eks)
+            export K8S_SERVICE_TYPE="LoadBalancer"
+            export K8S_INGRESS_CLASS="alb"
+            export K8S_SUPPORTS_LOADBALANCER="true"
+            export MONITORING_SERVICE_TYPE="LoadBalancer"
+            ;;
+        gke)
+            export K8S_SERVICE_TYPE="LoadBalancer"
+            export K8S_INGRESS_CLASS="gce"
+            export K8S_SUPPORTS_LOADBALANCER="true"
+            export MONITORING_SERVICE_TYPE="LoadBalancer"
+            ;;
+        aks)
+            export K8S_SERVICE_TYPE="LoadBalancer"
+            export K8S_INGRESS_CLASS="azure"
+            export K8S_SUPPORTS_LOADBALANCER="true"
+            export MONITORING_SERVICE_TYPE="LoadBalancer"
+            ;;
+        *)
+            export K8S_SERVICE_TYPE="ClusterIP"
+            export K8S_INGRESS_CLASS="nginx"
+            export K8S_SUPPORTS_LOADBALANCER="false"
+            export MONITORING_SERVICE_TYPE="ClusterIP"
+            ;;
+    esac
+    : "${INGRESS_CLASS:=${K8S_INGRESS_CLASS}}"
+    export INGRESS_CLASS
+}
+
+#  ACCESS URL RESOLUTION 
+get_service_url() {
+    local service_name="$1"
+    local namespace="$2"
+    local default_port="$3"
+
+    case "${K8S_DISTRIBUTION:-kubernetes}" in
+        minikube)
+            if ! command -v minikube >/dev/null 2>&1; then
+                echo "minikube-cli-missing"; return
+            fi
+            local ip node_port
+            ip=$(minikube ip 2>/dev/null || echo "localhost")
+            node_port=$(kubectl get svc "$service_name" -n "$namespace" \
+                -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+            [[ -n "$node_port" ]] && echo "http://$ip:$node_port" \
+                                  || echo "port-forward:$default_port"
+            ;;
+        kind)
+            local node_port
+            node_port=$(kubectl get svc "$service_name" -n "$namespace" \
+                -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+            [[ -n "$node_port" ]] && echo "http://localhost:$node_port" \
+                                  || echo "port-forward:$default_port"
+            ;;
+        k3s|microk8s)
+            local external_ip node_ip node_port
+            external_ip=$(kubectl get svc "$service_name" -n "$namespace" \
+                -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            if [[ -n "$external_ip" ]]; then
+                echo "http://$external_ip:$default_port"; return
+            fi
+            node_ip=$(kubectl get nodes \
+                -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
+                2>/dev/null || echo "localhost")
+            node_port=$(kubectl get svc "$service_name" -n "$namespace" \
+                -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+            [[ -n "$node_port" ]] && echo "http://$node_ip:$node_port" \
+                                  || echo "port-forward:$default_port"
+            ;;
+        eks|gke|aks)
+            local external_ip
+            external_ip=$(kubectl get svc "$service_name" -n "$namespace" \
+                -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || \
+                kubectl get svc "$service_name" -n "$namespace" \
+                -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            [[ -n "$external_ip" ]] && echo "http://$external_ip:$default_port" \
+                                    || echo "pending-loadbalancer"
+            ;;
+        *)
+            local node_ip node_port
+            node_ip=$(kubectl get nodes \
+                -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}' \
+                2>/dev/null || \
+                kubectl get nodes \
+                -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
+                2>/dev/null || echo "localhost")
+            node_port=$(kubectl get svc "$service_name" -n "$namespace" \
+                -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
+            [[ -n "$node_port" ]] && echo "http://$node_ip:$node_port" \
+                                  || echo "port-forward:$default_port"
+            ;;
+    esac
+}
+
+#  CONTAINER RUNTIME DETECTION 
+detect_container_runtime() {
+    if command -v docker >/dev/null 2>&1; then
+        if ! docker info >/dev/null 2>&1; then
+            print_error "Docker daemon is not accessible (permission issue)"
+            print_cmd "Fix with:" "sudo usermod -aG docker $USER && newgrp docker"
+            exit 1
+        fi
+        export CONTAINER_RUNTIME="docker"
+    elif command -v podman >/dev/null 2>&1; then
+        export CONTAINER_RUNTIME="podman"
+    else
+        print_error "Neither Docker nor Podman found"
+        print_url "Install Docker:"  "https://docs.docker.com/get-docker/"
+        print_url "Install Podman:"  "https://podman.io/getting-started/installation"
+        exit 1
+    fi
+}
