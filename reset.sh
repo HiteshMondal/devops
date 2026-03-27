@@ -1,6 +1,6 @@
-#!/usr/bin/env bash
+#!/bin/bash
 ###############################################################################
-# reset.sh
+# clean_reset_all.sh
 #
 # Purpose:
 #   Selective or full cleanup and reset of local DevOps tooling.
@@ -72,6 +72,8 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     return 1 2>/dev/null || exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
 # SELECTION STATE — all off by default
 SEL_APP=false
 SEL_MONITORING=false
@@ -86,14 +88,12 @@ SEL_DOCKER_NETWORK_STATE=false
 SEL_PORTS=false
 SEL_REBOOT=false
 
-# Toggle a named boolean variable between "true" and "false"
-# Uses printf -v for portability — avoids eval
 toggle() {
     local var="$1"
     if [[ "${!var}" == "true" ]]; then
-        printf -v "$var" 'false'
+        printf -v "$var" "false"
     else
-        printf -v "$var" 'true'
+        printf -v "$var" "true"
     fi
 }
 
@@ -112,48 +112,34 @@ show_menu() {
     echo -e "${DIM}${_SEP_LIGHT}${RESET}"
     echo ""
 
-    # Parallel arrays: variable names and display labels
-    local var_names=(
-        "SEL_APP"
-        "SEL_MONITORING"
-        "SEL_LOKI"
-        "SEL_TRIVY"
-        "SEL_ARGOCD"
-        "SEL_GITLAB_RUNNER"
-        "SEL_KUBERNETES"
-        "SEL_MINIKUBE"
-        "SEL_DOCKER_CONTAINERS"
-        "SEL_DOCKER_NETWORK_STATE"
-        "SEL_PORTS"
-        "SEL_REBOOT"
-    )
-    local labels=(
-        "Application           devops-app namespace & workloads"
-        "Monitoring            Prometheus + Grafana (monitoring ns)"
-        "Loki                  Log aggregation (loki namespace)"
-        "Trivy                 Security scanner & exporter (trivy-system ns)"
-        "ArgoCD                argocd namespace + CRDs"
-        "GitLab Runner         Unregister + stop"
-        "Kubernetes            Delete all workloads (keeps cluster)"
-        "Minikube              STOP & DELETE cluster + ~/.minikube"
-        "Docker Containers     Remove ALL containers & networks"
-        "Docker Network State  Wipe internal state (needs root + restart)"
-        "Kill Ports            3000  3001  30001-30003"
-        "Reboot                Restart system after cleanup"
+    local items=(
+        "SEL_APP"                  "Application           devops-app namespace & workloads"
+        "SEL_MONITORING"           "Monitoring            Prometheus + Grafana (monitoring ns)"
+        "SEL_LOKI"                 "Loki                  Log aggregation (loki namespace)"
+        "SEL_TRIVY"                "Trivy                 Security scanner & exporter (trivy-system ns)"
+        "SEL_ARGOCD"               "ArgoCD                argocd namespace + CRDs"
+        "SEL_GITLAB_RUNNER"        "GitLab Runner         Unregister + stop"
+        "SEL_KUBERNETES"           "Kubernetes            Delete all workloads (keeps cluster)"
+        "SEL_MINIKUBE"             "Minikube              STOP & DELETE cluster + ~/.minikube"
+        "SEL_DOCKER_CONTAINERS"    "Docker Containers     Remove ALL containers & networks"
+        "SEL_DOCKER_NETWORK_STATE" "Docker Network State  Wipe internal state (needs root + restart)"
+        "SEL_PORTS"                "Kill Ports            3000  3001  30001-30003"
+        "SEL_REBOOT"               "Reboot                Restart system after cleanup"
     )
 
-    local i
-    for i in "${!var_names[@]}"; do
-        local var="${var_names[$i]}"
-        local label="${labels[$i]}"
+    local i=1
+    for (( idx=0; idx<${#items[@]}; idx+=2 )); do
+        local var="${items[$idx]}"
+        local label="${items[$((idx+1))]}"
         local state="${!var}"
-        local mark
+        local mark pad
         if [[ "$state" == "true" ]]; then
             mark="${BOLD}${BRIGHT_GREEN}[+]${RESET}"
         else
             mark="${DIM}[ ]${RESET}"
         fi
-        printf "    %s  ${BOLD}${CYAN}%2d)${RESET}  %s\n" "$mark" "$((i + 1))" "$label"
+        printf "    %s  ${BOLD}${CYAN}%2d)${RESET}  %s\n" "$mark" "$i" "$label"
+        ((i++))
     done
 
     echo ""
@@ -192,23 +178,14 @@ select_services() {
                 exit 0
                 ;;
             a|A)
-                local var
-                for var in "${items[@]}"; do
-                    printf -v "$var" 'true'
-                done
+                for var in "${items[@]}"; do printf -v "$var" "true"; done
                 ;;
             n|N)
-                local var
-                for var in "${items[@]}"; do
-                    printf -v "$var" 'false'
-                done
+                for var in "${items[@]}"; do printf -v "$var" "false"; done
                 ;;
             "")
                 local count=0
-                local var
-                for var in "${items[@]}"; do
-                    [[ "${!var}" == "true" ]] && count=$((count + 1))
-                done
+                for var in "${items[@]}"; do [[ "${!var}" == "true" ]] && ((count++)) || true; done
                 if [[ "$count" -eq 0 ]]; then
                     echo ""
                     print_warn "Nothing selected. Pick at least one item, or press q to quit."
@@ -220,9 +197,9 @@ select_services() {
             *)
                 local num="$choice"
                 if [[ "$num" =~ ^[0-9]+$ ]] && (( num >= 1 && num <= ${#items[@]} )); then
-                    toggle "${items[$((num - 1))]}"
+                    toggle "${items[$((num-1))]}"
                 else
-                    print_err "Invalid input: '${choice}'"
+                    print_err "Invalid input: '$choice'"
                     sleep 1
                 fi
                 ;;
@@ -289,7 +266,7 @@ clean_monitoring() {
     print_section "Prometheus + Grafana"
     print_step "Deleting monitoring namespace..."
     run_kubectl delete namespace monitoring --ignore-not-found=true
-    print_step "Removing any lingering monitoring PVCs..."
+    print_step "Removing any lingering monitoring PVCs across namespaces..."
     run_kubectl delete pvc prometheus-pvc grafana-pvc -n monitoring
     print_ok "Prometheus + Grafana removed"
 }
@@ -298,6 +275,9 @@ clean_loki() {
     print_section "Loki"
     print_step "Deleting loki namespace, StatefulSets, PVCs, and Promtail pods..."
     run_kubectl delete namespace loki --ignore-not-found=true
+    run_kubectl delete statefulset loki -n loki
+    run_kubectl delete pvc -n loki --all
+    run_kubectl delete pod -l app=promtail -n loki
     print_ok "Loki removed"
 }
 
@@ -306,6 +286,9 @@ clean_trivy() {
     print_step "Deleting trivy-system namespace..."
     run_kubectl delete namespace trivy-system --ignore-not-found=true
     run_kubectl delete namespace trivy --ignore-not-found=true
+    run_kubectl delete deployment trivy -n devops-app
+    run_kubectl delete svc trivy -n devops-app
+    run_kubectl delete pvc trivy-reports-pvc -n trivy-system
     print_ok "Trivy removed"
 }
 
@@ -351,15 +334,8 @@ clean_kubernetes_workloads() {
     print_section "Kubernetes Workloads  (cluster preserved)"
     print_step "Deleting all deployments across all namespaces..."
     run_kubectl delete deployments --all --all-namespaces
-    print_step "Deleting services in default namespace (except kubernetes)..."
-    # Delete services by name to avoid removing the kubernetes service
-    local svcs
-    svcs=$(kubectl get svc -n default \
-        --no-headers -o custom-columns=":metadata.name" 2>/dev/null \
-        | grep -v '^kubernetes$' || true)
-    if [[ -n "$svcs" ]]; then
-        echo "${svcs}" | xargs -r kubectl delete svc -n default
-    fi
+    print_step "Deleting all services (except kubernetes system service)..."
+    run_kubectl delete svc --all -n default
     print_step "Clearing kube cache..."
     rm -rf ~/.kube/cache
     print_ok "Kubernetes workloads removed (cluster is still running)"
@@ -386,15 +362,10 @@ clean_docker_containers() {
     print_section "Docker Containers & Networks"
     print_step "Bringing down docker compose stack..."
     sudo docker compose down --remove-orphans 2>/dev/null || true
-
     print_step "Removing all Docker containers..."
-    # Capture container IDs into an array to avoid word-splitting on SC2046
-    local container_ids=()
-    mapfile -t container_ids < <(sudo docker ps -aq 2>/dev/null || true)
-    if [[ ${#container_ids[@]} -gt 0 ]]; then
-        sudo docker rm -f "${container_ids[@]}" 2>/dev/null || true
-    fi
-
+    # SC2046 — word splitting is intentional here (list of container IDs)
+    # shellcheck disable=SC2046
+    sudo docker rm -f $(sudo docker ps -aq 2>/dev/null) 2>/dev/null || true
     print_step "Pruning Docker networks..."
     sudo docker network rm devops_default 2>/dev/null || true
     sudo docker network prune -f 2>/dev/null || true
@@ -417,8 +388,8 @@ clean_docker_network_state() {
 
 clean_ports() {
     print_section "Port Cleanup"
-    local ports=(3000 3001 30001 30002 30003)
-    for port in "${ports[@]}"; do
+    local PORTS=(3000 3001 30001 30002 30003)
+    for port in "${PORTS[@]}"; do
         if sudo fuser -k "${port}/tcp" 2>/dev/null; then
             print_ok "Killed process on port ${port}"
         else

@@ -50,17 +50,19 @@ validate_required_vars() {
 build_and_load_image() {
     local image="${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}"
 
-    if [[ "${K8S_DISTRIBUTION}" == "minikube" ]]; then
+    # REPLACE the minikube block with:
+    if [[ "$K8S_DISTRIBUTION" == "minikube" ]]; then
         print_step "Building image for Minikube..."
-        # eval is required here — minikube docker-env outputs shell variable
-        # assignments that must be evaluated in the current shell.
         eval "$(minikube docker-env)"
         docker build -t "${image}" "${PROJECT_ROOT}/app"
+        # Tag as latest so imagePullPolicy: IfNotPresent can find it locally
+        docker tag "${image}" "${DOCKERHUB_USERNAME}/${APP_NAME}:latest"
 
-    elif [[ "${K8S_DISTRIBUTION}" == "kind" ]]; then
-        print_step "Building image for Kind..."
+    elif [[ "$K8S_DISTRIBUTION" == "kind" ]]; then
         docker build -t "${image}" "${PROJECT_ROOT}/app"
-        kind load docker-image "${image}"
+        local kind_cluster
+        kind_cluster=$(kind get clusters 2>/dev/null | head -1 || echo "kind")
+        kind load docker-image "${image}" --name "${kind_cluster}"
 
     else
         print_step "Building and pushing image for cloud cluster..."
@@ -141,6 +143,24 @@ patches:
 EOF
     fi
 
+    cat > "${overlay_dir}/imagepull-patch.yaml" <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${APP_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  template:
+    spec:
+      containers:
+      - name: ${APP_NAME}
+        imagePullPolicy: ${IMAGE_PULL_POLICY}
+EOF
+
+# Register it if not already in kustomization
+if ! grep -q "imagepull-patch.yaml" "${overlay_dir}/kustomization.yaml"; then
+    sed -i '/patches:/a\  - path: imagepull-patch.yaml' "${overlay_dir}/kustomization.yaml"
+fi
     print_success "Kustomize overlay patched"
 }
 

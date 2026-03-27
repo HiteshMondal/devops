@@ -94,14 +94,14 @@ verify_loki_endpoint() {
     print_step "Verifying Loki /ready via port-forward (local port ${local_port})..."
 
     # Set a trap to clean up the port-forward on any exit from THIS function.
-    # We use a subshell-safe pattern: register cleanup, run the check, then
-    # explicitly remove the trap so we don't interfere with parent traps.
-    trap '_stop_loki_pf' EXIT INT TERM
+    (
+        trap - EXIT INT TERM
 
-    kubectl port-forward "pod/${loki_pod}" "${local_port}:${LOKI_PORT}" \
-        -n "${LOKI_NAMESPACE}" >/dev/null 2>&1 &
-    _LOKI_PF_PID=$!
-    sleep 3
+        kubectl port-forward "pod/${loki_pod}" "${local_port}:${LOKI_PORT}" \
+            -n "${LOKI_NAMESPACE}" >/dev/null 2>&1 &
+        _LOKI_PF_PID=$!
+        sleep 3
+    )
 
     local attempts=0
     local ready=false

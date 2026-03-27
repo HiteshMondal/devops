@@ -503,7 +503,7 @@ build_image() {
     configure_git_github
     configure_dockerhub_username
 
-    if [[ "${BUILD_PUSH:-false}" == "true" ]]; then
+    if [[ "${BUILD_PUSH:-false}" == "true" && "$K8S_DISTRIBUTION" != "minikube" ]]; then
         print_step "Building and pushing image to registry..."
         if [[ "$CONTAINER_RUNTIME" == "podman" ]] && declare -f build_and_push_image_podman >/dev/null 2>&1; then
             build_and_push_image_podman
