@@ -18,10 +18,17 @@ if [[ -z "${PROJECT_ROOT:-}" ]]; then
 fi
 export PROJECT_ROOT
 
-source "$PROJECT_ROOT/lib/bootstrap.sh"
+source "${PROJECT_ROOT}/lib/bootstrap.sh"
 
-# Load .env only when a parent process has not already exported APP_NAME
 load_env_if_needed
+
+# Defaults
+: "${LOKI_ENABLED:=true}"
+: "${LOKI_NAMESPACE:=loki}"
+: "${LOKI_VERSION:=3.0.0}"
+: "${LOKI_RETENTION_PERIOD:=168h}"
+: "${LOKI_PORT:=3100}"
+: "${DEPLOY_TARGET:=local}"
 
 # Delete the Loki StatefulSet and block until the object AND its pods are gone
 _delete_loki_statefulset_and_wait() {
@@ -33,11 +40,11 @@ _delete_loki_statefulset_and_wait() {
         print_warning "Deleting Loki StatefulSet to allow spec change. PVCs are preserved."
     fi
 
-    kubectl delete statefulset loki -n "$LOKI_NAMESPACE" --ignore-not-found
+    kubectl delete statefulset loki -n "${LOKI_NAMESPACE}" --ignore-not-found
 
     print_step "Waiting for StatefulSet to be fully removed from API..."
     local elapsed=0
-    while kubectl get statefulset loki -n "$LOKI_NAMESPACE" >/dev/null 2>&1; do
+    while kubectl get statefulset loki -n "${LOKI_NAMESPACE}" >/dev/null 2>&1; do
         if [[ $elapsed -ge 90 ]]; then
             print_warning "StatefulSet still in API after 90s — proceeding anyway"
             break
@@ -49,17 +56,19 @@ _delete_loki_statefulset_and_wait() {
 
     print_step "Waiting for Loki pods to terminate..."
     kubectl wait --for=delete pod -l app=loki \
-        -n "$LOKI_NAMESPACE" --timeout=120s 2>/dev/null || true
+        -n "${LOKI_NAMESPACE}" --timeout=120s 2>/dev/null || true
     print_success "Loki pods terminated"
 }
 
-# Port-forward lifecycle for endpoint verification
+# Port-forward for endpoint verification — managed with an explicit PID variable
+# rather than relying on background job control which can conflict with the
+# caller's traps.
 _LOKI_PF_PID=""
 
 _stop_loki_pf() {
-    if [[ -n "${_LOKI_PF_PID:-}" ]] && kill -0 "$_LOKI_PF_PID" 2>/dev/null; then
-        kill "$_LOKI_PF_PID" 2>/dev/null || true
-        wait "$_LOKI_PF_PID" 2>/dev/null || true
+    if [[ -n "${_LOKI_PF_PID}" ]] && kill -0 "${_LOKI_PF_PID}" 2>/dev/null; then
+        kill "${_LOKI_PF_PID}" 2>/dev/null || true
+        wait "${_LOKI_PF_PID}" 2>/dev/null || true
     fi
     _LOKI_PF_PID=""
 }
@@ -71,8 +80,8 @@ verify_loki_endpoint() {
     fi
 
     local loki_pod
-    loki_pod=$(kubectl get pod -l app=loki -n "$LOKI_NAMESPACE" \
-        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    loki_pod=$(kubectl get pod -l app=loki -n "${LOKI_NAMESPACE}" \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
     if [[ -z "$loki_pod" ]]; then
         print_warning "No Loki pod found — skipping endpoint verification"
@@ -84,47 +93,57 @@ verify_loki_endpoint() {
 
     print_step "Verifying Loki /ready via port-forward (local port ${local_port})..."
 
-    local _prev_exit_trap
-    _prev_exit_trap=$(trap -p EXIT)
+    # Set a trap to clean up the port-forward on any exit from THIS function.
+    # We use a subshell-safe pattern: register cleanup, run the check, then
+    # explicitly remove the trap so we don't interfere with parent traps.
     trap '_stop_loki_pf' EXIT INT TERM
 
-    kubectl port-forward "pod/$loki_pod" "${local_port}:${LOKI_PORT}" \
-        -n "$LOKI_NAMESPACE" >/dev/null 2>&1 &
+    kubectl port-forward "pod/${loki_pod}" "${local_port}:${LOKI_PORT}" \
+        -n "${LOKI_NAMESPACE}" >/dev/null 2>&1 &
     _LOKI_PF_PID=$!
     sleep 3
 
     local attempts=0
+    local ready=false
     until curl -sf "http://localhost:${local_port}/ready" >/dev/null 2>&1; do
         attempts=$((attempts + 1))
         if [[ $attempts -ge 24 ]]; then
             print_warning "Loki /ready did not respond after ~120s — it may still be starting"
-            _stop_loki_pf
-            eval "${_prev_exit_trap:-trap - EXIT}"
-            return 0
+            break
         fi
         print_step "Loki not ready yet... (${attempts}/24)"
         sleep 5
     done
 
-    print_success "Loki HTTP endpoint confirmed reachable"
+    if [[ $attempts -lt 24 ]]; then
+        ready=true
+    fi
+
     _stop_loki_pf
-    eval "${_prev_exit_trap:-trap - EXIT}"
+
+    # Reset trap to default after cleanup so parent traps are unaffected
+    trap - EXIT INT TERM
+
+    if [[ "$ready" == "true" ]]; then
+        print_success "Loki HTTP endpoint confirmed reachable"
+    fi
 }
 
 # Main deployment
 deploy_loki() {
     print_section "LOKI LOG AGGREGATION" ">"
 
-    if [[ "$LOKI_ENABLED" != "true" ]]; then
+    if [[ "${LOKI_ENABLED}" != "true" ]]; then
         print_info "Skipping Loki deployment (LOKI_ENABLED=false)"
         return 0
     fi
 
     detect_k8s_distribution
+    resolve_k8s_service_config
 
     local overlay_dir
     overlay_dir=$(resolve_overlay_name)
-    local overlay_path="$PROJECT_ROOT/monitoring/Loki/overlays/${overlay_dir}"
+    local overlay_path="${PROJECT_ROOT}/monitoring/Loki/overlays/${overlay_dir}"
 
     print_kv "Distribution"  "${K8S_DISTRIBUTION}"
     print_kv "Namespace"     "${LOKI_NAMESPACE}"
@@ -138,7 +157,7 @@ deploy_loki() {
         print_error "Kustomize overlay not found: ${overlay_path}"
         print_info "Valid targets: local, prod"
         print_info "Set DEPLOY_TARGET in your .env file"
-        exit 1
+        return 1
     fi
 
     if [[ "$overlay_dir" == "local" ]]; then
@@ -149,45 +168,45 @@ deploy_loki() {
 
     # Namespace
     print_subsection "Creating Namespace"
-    kubectl create namespace "$LOKI_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+    kubectl create namespace "${LOKI_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
     print_success "Namespace ready: ${BOLD}${LOKI_NAMESPACE}${RESET}"
 
     print_subsection "StatefulSet Pre-Delete"
-    if kubectl get statefulset loki -n "$LOKI_NAMESPACE" >/dev/null 2>&1; then
+    if kubectl get statefulset loki -n "${LOKI_NAMESPACE}" >/dev/null 2>&1; then
         _delete_loki_statefulset_and_wait "$overlay_dir"
     else
         print_info "No existing Loki StatefulSet — fresh install, skipping pre-delete"
     fi
 
     print_subsection "Promtail DaemonSet Pre-Delete"
-    if kubectl get daemonset promtail -n "$LOKI_NAMESPACE" >/dev/null 2>&1; then
+    if kubectl get daemonset promtail -n "${LOKI_NAMESPACE}" >/dev/null 2>&1; then
         print_step "Removing existing Promtail DaemonSet..."
-        kubectl delete daemonset promtail -n "$LOKI_NAMESPACE" --ignore-not-found
+        kubectl delete daemonset promtail -n "${LOKI_NAMESPACE}" --ignore-not-found
         print_success "Promtail DaemonSet removed"
     else
         print_info "No existing Promtail DaemonSet — skipping pre-delete"
     fi
 
     print_subsection "Deploying Loki & Promtail (overlay: ${overlay_dir})"
-    kubectl apply -k "$overlay_path"
+    kubectl apply -k "${overlay_path}"
     print_success "Manifests applied"
 
     print_step "Waiting for Loki rollout..."
-    if kubectl rollout status statefulset/loki -n "$LOKI_NAMESPACE" --timeout=300s; then
+    if kubectl rollout status statefulset/loki -n "${LOKI_NAMESPACE}" --timeout=300s; then
         print_success "Loki StatefulSet is rolled out"
     else
         print_warning "Loki rollout had issues — collecting diagnostics..."
-        kubectl describe pod loki-0 -n "$LOKI_NAMESPACE" 2>/dev/null \
-            || kubectl describe pod -l app=loki -n "$LOKI_NAMESPACE" 2>/dev/null || true
-        kubectl logs loki-0 -n "$LOKI_NAMESPACE" --tail=60 2>/dev/null \
-            || kubectl logs -l app=loki -n "$LOKI_NAMESPACE" --tail=60 2>/dev/null || true
-        kubectl logs loki-0 -n "$LOKI_NAMESPACE" --previous --tail=60 2>/dev/null || true
+        kubectl describe pod loki-0 -n "${LOKI_NAMESPACE}" 2>/dev/null \
+            || kubectl describe pod -l app=loki -n "${LOKI_NAMESPACE}" 2>/dev/null || true
+        kubectl logs loki-0 -n "${LOKI_NAMESPACE}" --tail=60 2>/dev/null \
+            || kubectl logs -l app=loki -n "${LOKI_NAMESPACE}" --tail=60 2>/dev/null || true
+        kubectl logs loki-0 -n "${LOKI_NAMESPACE}" --previous --tail=60 2>/dev/null || true
     fi
 
     verify_loki_endpoint
 
     print_step "Waiting for Promtail rollout..."
-    if kubectl rollout status daemonset/promtail -n "$LOKI_NAMESPACE" --timeout=180s; then
+    if kubectl rollout status daemonset/promtail -n "${LOKI_NAMESPACE}" --timeout=180s; then
         print_success "Promtail DaemonSet is rolled out"
     else
         print_warning "Promtail rollout had issues"
@@ -198,12 +217,12 @@ deploy_loki() {
 
     print_divider
     print_subsection "Loki Resource Status"
-    kubectl get all -n "$LOKI_NAMESPACE"
+    kubectl get all -n "${LOKI_NAMESPACE}"
     print_divider
 
     # ACCESS INFO
     local url
-    url=$(get_service_url "loki" "$LOKI_NAMESPACE" "${LOKI_PORT}")
+    url=$(get_service_url "loki" "${LOKI_NAMESPACE}" "${LOKI_PORT}")
 
     if [[ "$url" == port-forward:* ]]; then
         local port="${url#port-forward:}"

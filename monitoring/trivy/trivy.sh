@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # monitoring/trivy/trivy.sh — Deploy Trivy security scanner with Metrics Exporter
 # Usage: ./trivy.sh
 
@@ -15,13 +15,24 @@ if [[ -z "${PROJECT_ROOT:-}" ]]; then
 fi
 readonly PROJECT_ROOT
 
-source "$PROJECT_ROOT/lib/bootstrap.sh"
+source "${PROJECT_ROOT}/lib/bootstrap.sh"
 
-# Load .env only when a parent process has not already exported APP_NAME
 load_env_if_needed
 
-# DOCKERHUB_USERNAME is mandatory — fail early with a clear message
-require_env DOCKERHUB_USERNAME "Set DOCKERHUB_USERNAME in .env"
+# Required
+: "${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME in .env}"
+: "${TRIVY_ENABLED:=true}"
+: "${TRIVY_METRICS_ENABLED:=true}"
+: "${TRIVY_BUILD_IMAGES:=false}"
+: "${TRIVY_SCAN_SCHEDULE:=0 16-22 * * *}"
+: "${TRIVY_SEVERITY:=HIGH,CRITICAL}"
+: "${TRIVY_METRICS_PORT:=8082}"
+: "${TRIVY_NAMESPACE:=trivy-system}"
+: "${TRIVY_VERSION:=0.57.1}"
+: "${TRIVY_IMAGE_TAG:=1.0}"
+: "${PROMETHEUS_PORT:=9090}"
+: "${PROMETHEUS_NAMESPACE:=monitoring}"
+: "${SCAN_INTERVAL:=300}"
 
 # BUILD & PUSH IMAGES
 build_trivy_images() {
@@ -32,13 +43,13 @@ build_trivy_images() {
 
     print_subsection "Building Trivy Images"
 
-    local docker_config="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
+    local docker_config="${DOCKER_CONFIG:-${HOME}/.docker}/config.json"
     local logged_in=false
 
     if [[ -f "$docker_config" ]]; then
         if python3 -c "
 import json, sys
-cfg = json.load(open('$docker_config'))
+cfg = json.load(open('${docker_config}'))
 stores = cfg.get('credHelpers', {})
 auths  = cfg.get('auths', {})
 hubs   = ['https://index.docker.io/v1/', 'index.docker.io']
@@ -57,39 +68,39 @@ sys.exit(1)
         print_error "Not logged into DockerHub as ${BOLD}${DOCKERHUB_USERNAME}${RESET}"
         print_info  "Docker config does not contain DockerHub credentials."
         print_cmd   "Log in with:" "docker login -u ${DOCKERHUB_USERNAME}"
-        exit 1
+        return 1
     fi
 
     print_step "Building trivy-runner..."
     docker build \
         --no-cache \
-        --build-arg TRIVY_VERSION="${TRIVY_VERSION}" \
+        --build-arg "TRIVY_VERSION=${TRIVY_VERSION}" \
         -t "${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}" \
-        "$PROJECT_ROOT/monitoring/trivy/trivy-runner" \
-        || { print_error "Failed to build trivy-runner"; exit 1; }
+        "${PROJECT_ROOT}/monitoring/trivy/trivy-runner" \
+        || { print_error "Failed to build trivy-runner"; return 1; }
 
     print_step "Pushing trivy-runner..."
     docker push "${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}" \
-        || { print_error "Failed to push trivy-runner"; exit 1; }
+        || { print_error "Failed to push trivy-runner"; return 1; }
 
     print_success "trivy-runner pushed: ${BOLD}${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}${RESET}"
 
     print_step "Building trivy-exporter..."
     docker build \
         --no-cache \
-        --build-arg TRIVY_VERSION="${TRIVY_VERSION}" \
+        --build-arg "TRIVY_VERSION=${TRIVY_VERSION}" \
         -t "${DOCKERHUB_USERNAME}/trivy-exporter:${TRIVY_IMAGE_TAG}" \
-        "$PROJECT_ROOT/monitoring/trivy" \
-        || { print_error "Failed to build trivy-exporter"; exit 1; }
+        "${PROJECT_ROOT}/monitoring/trivy" \
+        || { print_error "Failed to build trivy-exporter"; return 1; }
 
     print_step "Pushing trivy-exporter..."
     docker push "${DOCKERHUB_USERNAME}/trivy-exporter:${TRIVY_IMAGE_TAG}" \
-        || { print_error "Failed to push trivy-exporter"; exit 1; }
+        || { print_error "Failed to push trivy-exporter"; return 1; }
 
     print_success "trivy-exporter pushed: ${BOLD}${DOCKERHUB_USERNAME}/trivy-exporter:${TRIVY_IMAGE_TAG}${RESET}"
 }
 
-# IMMUTABILITY HELPERS
+# PVC RECONCILIATION
 reconcile_pvc() {
     local name="$1"
     local namespace="$2"
@@ -109,17 +120,20 @@ reconcile_pvc() {
     print_warning "PVC ${name}: accessMode is '${current_mode}', need '${wanted_mode}'"
     print_warning "PVC spec is immutable after creation — will delete and recreate"
 
-    local users
-    users=$(kubectl get pods -n "$namespace" \
-        -o jsonpath="{range .items[*]}{.metadata.name}{' '}{range .spec.volumes[*]}{.persistentVolumeClaim.claimName}{' '}{end}{end}" \
-        2>/dev/null \
-        | tr ' ' '\n' \
-        | grep -c "^${name}$" || true)
+    # Count pods using this PVC — avoid word-splitting with readarray
+    local pvc_users=0
+    while IFS= read -r line; do
+        if [[ "$line" == "$name" ]]; then
+            pvc_users=$((pvc_users + 1))
+        fi
+    done < <(kubectl get pods -n "$namespace" \
+        -o jsonpath="{range .items[*]}{range .spec.volumes[*]}{.persistentVolumeClaim.claimName}{'\n'}{end}{end}" \
+        2>/dev/null || true)
 
-    if [[ "${users:-0}" -gt 0 ]]; then
+    if [[ "$pvc_users" -gt 0 ]]; then
         print_error "PVC ${name} is currently in use by running pods — cannot delete safely"
         print_info  "Stop the pods first, then re-run the deployment"
-        exit 1
+        return 1
     fi
 
     print_step "Deleting PVC ${name} (will be recreated with correct accessMode)..."
@@ -172,21 +186,21 @@ deploy_trivy() {
     print_subsection "Deploying Trivy to Cluster"
 
     print_step "Creating namespace: ${BOLD}${TRIVY_NAMESPACE}${RESET}"
-    kubectl create namespace "$TRIVY_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+    kubectl create namespace "${TRIVY_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
 
     print_step "Reconciling PVCs (handling immutability)..."
-    reconcile_pvc "trivy-cache-pvc"   "$TRIVY_NAMESPACE" "ReadWriteOnce"
-    reconcile_pvc "trivy-reports-pvc" "$TRIVY_NAMESPACE" "ReadWriteOnce"
+    reconcile_pvc "trivy-cache-pvc"   "${TRIVY_NAMESPACE}" "ReadWriteOnce"
+    reconcile_pvc "trivy-reports-pvc" "${TRIVY_NAMESPACE}" "ReadWriteOnce"
 
     print_step "Reconciling initial scan Job (handling immutability)..."
-    reconcile_initial_scan_job "$TRIVY_NAMESPACE"
+    reconcile_initial_scan_job "${TRIVY_NAMESPACE}"
 
     print_step "Applying Trivy scan CronJob..."
-    envsubst < "$PROJECT_ROOT/monitoring/trivy/trivy-scan.yaml" | kubectl apply -f -
+    envsubst < "${PROJECT_ROOT}/monitoring/trivy/trivy-scan.yaml" | kubectl apply -f -
 
     if [[ "${TRIVY_METRICS_ENABLED}" == "true" ]]; then
         print_step "Deploying Trivy Metrics Exporter..."
-        envsubst < "$PROJECT_ROOT/monitoring/trivy/deployment.yaml" | kubectl apply -f -
+        envsubst < "${PROJECT_ROOT}/monitoring/trivy/deployment.yaml" | kubectl apply -f -
     else
         print_info "Metrics Exporter skipped (TRIVY_METRICS_ENABLED=false)"
     fi
@@ -194,14 +208,15 @@ deploy_trivy() {
     print_step "Waiting for initial Trivy scan job to complete..."
     if ! kubectl wait --for=condition=complete \
         --timeout=600s \
-        -n "$TRIVY_NAMESPACE" \
+        -n "${TRIVY_NAMESPACE}" \
         job/trivy-initial-scan; then
 
         print_warning "Initial scan job did not complete within 10 min"
         print_info "Job status:"
-        kubectl describe job/trivy-initial-scan -n "$TRIVY_NAMESPACE" || true
+        kubectl describe job/trivy-initial-scan -n "${TRIVY_NAMESPACE}" || true
         print_info "Pod logs:"
-        kubectl logs -n "$TRIVY_NAMESPACE" -l job-name=trivy-initial-scan --tail=50 || true
+        kubectl logs -n "${TRIVY_NAMESPACE}" \
+            -l "job-name=trivy-initial-scan" --tail=50 || true
         print_warning "Continuing — Trivy metrics may be empty until the job finishes"
     else
         print_success "Initial Trivy scan complete"
@@ -211,19 +226,22 @@ deploy_trivy() {
         print_step "Waiting for Trivy exporter to become ready..."
         if kubectl wait --for=condition=ready pod \
             -l app=trivy-exporter \
-            -n "$TRIVY_NAMESPACE" \
+            -n "${TRIVY_NAMESPACE}" \
             --timeout=120s 2>/dev/null; then
             print_success "Trivy exporter pod is ready"
 
-            if kubectl run curl-test --image=curlimages/curl:latest --rm -i \
-                --restart=Never -n "$TRIVY_NAMESPACE" \
-                -- curl -sf "http://trivy-exporter:${TRIVY_METRICS_PORT}/metrics" 2>/dev/null \
+            # Use a kubectl exec-based check instead of a standalone curl pod
+            # to avoid issues with image pull limits / permissions
+            if kubectl exec -n "${TRIVY_NAMESPACE}" \
+                "$(kubectl get pod -l app=trivy-exporter -n "${TRIVY_NAMESPACE}" \
+                    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" \
+                -- wget -qO- "http://localhost:${TRIVY_METRICS_PORT}/metrics" 2>/dev/null \
                 | grep -q "trivy_"; then
                 print_success "Metrics endpoint is responding with trivy_ metrics"
             else
                 print_warning "Metrics endpoint is up but no trivy_ metrics yet"
                 print_info "This is normal on first deploy — reports may still be loading"
-                print_info "Metrics will appear after SCAN_INTERVAL (${SCAN_INTERVAL:-300}s)"
+                print_info "Metrics will appear after SCAN_INTERVAL (${SCAN_INTERVAL}s)"
             fi
         else
             print_warning "Trivy exporter pod did not become ready within 120s"
@@ -236,12 +254,12 @@ deploy_trivy() {
 trivy_main() {
     print_section "TRIVY SECURITY SCANNER" ">"
 
-    print_kv "Trivy Scanner"        "${TRIVY_ENABLED}"
-    print_kv "Metrics Exporter"     "${TRIVY_METRICS_ENABLED}"
-    print_kv "Build Images"         "${TRIVY_BUILD_IMAGES}"
-    print_kv "Scan Schedule"        "${TRIVY_SCAN_SCHEDULE}"
-    print_kv "Severity Filter"      "${TRIVY_SEVERITY}"
-    print_kv "Metrics Port"         "${TRIVY_METRICS_PORT}"
+    print_kv "Trivy Scanner"    "${TRIVY_ENABLED}"
+    print_kv "Metrics Exporter" "${TRIVY_METRICS_ENABLED}"
+    print_kv "Build Images"     "${TRIVY_BUILD_IMAGES}"
+    print_kv "Scan Schedule"    "${TRIVY_SCAN_SCHEDULE}"
+    print_kv "Severity Filter"  "${TRIVY_SEVERITY}"
+    print_kv "Metrics Port"     "${TRIVY_METRICS_PORT}"
     echo ""
 
     build_trivy_images
@@ -249,7 +267,7 @@ trivy_main() {
 
     print_divider
     print_subsection "Trivy Resource Status"
-    kubectl get all -n "$TRIVY_NAMESPACE"
+    kubectl get all -n "${TRIVY_NAMESPACE}"
 
     print_divider
 
@@ -278,6 +296,4 @@ trivy_main() {
     print_divider
 }
 
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    trivy_main
-fi
+trivy_main

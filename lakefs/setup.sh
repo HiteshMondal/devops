@@ -15,7 +15,7 @@ fi
 
 source "${PROJECT_ROOT}/lib/bootstrap.sh"
 
-# ── Defaults (all overridable via .env or environment) ────────────────────────
+#  Defaults (all overridable via .env or environment) 
 : "${LAKEFS_ENDPOINT:=http://localhost:8001}"
 : "${LAKEFS_ACCESS_KEY_ID:=}"
 : "${LAKEFS_SECRET_ACCESS_KEY:=}"
@@ -26,7 +26,7 @@ DATA_REPO="mlops-data"
 MODELS_REPO="mlops-models"
 DEFAULT_BRANCH="main"
 
-# ── Helper: lakectl wrapper ───────────────────────────────────────────────────
+#  Helper: lakectl wrapper 
 lakectl_cmd() {
     if [[ -n "${LAKEFS_ACCESS_KEY_ID}" && -n "${LAKEFS_SECRET_ACCESS_KEY}" ]]; then
         lakectl \
@@ -39,12 +39,14 @@ lakectl_cmd() {
     fi
 }
 
-# ── Install lakectl ────────────────────────────────────────────────────────────
+#  Install lakectl 
 install_lakectl() {
     print_subsection "lakectl CLI"
 
     if command -v lakectl >/dev/null 2>&1; then
-        print_success "lakectl already installed: $(lakectl --version 2>/dev/null || echo 'unknown version')"
+        local ver
+        ver=$(lakectl --version 2>/dev/null || echo 'unknown version')
+        print_success "lakectl already installed: ${ver}"
         return
     fi
 
@@ -54,23 +56,25 @@ install_lakectl() {
     OS="$(uname | tr '[:upper:]' '[:lower:]')"
     ARCH="$(uname -m)"
     case "$ARCH" in
-        x86_64)        ARCH="amd64" ;;
-        aarch64|arm64) ARCH="arm64" ;;
+        x86_64)          ARCH="amd64" ;;
+        aarch64|arm64)   ARCH="arm64" ;;
     esac
 
     local VERSION="v1.24.0"
     local URL="https://github.com/treeverse/lakeFS/releases/download/${VERSION}/lakectl_${VERSION#v}_${OS}_${ARCH}.tar.gz"
 
-    curl -fsSL -o /tmp/lakectl.tar.gz "$URL"
+    curl -fsSL -o /tmp/lakectl.tar.gz "${URL}"
     tar -xzf /tmp/lakectl.tar.gz -C /tmp lakectl
     sudo mv /tmp/lakectl /usr/local/bin/lakectl
     sudo chmod +x /usr/local/bin/lakectl
     rm -f /tmp/lakectl.tar.gz
 
-    print_success "lakectl installed: $(lakectl --version 2>/dev/null || echo 'ok')"
+    local installed_ver
+    installed_ver=$(lakectl --version 2>/dev/null || echo 'ok')
+    print_success "lakectl installed: ${installed_ver}"
 }
 
-# ── Deploy LakeFS via Docker Compose (local only) ─────────────────────────────
+#  Deploy LakeFS via Docker Compose (local only) 
 deploy_local_lakefs() {
     print_subsection "Local LakeFS (Docker Compose)"
 
@@ -84,7 +88,8 @@ deploy_local_lakefs() {
 
     if [[ ! -f "$compose_file" ]]; then
         print_step "Writing docker-compose.lakefs.yml..."
-        cat > "$compose_file" <<-'EOF'
+        # Use a heredoc with literal tab indentation (not spaces) for <<-EOF
+        cat > "$compose_file" <<'EOF'
 version: "3.8"
 services:
   lakefs:
@@ -114,18 +119,24 @@ EOF
         docker compose -f "$compose_file" up -d
         print_step "Waiting for LakeFS to be ready..."
         local retries=0
-        until curl -sf "${LAKEFS_ENDPOINT}/api/v1/setup_state" >/dev/null 2>&1 || (( retries++ >= 20 )); do
+        until curl -sf "${LAKEFS_ENDPOINT}/api/v1/setup_state" >/dev/null 2>&1; do
+            retries=$((retries + 1))
+            if [[ $retries -ge 20 ]]; then
+                print_warning "LakeFS did not become reachable after 60s"
+                break
+            fi
             sleep 3
         done
         print_success "LakeFS is reachable at ${LAKEFS_ENDPOINT}"
     fi
 
-    # Export default dev credentials
-    export LAKEFS_ACCESS_KEY_ID="${LAKEFS_ACCESS_KEY_ID:-AKIAIOSFODNN7EXAMPLE}"
-    export LAKEFS_SECRET_ACCESS_KEY="${LAKEFS_SECRET_ACCESS_KEY:-wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY}"
+    # Export default dev credentials if not already set
+    LAKEFS_ACCESS_KEY_ID="${LAKEFS_ACCESS_KEY_ID:-AKIAIOSFODNN7EXAMPLE}"
+    LAKEFS_SECRET_ACCESS_KEY="${LAKEFS_SECRET_ACCESS_KEY:-wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY}"
+    export LAKEFS_ACCESS_KEY_ID LAKEFS_SECRET_ACCESS_KEY
 }
 
-# ── Create a repository (idempotent) ──────────────────────────────────────────
+#  Create a repository (idempotent) 
 create_repo() {
     local repo="$1"
     local description="$2"
@@ -143,7 +154,7 @@ create_repo() {
     print_success "Repository created: ${repo}  (${description})"
 }
 
-# ── Upload seed data if available ─────────────────────────────────────────────
+#  Upload seed data if available 
 seed_data() {
     local repo="$1"
     local local_path="$2"
@@ -167,15 +178,14 @@ seed_data() {
     print_success "Seeded: ${lakefs_prefix}"
 }
 
-# ── Configure hooks ────────────────────────────────────────────────────────────
+#  Configure hooks 
 configure_hooks() {
     print_subsection "Repository Hooks"
 
     local hooks_src="${PROJECT_ROOT}/lakefs/hooks"
     mkdir -p "$hooks_src"
 
-    # Pre-merge hook — validate schema before merging feature branches
-    cat > "${hooks_src}/pre_merge_validate.lua" <<-'EOF'
+    cat > "${hooks_src}/pre_merge_validate.lua" <<'LUAEOF'
 -- pre_merge_validate.lua
 -- Block merges if required data files are missing.
 local lakefs    = require("lakefs")
@@ -192,7 +202,7 @@ for _, path in ipairs(required_paths) do
 end
 
 print("Pre-merge validation passed")
-EOF
+LUAEOF
 
     print_success "Hook scripts written to lakefs/hooks/"
 
@@ -205,7 +215,7 @@ EOF
     fi
 }
 
-# ── Print LakeFS paths reference ──────────────────────────────────────────────
+#  Print LakeFS paths reference 
 print_lakefs_paths() {
     echo ""
     print_section "LAKEFS REPOSITORIES" ">"
@@ -234,18 +244,19 @@ print_lakefs_paths() {
         "CRED:Secret Key:<set LAKEFS_SECRET_ACCESS_KEY in .env>"
 }
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+#  Main 
 main() {
     print_section "LAKEFS SETUP" ">"
-    print_kv "Endpoint"      "${LAKEFS_ENDPOINT}"
-    print_kv "Data repo"     "${DATA_REPO}"
-    print_kv "Models repo"   "${MODELS_REPO}"
+    print_kv "Endpoint"    "${LAKEFS_ENDPOINT}"
+    print_kv "Data repo"   "${DATA_REPO}"
+    print_kv "Models repo" "${MODELS_REPO}"
     echo ""
 
     install_lakectl
 
     # Only spin up Docker Compose for localhost endpoints
-    if [[ "${LAKEFS_ENDPOINT}" == *"localhost"* || "${LAKEFS_ENDPOINT}" == *"127.0.0.1"* ]]; then
+    if [[ "${LAKEFS_ENDPOINT}" == *"localhost"* ]] || \
+       [[ "${LAKEFS_ENDPOINT}" == *"127.0.0.1"* ]]; then
         deploy_local_lakefs
     else
         print_info "External LakeFS endpoint — skipping local Docker deployment"
@@ -254,14 +265,14 @@ main() {
     require_command lakectl
 
     print_subsection "Creating Repositories"
-    create_repo "$DATA_REPO"   "Raw / processed / feature data versioning"
-    create_repo "$MODELS_REPO" "Model artifact versioning"
+    create_repo "${DATA_REPO}"   "Raw / processed / feature data versioning"
+    create_repo "${MODELS_REPO}" "Model artifact versioning"
 
     print_subsection "Seeding Data"
-    seed_data "$DATA_REPO"   "${PROJECT_ROOT}/data/raw"       "raw"
-    seed_data "$DATA_REPO"   "${PROJECT_ROOT}/data/processed" "processed"
-    seed_data "$DATA_REPO"   "${PROJECT_ROOT}/data/features"  "features"
-    seed_data "$MODELS_REPO" "${PROJECT_ROOT}/models/artifacts" "artifacts"
+    seed_data "${DATA_REPO}"   "${PROJECT_ROOT}/data/raw"         "raw"
+    seed_data "${DATA_REPO}"   "${PROJECT_ROOT}/data/processed"   "processed"
+    seed_data "${DATA_REPO}"   "${PROJECT_ROOT}/data/features"    "features"
+    seed_data "${MODELS_REPO}" "${PROJECT_ROOT}/models/artifacts" "artifacts"
 
     configure_hooks
     print_lakefs_paths
