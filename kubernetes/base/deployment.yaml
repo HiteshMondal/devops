@@ -27,7 +27,7 @@ spec:
         prometheus.io/path: "/metrics"
         prometheus.io/scheme: "http"
     spec:
-      serviceAccountName: default
+      serviceAccountName: devops-app-sa
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

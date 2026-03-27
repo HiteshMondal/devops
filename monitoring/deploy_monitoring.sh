@@ -1,15 +1,11 @@
 #!/bin/bash
 # monitoring/deploy_monitoring.sh — Universal Monitoring Deployment Script
+# Should work and be compatible with all Linux computers
 # Works in both environments: ArgoCD and direct
-# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s
-# Should work and be compatible with all computers
+# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others
 #
 # Dashboard provisioning via ConfigMap has been removed.
 # Dashboards are imported through the Grafana UI (Dashboards → Import).
-#
-# DEPENDENCY NOTE (macOS):
-#   envsubst is part of GNU gettext.  Install with: brew install gettext
-#   On Linux it is included in the gettext or gettext-base package.
 
 set -euo pipefail
 
@@ -85,7 +81,17 @@ setup_helm() {
         curl -fsSL -o /tmp/helm.tar.gz \
             "https://get.helm.sh/helm-${HELM_VERSION}-${OS}-${ARCH}.tar.gz"
         tar -xzf /tmp/helm.tar.gz -C /tmp
-        sudo mv "/tmp/${OS}-${ARCH}/helm" /usr/local/bin/helm
+        local target="/usr/local/bin/helm"
+
+        if [[ -w "/usr/local/bin" ]]; then
+            mv "/tmp/${OS}-${ARCH}/helm" "$target"
+        else
+            mkdir -p "$HOME/.local/bin"
+            mv "/tmp/${OS}-${ARCH}/helm" "$HOME/.local/bin/helm"
+            if ! command -v helm >/dev/null; then
+                export PATH="$HOME/.local/bin:$PATH"
+            fi
+        fi
         rm -rf /tmp/helm.tar.gz "/tmp/${OS}-${ARCH}"
         print_success "Helm installed"
     else
@@ -107,7 +113,7 @@ setup_helm() {
 deploy_node_exporter() {
     print_subsection "Deploying Node Exporter"
 
-    if helm list -n "$PROMETHEUS_NAMESPACE" 2>/dev/null | grep -q node-exporter; then
+    if helm status node-exporter -n "$PROMETHEUS_NAMESPACE" >/dev/null 2>&1; then
         print_info "node-exporter already installed — skipping"
         return
     fi
@@ -179,11 +185,23 @@ create_alerts_configmap() {
 process_tpl_files() {
     local dir="$1"
     print_step "Processing template files in $(basename "$dir")"
-    find "$dir" -type f -name "*.yaml.tpl" 2>/dev/null | while read -r tpl_file; do
+
+    shopt -s nullglob
+
+    local tpl_files=("$dir"/*.yaml.tpl)
+
+    if [[ ${#tpl_files[@]} -eq 0 ]]; then
+        print_info "No template files found — skipping"
+        return 0
+    fi
+
+    for tpl_file in "${tpl_files[@]}"; do
         local out_file="${tpl_file%.tpl}"
         substitute_env_vars_to_file "$tpl_file" "$out_file"
         print_success "Rendered: $(basename "$out_file")"
     done
+
+    shopt -u nullglob
 }
 
 deploy_evidently() {
@@ -263,270 +281,103 @@ deploy_whylabs() {
 
 # Main monitoring deployment
 deploy_monitoring() {
-    sleep 2
 
-    print_section "MONITORING STACK DEPLOYMENT" ">"
-    print_kv "Mode"      "$([ "$CI_MODE" == "true" ] && echo "CI/CD" || echo "Local")"
-    print_kv "Namespace" "${PROMETHEUS_NAMESPACE}"
-    echo ""
+    print_section "Deploy Monitoring Stack"
 
-    detect_k8s_distribution
-    resolve_k8s_service_config
-    print_success "Distribution: ${BOLD}${K8S_DISTRIBUTION}${RESET}"
-    print_kv "Service Type" "${MONITORING_SERVICE_TYPE}"
-
-    if [[ "${PROMETHEUS_ENABLED:-true}" != "true" ]]; then
-        print_warning "Prometheus monitoring is disabled (PROMETHEUS_ENABLED=false)"
-        return 0
-    fi
-
+    require_command kubectl
     setup_helm
-    deploy_node_exporter
 
-    WORK_DIR="$(mktemp -d /tmp/monitoring-deployment.XXXXXX)"
-    readonly WORK_DIR
+    command -v detect_k8s_distribution
+    resolve_k8s_service_config
 
-    cleanup_workdir() {
-        [[ -n "${WORK_DIR:-}" ]] || return
-        [[ "$WORK_DIR" == /tmp/monitoring-deployment.* ]] || return
-        [[ -d "$WORK_DIR" ]] || return
-        rm -rf -- "$WORK_DIR"
-    }
+    local namespace="${PROMETHEUS_NAMESPACE:-monitoring}"
+    local service_type="${MONITORING_SERVICE_TYPE}"
 
-    if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-        trap cleanup_workdir EXIT
-    fi
+    print_kv "Cluster Type" "$K8S_DISTRIBUTION"
+    print_kv "Service Type" "$service_type"
 
-    print_subsection "Preparing Manifests"
+    print_subsection "Preparing Namespace"
 
-    if [[ -d "$PROJECT_ROOT/monitoring/prometheus_grafana" ]]; then
-        cp -r "$PROJECT_ROOT/monitoring/prometheus_grafana/"* "$WORK_DIR/monitoring/" 2>/dev/null || true
-        rm -f "$WORK_DIR/monitoring/dashboard-configmap.yaml"
-        process_tpl_files "$WORK_DIR/monitoring"
-        print_success "Rendered prometheus_grafana templates (dashboard ConfigMap excluded)"
-    else
-        print_warning "prometheus_grafana directory not found"
-    fi
+    kubectl create namespace "$namespace" \
+        --dry-run=client -o yaml | kubectl apply -f -
 
-    mkdir -p \
-        "$WORK_DIR/monitoring" \
-        "$WORK_DIR/prometheus" \
-        "$WORK_DIR/kube-state-metrics"
+    print_success "Namespace ready"
 
-    if [[ -d "$PROJECT_ROOT/monitoring/prometheus" ]]; then
-        cp -r "$PROJECT_ROOT/monitoring/prometheus/"* "$WORK_DIR/prometheus/" 2>/dev/null || true
-        print_success "Copied Prometheus config files"
-    fi
 
-    if [[ -d "$PROJECT_ROOT/monitoring/kube-state-metrics" ]]; then
-        cp -r "$PROJECT_ROOT/monitoring/kube-state-metrics/"* "$WORK_DIR/kube-state-metrics/" 2>/dev/null || true
-        print_success "Copied kube-state-metrics manifests"
-    fi
+    # PROMETHEUS
 
-    print_divider
-
-    # Namespace
-    print_subsection "Setting Up Namespace"
-    kubectl create namespace "$PROMETHEUS_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-    print_success "Namespace ready: ${BOLD}${PROMETHEUS_NAMESPACE}${RESET}"
-
-    # ConfigMaps
-    print_subsection "Creating ConfigMaps"
-
-    if [[ -f "$PROJECT_ROOT/monitoring/prometheus/prometheus.yml" ]]; then
-        create_prometheus_configmap "$PROJECT_ROOT/monitoring/prometheus/prometheus.yml" "$PROMETHEUS_NAMESPACE"
-    elif [[ -f "$PROJECT_ROOT/monitoring/prometheus/prometheus.yaml" ]]; then
-        create_prometheus_configmap "$PROJECT_ROOT/monitoring/prometheus/prometheus.yaml" "$PROMETHEUS_NAMESPACE"
-    else
-        print_error "prometheus.yml / prometheus.yaml not found"
-        exit 1
-    fi
-
-    if [[ -f "$WORK_DIR/prometheus/alerts.yml" ]]; then
-        create_alerts_configmap "$WORK_DIR/prometheus/alerts.yml" "$PROMETHEUS_NAMESPACE"
-    else
-        print_info "alerts.yml not found — skipping alerts ConfigMap"
-    fi
-
-    print_divider
-
-    # Prometheus
     print_subsection "Deploying Prometheus"
 
-    require_file "$WORK_DIR/monitoring/prometheus.yaml" "prometheus.yaml not found in work dir"
-    kubectl apply -f "$WORK_DIR/monitoring/prometheus.yaml"
+    helm upgrade --install prometheus \
+        prometheus-community/prometheus \
+        --namespace "$namespace" \
+        --set server.service.type="$service_type" \
+        --wait \
+        --timeout 5m
 
-    if [[ -d "$WORK_DIR/kube-state-metrics" ]] && [[ -n "$(ls -A "$WORK_DIR/kube-state-metrics" 2>/dev/null)" ]]; then
-        print_step "Deploying kube-state-metrics"
-        kubectl apply -f "$WORK_DIR/kube-state-metrics/" || print_warning "kube-state-metrics had issues"
+    wait_for_rollout deployment/prometheus-server "$namespace"
 
-        print_step "Waiting for kube-state-metrics rollout..."
-        if kubectl rollout status deployment/kube-state-metrics \
-                -n kube-system --timeout=120s 2>/dev/null; then
-            print_success "kube-state-metrics is ready"
-        else
-            print_warning "kube-state-metrics rollout had issues — Prometheus may show scrape errors"
-            kubectl get deployment kube-state-metrics -n kube-system 2>/dev/null || true
-            kubectl get events -n kube-system \
-                --sort-by='.lastTimestamp' \
-                --field-selector involvedObject.name=kube-state-metrics 2>/dev/null \
-                | tail -10 || true
-        fi
-    fi
+    print_success "Prometheus ready"
 
-    print_step "Waiting for Prometheus rollout..."
-    if kubectl rollout status deployment/prometheus -n "$PROMETHEUS_NAMESPACE" --timeout=300s; then
-        print_success "Prometheus is ready!"
-    else
-        print_error "Prometheus deployment failed"
-        kubectl get deployment prometheus -n "$PROMETHEUS_NAMESPACE" || true
-        kubectl describe pod -l app=prometheus -n "$PROMETHEUS_NAMESPACE" || true
-        kubectl get events -n "$PROMETHEUS_NAMESPACE" --sort-by='.lastTimestamp' | tail -20 || true
-        kubectl logs -l app=prometheus -n "$PROMETHEUS_NAMESPACE" --tail=50 || true
-        exit 1
-    fi
+    print_service_access \
+        prometheus-server \
+        "$namespace" \
+        "$PROMETHEUS_PORT" \
+        "PROMETHEUS"
 
-    print_divider
 
-    # Grafana
-    if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
-        print_subsection "Deploying Grafana"
+    # GRAFANA
 
-        if [[ -f "$WORK_DIR/monitoring/grafana.yaml" ]]; then
-            kubectl delete configmap grafana-dashboards -n "$PROMETHEUS_NAMESPACE" \
-                --ignore-not-found 2>/dev/null || true
-            kubectl delete configmap grafana-dashboard-provider -n "$PROMETHEUS_NAMESPACE" \
-                --ignore-not-found 2>/dev/null || true
+    print_subsection "Deploying Grafana"
 
-            kubectl apply -f "$WORK_DIR/monitoring/grafana.yaml"
-            print_success "Grafana manifests applied"
-        else
-            print_warning "grafana.yaml not found in work dir"
-        fi
+    helm upgrade --install grafana \
+        prometheus-community/grafana \
+        --namespace "$namespace" \
+        --set service.type="$service_type" \
+        --set adminUser="$GRAFANA_ADMIN_USER" \
+        --set adminPassword="$GRAFANA_ADMIN_PASSWORD" \
+        --wait \
+        --timeout 5m
 
-        print_step "Waiting for Grafana rollout..."
-        if kubectl rollout status deployment/grafana -n "$PROMETHEUS_NAMESPACE" --timeout=300s; then
-            print_success "Grafana is ready!"
-        else
-            print_warning "Grafana rollout had issues"
-            kubectl describe pod -l app=grafana -n "$PROMETHEUS_NAMESPACE" || true
-        fi
-    else
-        print_info "Grafana disabled (GRAFANA_ENABLED=false)"
-    fi
+    wait_for_rollout deployment/grafana "$namespace"
 
-    print_divider
+    print_success "Grafana ready"
 
-    # Status
+    print_service_access \
+        grafana \
+        "$namespace" \
+        "$GRAFANA_PORT" \
+        "GRAFANA"
+
+    print_access_box "GRAFANA CREDENTIALS" ">" \
+        "CRED:Username:${GRAFANA_ADMIN_USER}" \
+        "CRED:Password:${GRAFANA_ADMIN_PASSWORD}"
+
+
+    # NODE EXPORTER
+
+    print_subsection "Deploying Node Exporter"
+
+    helm upgrade --install node-exporter \
+        prometheus-community/prometheus-node-exporter \
+        --namespace "$namespace" \
+        --wait \
+        --timeout 5m
+
+    kubectl rollout status daemonset/node-exporter \
+        -n "$namespace" \
+        --timeout=120s || true
+
+    print_success "Node Exporter ready"
+
+
+    # SUMMARY
+
     print_subsection "Monitoring Components Status"
-    kubectl get all -n "$PROMETHEUS_NAMESPACE" -o wide
 
-    print_divider
+    kubectl get pods -n "$namespace"
 
-    # ACCESS INFO
-    echo ""
-    print_section "MONITORING ACCESS" ">"
-    print_kv "Distribution" "${K8S_DISTRIBUTION}"
-    echo ""
-
-    local prometheus_url
-    prometheus_url=$(get_service_url "prometheus" "$PROMETHEUS_NAMESPACE" "${PROMETHEUS_PORT}")
-
-    case "$prometheus_url" in
-        port-forward:*)
-            local port="${prometheus_url#port-forward:}"
-            print_access_box "PROMETHEUS" ">" \
-                "NOTE:Prometheus is inside the cluster — expose it with port-forward" \
-                "SEP:" \
-                "CMD:Step 1  --  Start port-forward:|kubectl port-forward svc/prometheus ${port}:${port} -n ${PROMETHEUS_NAMESPACE}" \
-                "URL:Step 2  --  Open Prometheus UI:http://localhost:${port}"
-            ;;
-        pending-loadbalancer)
-            print_access_box "PROMETHEUS" ">" \
-                "NOTE:LoadBalancer is still provisioning — check again shortly." \
-                "CMD:Check status:|kubectl get svc prometheus -n ${PROMETHEUS_NAMESPACE}"
-            ;;
-        minikube-cli-missing)
-            print_access_box "PROMETHEUS" ">" \
-                "NOTE:minikube CLI not found — use port-forward to access Prometheus." \
-                "CMD:Port-forward:|kubectl port-forward svc/prometheus ${PROMETHEUS_PORT}:${PROMETHEUS_PORT} -n ${PROMETHEUS_NAMESPACE}"
-            ;;
-        *)
-            print_access_box "PROMETHEUS" ">" \
-                "URL:Prometheus UI:${prometheus_url}"
-            ;;
-    esac
-
-    if [[ "${GRAFANA_ENABLED}" == "true" ]]; then
-        local grafana_url
-        grafana_url=$(get_service_url "grafana" "$PROMETHEUS_NAMESPACE" "$GRAFANA_PORT")
-
-        case "$grafana_url" in
-            port-forward:*)
-                local port="${grafana_url#port-forward:}"
-                print_access_box "GRAFANA" ">" \
-                    "NOTE:Grafana is inside the cluster — expose it with port-forward" \
-                    "SEP:" \
-                    "CMD:Step 1  --  Start port-forward:|kubectl port-forward svc/grafana ${port}:${port} -n ${PROMETHEUS_NAMESPACE}" \
-                    "URL:Step 2  --  Open Grafana UI:http://localhost:${port}" \
-                    "SEP:" \
-                    "CRED:Username:${GRAFANA_ADMIN_USER}" \
-                    "CRED:Password:${GRAFANA_ADMIN_PASSWORD}"
-                ;;
-            pending-loadbalancer)
-                print_access_box "GRAFANA" ">" \
-                    "NOTE:LoadBalancer is still provisioning." \
-                    "CMD:Check status:|kubectl get svc grafana -n ${PROMETHEUS_NAMESPACE}" \
-                    "SEP:" \
-                    "CRED:Username:${GRAFANA_ADMIN_USER}" \
-                    "CRED:Password:${GRAFANA_ADMIN_PASSWORD}"
-                ;;
-            minikube-cli-missing)
-                print_access_box "GRAFANA" ">" \
-                    "NOTE:minikube CLI not found — use port-forward to access Grafana." \
-                    "CMD:Port-forward:|kubectl port-forward svc/grafana ${GRAFANA_PORT}:${GRAFANA_PORT} -n ${PROMETHEUS_NAMESPACE}" \
-                    "SEP:" \
-                    "CRED:Username:${GRAFANA_ADMIN_USER}" \
-                    "CRED:Password:${GRAFANA_ADMIN_PASSWORD}"
-                ;;
-            *)
-                print_access_box "GRAFANA" ">" \
-                    "URL:Grafana UI:${grafana_url}" \
-                    "SEP:" \
-                    "CRED:Username:${GRAFANA_ADMIN_USER}" \
-                    "CRED:Password:${GRAFANA_ADMIN_PASSWORD}"
-                ;;
-        esac
-    fi
-
-    print_access_box "GRAFANA DASHBOARDS  --  Import by ID or JSON" ">" \
-        "NOTE:-- Kubernetes & Infrastructure  (Dashboards -> New -> Import -> paste ID) --" \
-        "CRED:Node Exporter Full:1860" \
-        "CRED:Kubernetes Cluster (Prometheus):6417" \
-        "CRED:kube-state-metrics v2:13332" \
-        "SEP:" \
-        "NOTE:-- Loki Logging  (custom JSON, Loki 3.0 compatible, no empty-matcher errors) --" \
-        "CMD:Step 1  --  In Grafana:|Dashboards  ->  New  ->  Import" \
-        "CMD:Step 2  --  Click:|Upload dashboard JSON file" \
-        "CMD:Step 3  --  Select:|monitoring/dashboards/devops-loki-dashboard.json" \
-        "CMD:Step 4  --  Set datasource:|Loki  ->  loki  then click Import" \
-        "SEP:" \
-        "NOTE:-- Pre-configured datasource UIDs --" \
-        "CRED:Prometheus UID:prometheus" \
-        "CRED:Loki UID:loki"
-
-    print_subsection "Monitored Targets"
-    print_target "Kubernetes API Server"
-    print_target "Kubernetes Nodes  (via node-exporter)"
-    print_target "Kubernetes Pods   (annotation: prometheus.io/scrape=true)"
-    print_target "Application:  ${BOLD}${APP_NAME}${RESET}  in namespace ${BOLD}${NAMESPACE}${RESET}"
-    [[ -d "$WORK_DIR/kube-state-metrics" ]] && print_target "kube-state-metrics"
-    echo ""
-    print_divider
-    deploy_evidently
-    print_divider
-    deploy_whylabs
-    print_divider
+    print_success "Monitoring stack deployed successfully"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

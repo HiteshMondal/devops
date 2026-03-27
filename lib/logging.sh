@@ -228,6 +228,36 @@ print_url_box() {
     print_access_box "${title}" ">>" "${lines[@]}"
 }
 
+print_service_access() {
+    local name="$1"
+    local namespace="$2"
+    local port="$3"
+    local title="$4"
+
+    local url
+    url=$(get_service_url "$name" "$namespace" "$port")
+
+    case "$url" in
+        port-forward:*)
+            local pf="${url#port-forward:}"
+            print_access_box "$title" ">" \
+                "NOTE:Service is ClusterIP — use port-forward" \
+                "SEP:" \
+                "CMD:Start port-forward:|kubectl port-forward svc/${name} ${pf}:${pf} -n ${namespace}" \
+                "URL:Open UI:http://localhost:${pf}"
+            ;;
+        pending-loadbalancer)
+            print_access_box "$title" ">" \
+                "NOTE:LoadBalancer provisioning in progress" \
+                "CMD:Check status:|kubectl get svc ${name} -n ${namespace}"
+            ;;
+        *)
+            print_access_box "$title" ">" \
+                "URL:${title}:${url}"
+            ;;
+    esac
+}
+
 require_command() {
     local cmd="$1"
     local install_hint="${2:-}"

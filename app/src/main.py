@@ -127,6 +127,17 @@ async def model_info():
         "metrics": {},
     }
 
+@app.get("/ready", response_model=HealthResponse, tags=["ops"])
+async def ready():
+    """Readiness probe: check if the model is loaded and ready."""
+    # In the future, check if your model weights are loaded here
+    return HealthResponse(
+        status  = "ready",
+        env     = APP_ENV,
+        model   = MODEL_NAME,
+        version = app.version,
+    )
+
 
 # Global error handler
 

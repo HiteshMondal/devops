@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# kubernetes/deploy_kubernetes.sh — Universal Kubernetes Deployment Script
-# Works with: Minikube, Kind, K3s, EKS, GKE, AKS, and any Kubernetes distribution
+# Should work and be compatible with all Linux computers
+# Works in both environments: ArgoCD and direct
+# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others
 # Usage: ./deploy_kubernetes.sh [local|prod]
 
 set -euo pipefail
@@ -83,26 +84,19 @@ patch_overlay() {
         return 1
     fi
 
-    # Use a temp file for portability (macOS sed -i requires a suffix argument)
-    local tmpfile
-    tmpfile=$(mktemp)
+    print_step "Patching Kustomize overlay in ${overlay_dir}..."
 
+    # 1. Update Image in kustomization.yaml
+    # Using a temp file to avoid macOS/BSD vs GNU sed compatibility issues
+    local tmp_kustomize
+    tmp_kustomize=$(mktemp)
     sed \
         -e "s|newName:.*|newName: ${DOCKERHUB_USERNAME}/${APP_NAME}|g" \
         -e "s|newTag:.*|newTag: ${DOCKER_IMAGE_TAG}|g" \
-        "${kustomization_file}" > "${tmpfile}"
-    mv "${tmpfile}" "${kustomization_file}"
+        "${kustomization_file}" > "${tmp_kustomize}"
+    mv "${tmp_kustomize}" "${kustomization_file}"
 
-    # Inject imagePullPolicy in deployment patch if the file exists
-    local deploy_patch="${overlay_dir}/deployment.yaml"
-    if [[ -f "$deploy_patch" ]]; then
-        tmpfile=$(mktemp)
-        sed "s|imagePullPolicy:.*|imagePullPolicy: ${IMAGE_PULL_POLICY}|g" \
-            "${deploy_patch}" > "${tmpfile}"
-        mv "${tmpfile}" "${deploy_patch}"
-    fi
-
-    # Write ConfigMap patch
+    # 2. Generate ConfigMap Patch (Matches all env vars in Deployment)
     cat > "${overlay_dir}/configmap-patch.yaml" <<EOF
 apiVersion: v1
 kind: ConfigMap
@@ -114,10 +108,12 @@ data:
   APP_PORT: "${APP_PORT}"
   APP_ENV: "${APP_ENV:-production}"
   LOG_LEVEL: "${LOG_LEVEL:-info}"
+  DB_HOST: "${DB_HOST:-postgres-service}"
+  DB_PORT: "${DB_PORT:-5432}"
+  DB_NAME: "${DB_NAME:-devops_db}"
 EOF
 
-    # Write Secrets patch — only reference non-secret defaults here;
-    # real secret values should come from a secrets manager in production.
+    # 3. Generate Secrets Patch (Matches all secretKeyRefs in Deployment)
     cat > "${overlay_dir}/secrets-patch.yaml" <<EOF
 apiVersion: v1
 kind: Secret
@@ -126,23 +122,14 @@ metadata:
   namespace: ${NAMESPACE}
 type: Opaque
 stringData:
-  DB_USERNAME: "${DB_USERNAME:-devops_user}"
-  DB_PASSWORD: "${DB_PASSWORD:-changeme}"
-  JWT_SECRET: "${JWT_SECRET:-changeme-jwt-secret}"
-  API_KEY: "${API_KEY:-changeme-api-key}"
-  SESSION_SECRET: "${SESSION_SECRET:-changeme-session-secret}"
+  DB_USERNAME: "${DB_USERNAME:-dbadmin}"
+  DB_PASSWORD: "${DB_PASSWORD:-$(openssl rand -base64 12)}"
+  JWT_SECRET: "${JWT_SECRET:-$(openssl rand -base64 32)}"
+  API_KEY: "${API_KEY:-cmd-$(date +%s)}"
+  SESSION_SECRET: "${SESSION_SECRET:-$(openssl rand -base64 24)}"
 EOF
 
-    # Register patches in kustomization.yaml if not already present
-    if ! grep -q "patches:" "${kustomization_file}"; then
-        cat >> "${kustomization_file}" <<EOF
-
-patches:
-  - path: configmap-patch.yaml
-  - path: secrets-patch.yaml
-EOF
-    fi
-
+    # 4. Generate ImagePullPolicy + Force Restart Patch
     cat > "${overlay_dir}/imagepull-patch.yaml" <<EOF
 apiVersion: apps/v1
 kind: Deployment
@@ -151,17 +138,36 @@ metadata:
   namespace: ${NAMESPACE}
 spec:
   template:
+    metadata:
+      annotations:
+        # This force-triggers a rollout even if the image tag is the same
+        deployment.kubernetes.io/restartedAt: "$(date +%s)"
     spec:
       containers:
       - name: ${APP_NAME}
         imagePullPolicy: ${IMAGE_PULL_POLICY}
 EOF
 
-# Register it if not already in kustomization
-if ! grep -q "imagepull-patch.yaml" "${overlay_dir}/kustomization.yaml"; then
-    sed -i '/patches:/a\  - path: imagepull-patch.yaml' "${overlay_dir}/kustomization.yaml"
-fi
-    print_success "Kustomize overlay patched"
+    # 5. Register all patches in kustomization.yaml if not present
+    for patch in "configmap-patch.yaml" "secrets-patch.yaml" "imagepull-patch.yaml"; do
+        if ! grep -q "$patch" "${kustomization_file}"; then
+            
+            # Check if "patches:" header exists
+            if ! grep -q "patches:" "${kustomization_file}"; then
+                # Force a newline before adding the header
+                echo "" >> "${kustomization_file}"
+                echo "patches:" >> "${kustomization_file}"
+            fi
+            
+            # Ensure the last line of the file has a newline before we append
+            # This is the "magic fix" for the YAML collision
+            sed -i '$a\' "${kustomization_file}" 2>/dev/null || echo "" >> "${kustomization_file}"
+            
+            echo "  - path: $patch" >> "${kustomization_file}"
+        fi
+    done
+
+    print_success "Kustomize overlay successfully patched for ${NAMESPACE}"
 }
 
 # Write a Kind cluster config — used by run.sh's kind branch
@@ -189,6 +195,15 @@ EOF
     echo "${out}"
 }
 
+# Cleanup function to be called on EXIT
+DEPLOY_TEMP_DIR=""
+cleanup() {
+    if [[ -n "${DEPLOY_TEMP_DIR:-}" && -d "${DEPLOY_TEMP_DIR}" ]]; then
+        rm -rf "${DEPLOY_TEMP_DIR}"
+    fi
+}
+trap cleanup EXIT
+
 # Deploy to Kubernetes
 deploy() {
     local env="$1"
@@ -199,26 +214,25 @@ deploy() {
     validate_required_vars
     build_and_load_image
 
-    # Prepare a working copy of manifests so we don't mutate the source tree
-    local WORK_DIR
-    WORK_DIR=$(mktemp -d /tmp/k8s-deployment.XXXXXX)
+    # Create the namespace early
+    kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
 
-    # Ensure cleanup on exit
-    trap 'rm -rf "${WORK_DIR}"' EXIT
+    # Prepare a working copy of manifests
+    DEPLOY_TEMP_DIR=$(mktemp -d /tmp/k8s-deployment.XXXXXX)
 
-    cp -r "${PROJECT_ROOT}/kubernetes/base" "${WORK_DIR}/"
+    cp -r "${PROJECT_ROOT}/kubernetes/base" "${DEPLOY_TEMP_DIR}/"
     if [[ -d "${PROJECT_ROOT}/kubernetes/overlays" ]]; then
-        cp -r "${PROJECT_ROOT}/kubernetes/overlays" "${WORK_DIR}/"
+        cp -r "${PROJECT_ROOT}/kubernetes/overlays" "${DEPLOY_TEMP_DIR}/"
     fi
 
-    local overlay_dir="${WORK_DIR}/overlays/${env}"
+    local overlay_dir="${DEPLOY_TEMP_DIR}/overlays/${env}"
 
     if [[ -d "$overlay_dir" ]]; then
         patch_overlay "${overlay_dir}"
         kubectl apply -k "${overlay_dir}"
     else
-        print_warning "Overlay not found for '${env}' — applying base manifests directly"
-        kubectl apply -k "${WORK_DIR}/base"
+        print_warning "Overlay not found for '${env}' — applying base"
+        kubectl apply -k "${DEPLOY_TEMP_DIR}/base"
     fi
 
     # Wait for deployment
@@ -226,14 +240,33 @@ deploy() {
             -n "${NAMESPACE}" --timeout=300s; then
         print_error "Deployment failed"
         kubectl get pods -n "${NAMESPACE}" || true
-        kubectl get events -n "${NAMESPACE}" \
-            --sort-by='.lastTimestamp' | tail -20 || true
         exit 1
     fi
+    print_divider
+    print_subsection "Application Access"
 
+    app_url=$(get_service_url "${APP_NAME}" "${NAMESPACE}" "${APP_PORT}")
+
+    case "$app_url" in
+        port-forward:*)
+            port="${app_url#port-forward:}"
+            print_access_box "APPLICATION" ">" \
+                "NOTE:Application service is ClusterIP — expose using port-forward" \
+                "SEP:" \
+                "CMD:Step 1  --  Start port-forward:|kubectl port-forward svc/${APP_NAME} ${port}:${port} -n ${NAMESPACE}" \
+                "URL:Step 2  --  Open Application:http://localhost:${port}"
+            ;;
+        pending-loadbalancer)
+            print_access_box "APPLICATION" ">" \
+                "NOTE:LoadBalancer provisioning in progress" \
+                "CMD:Check status:|kubectl get svc ${APP_NAME} -n ${NAMESPACE}"
+            ;;
+        *)
+            print_access_box "APPLICATION" ">" \
+                "URL:Application UI:${app_url}"
+            ;;
+    esac
     print_success "Deployment succeeded!"
-    echo ""
-    kubectl get all -n "${NAMESPACE}"
 }
 
 deploy "${environment}"
