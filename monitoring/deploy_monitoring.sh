@@ -297,6 +297,7 @@ deploy_monitoring() {
     resolve_k8s_service_config
 
     local namespace="${PROMETHEUS_NAMESPACE:-monitoring}"
+    local loki_namespace="${LOKI_NAMESPACE:-monitoring}"
     local service_type="${MONITORING_SERVICE_TYPE}"
 
     print_kv "Cluster Type" "$K8S_DISTRIBUTION"
@@ -336,17 +337,30 @@ deploy_monitoring() {
 
     print_subsection "Deploying Grafana"
 
-    helm repo add grafana https://grafana.github.io/helm-charts
+    if ! helm repo list | grep -q grafana; then
+        helm repo add grafana https://grafana.github.io/helm-charts >/dev/null
+    fi
     helm repo update >/dev/null
 
-    helm upgrade --install grafana \
-        prometheus-community/grafana \
-        --namespace "$namespace" \
-        --set service.type="$service_type" \
-        --set adminUser="$GRAFANA_ADMIN_USER" \
-        --set adminPassword="$GRAFANA_ADMIN_PASSWORD" \
-        --wait \
-        --timeout 5m
+    helm upgrade --install grafana grafana/grafana \
+      --namespace "$namespace" \
+      --set service.type="$service_type" \
+      --set adminUser="$GRAFANA_ADMIN_USER" \
+      --set adminPassword="$GRAFANA_ADMIN_PASSWORD" \
+      --set datasources."datasources\.yaml".apiVersion=1 \
+      --set datasources."datasources\.yaml".datasources[0].name=Prometheus \
+      --set datasources."datasources\.yaml".datasources[0].type=prometheus \
+      --set datasources."datasources\.yaml".datasources[0].url=http://prometheus-server.$namespace.svc.cluster.local \
+      --set datasources."datasources\.yaml".datasources[0].access=proxy \
+      --set datasources."datasources\.yaml".datasources[0].isDefault=true \
+      --set datasources."datasources\.yaml".datasources[0].uid=prometheus \
+      --set datasources."datasources\.yaml".datasources[1].name=Loki \
+      --set datasources."datasources\.yaml".datasources[1].type=loki \
+      --set datasources."datasources\.yaml".datasources[1].url=http://loki.$loki_namespace.svc.cluster.local:3100 \
+      --set datasources."datasources\.yaml".datasources[1].access=proxy \
+      --set datasources."datasources\.yaml".datasources[1].uid=loki \
+      --wait \
+      --timeout 5m
 
     wait_for_rollout deployment/grafana "$namespace"
 
@@ -361,17 +375,19 @@ deploy_monitoring() {
     print_access_box "GRAFANA CREDENTIALS" ">" \
         "CRED:Username:${GRAFANA_ADMIN_USER}" \
         "CRED:Password:${GRAFANA_ADMIN_PASSWORD}"
-
+    print_access_box "GRAFANA DASHBOARDS" ">" \
+      "NOTE:Import dashboards via ID" \
+      "SEP:" \
+      "CRED:Node Exporter Full:1860" \
+      "CRED:Kubernetes Cluster Monitoring:6417" \
+      "CRED:kube-state-metrics v2:13332" \
+      "SEP:" \
+      "NOTE:Loki logging dashboard JSON included in repo:" \
+      "CMD:monitoring/dashboards/devops-loki-dashboard.json"
 
     # NODE EXPORTER
 
-    print_subsection "Deploying Node Exporter"
-
-    helm upgrade --install node-exporter \
-        prometheus-community/prometheus-node-exporter \
-        --namespace "$namespace" \
-        --wait \
-        --timeout 5m
+    deploy_node_exporter
 
     kubectl rollout status daemonset/node-exporter \
         -n "$namespace" \
