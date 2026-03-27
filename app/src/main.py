@@ -11,8 +11,10 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+import prometheus_client
 
 # Logging
 
@@ -28,6 +30,16 @@ APP_NAME    = os.getenv("APP_NAME",    "devops-aiml-app")
 APP_PORT    = int(os.getenv("APP_PORT", "3000"))
 APP_ENV     = os.getenv("APP_ENV",     "development")
 MODEL_NAME  = os.getenv("MODEL_NAME",  "baseline-v1")
+REQUEST_COUNT = Counter(
+    "http_requests_total",
+    "Total HTTP requests",
+    ["method", "endpoint", "status"]
+)
+REQUEST_LATENCY = Histogram(
+    "http_request_duration_seconds",
+    "HTTP request latency",
+    ["method", "endpoint"]
+)
 
 # Lifespan  (startup / shutdown hooks)
 
@@ -54,6 +66,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    latency = time.perf_counter() - start
+    if request.url.path != "/metrics":
+        REQUEST_COUNT.labels(
+            method=request.method,
+            endpoint=request.url.path,
+            status=str(response.status_code)
+        ).inc()
+        REQUEST_LATENCY.labels(
+            method=request.method,
+            endpoint=request.url.path
+        ).observe(latency)
+    return response
 
 # Schemas
 
@@ -90,6 +119,13 @@ async def health():
 async def root():
     return {"message": f"Welcome to {APP_NAME}", "docs": "/docs"}
 
+@app.get("/metrics", tags=["ops"])
+async def metrics():
+    """Prometheus metrics endpoint."""
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST
+    )
 
 @app.post("/predict", response_model=PredictResponse, tags=["ml"])
 async def predict(req: PredictRequest):
@@ -99,10 +135,6 @@ async def predict(req: PredictRequest):
     """
     start = time.perf_counter()
 
-    # -----------------------------------------------------------------------
-    # TODO: replace with real model inference
-    # e.g.  result = model.predict(req.input)
-    # -----------------------------------------------------------------------
     result = {"echo": req.input, "note": "placeholder — wire up your model here"}
 
     latency_ms = (time.perf_counter() - start) * 1000

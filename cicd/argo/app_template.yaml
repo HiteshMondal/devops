@@ -107,6 +107,7 @@ spec:
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
       - ServerSideApply=true
+      - Replace=true
     retry:
       limit: 3
       backoff:

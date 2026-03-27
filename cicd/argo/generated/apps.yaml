@@ -82,7 +82,7 @@ spec:
         Open: http://localhost:3000
     - name: Grafana Credentials
       value: |
-        Username: 
+        Username: admin
         Password: <from secret or env>
     - name: Grafana Dashboards
       value: |
@@ -107,6 +107,7 @@ spec:
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
       - ServerSideApply=true
+      - Replace=true
     retry:
       limit: 3
       backoff:

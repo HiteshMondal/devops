@@ -14,6 +14,9 @@ httpx==0.28.*
 # Environment / config
 python-dotenv==1.*
 
+# Prometheus
+prometheus-client==0.20.*
+
 # ---------------------------------------------------------------------------
 # Uncomment when integrating ML tools (Phase 2)
 # ---------------------------------------------------------------------------
