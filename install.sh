@@ -7,21 +7,33 @@ echo "========================================"
 echo " DevOps Tools Installer"
 echo "========================================"
 echo ""
-echo "Select your OS:"
-echo "1) Ubuntu"
-echo "2) Debian"
-echo ""
 
-read -rp "Enter choice [1-2]: " choice
+#############################################################
+# Auto Detect OS (Ubuntu / Debian)
+#############################################################
 
-case "$choice" in
-    1) OS="ubuntu" ;;
-    2) OS="debian" ;;
-    *) echo "Invalid choice"; exit 1 ;;
+if [[ -f /etc/os-release ]]; then
+    . /etc/os-release
+else
+    echo "Cannot detect OS"
+    exit 1
+fi
+
+case "$ID" in
+    ubuntu)
+        OS="ubuntu"
+        ;;
+    debian)
+        OS="debian"
+        ;;
+    *)
+        echo "Unsupported distro: $ID"
+        echo "Supported: Ubuntu / Debian"
+        exit 1
+        ;;
 esac
 
-echo ""
-echo "Selected OS: $OS"
+echo "Detected OS: $OS"
 echo ""
 
 # Root check
@@ -83,6 +95,24 @@ sudo systemctl start docker
 sudo docker run hello-world
 
 fi
+
+#############################################################
+# Install Base Utilities Required by Deployment Scripts
+#############################################################
+
+echo ""
+echo "Installing required base utilities..."
+echo ""
+
+sudo apt update
+sudo apt install -y \
+git \
+gettext \
+jq \
+tar \
+coreutils
+
+echo "Base utilities installed"
 
 #############################################################
 # Install Kubernetes

@@ -5,7 +5,7 @@
 
 #  APP 
 : "${APP_NAME:=devops-app}"
-: "${NAMESPACE:=devops}"
+: "${NAMESPACE:=devops-app}"
 : "${APP_PORT:=8000}"
 : "${APP_ENV:=production}"
 : "${LOG_LEVEL:=info}"
@@ -15,7 +15,6 @@
 : "${DOCKER_IMAGE_TAG:=latest}"
 : "${INGRESS_ENABLED:=true}"
 : "${INGRESS_HOST:=devops-app.local}"
-: "${APP_PORT:=8000}"
 
 #  DATABASE 
 : "${DB_HOST:=localhost}"

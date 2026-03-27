@@ -74,6 +74,10 @@ build_and_load_image() {
     print_success "Docker image ready: ${image}"
 }
 
+_rand_b64() {
+    head -c "$1" /dev/urandom | base64 | tr -d '\n/+=' | head -c "$1"
+}
+
 # Patch Kustomize overlay with runtime values
 patch_overlay() {
     local overlay_dir="$1"
@@ -123,10 +127,10 @@ metadata:
 type: Opaque
 stringData:
   DB_USERNAME: "${DB_USERNAME:-dbadmin}"
-  DB_PASSWORD: "${DB_PASSWORD:-$(openssl rand -base64 12)}"
-  JWT_SECRET: "${JWT_SECRET:-$(openssl rand -base64 32)}"
+  DB_PASSWORD: "${DB_PASSWORD:-$(_rand_b64 16)}"
+  JWT_SECRET: "${JWT_SECRET:-$(_rand_b64 32)}"
   API_KEY: "${API_KEY:-cmd-$(date +%s)}"
-  SESSION_SECRET: "${SESSION_SECRET:-$(openssl rand -base64 24)}"
+  SESSION_SECRET: "${SESSION_SECRET:-$(_rand_b64 24)}"
 EOF
 
     # 4. Generate ImagePullPolicy + Force Restart Patch

@@ -279,6 +279,12 @@ deploy_whylabs() {
     fi
 }
 
+wait_for_rollout() {
+    local resource="$1"
+    local namespace="$2"
+    kubectl rollout status "$resource" -n "$namespace" --timeout=300s
+}
+
 # Main monitoring deployment
 deploy_monitoring() {
 
@@ -287,7 +293,7 @@ deploy_monitoring() {
     require_command kubectl
     setup_helm
 
-    command -v detect_k8s_distribution
+    detect_k8s_distribution
     resolve_k8s_service_config
 
     local namespace="${PROMETHEUS_NAMESPACE:-monitoring}"
@@ -329,6 +335,9 @@ deploy_monitoring() {
     # GRAFANA
 
     print_subsection "Deploying Grafana"
+
+    helm repo add grafana https://grafana.github.io/helm-charts
+    helm repo update >/dev/null
 
     helm upgrade --install grafana \
         prometheus-community/grafana \

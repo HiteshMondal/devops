@@ -10,6 +10,9 @@ if [[ -z "${PROJECT_ROOT:-}" ]]; then
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fi
 
+readonly PROJECT_ROOT
+export PROJECT_ROOT
+
 source "${PROJECT_ROOT}/lib/bootstrap.sh"
 
 ARGOCD_SERVER=""
