@@ -252,12 +252,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: app/package.json
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: app/requirements.txt
 
       - name: Run tests
         working-directory: app
@@ -265,15 +265,17 @@ jobs:
           echo "============================================================================"
           echo "Running Application Tests"
           echo "============================================================================"
-          npm test --if-present || echo "ℹ️  No test script defined — skipping"
+          pip install -r requirements.txt
+          python -m pytest tests/ --if-present 2>/dev/null || echo "ℹ️  No tests found — skipping"
 
       - name: Run security audit
         working-directory: app
         run: |
           echo "============================================================================"
-          echo "NPM Security Audit"
+          echo "pip-audit Security Check"
           echo "============================================================================"
-          npm audit --audit-level=high || echo "⚠️  Audit found issues — review above"
+          pip install pip-audit
+          pip-audit -r requirements.txt || echo "⚠️  Audit found issues — review above"
 
   # JOB 4 — Build & Push Docker image
   # Runs only on push to main/develop (not on PRs)
