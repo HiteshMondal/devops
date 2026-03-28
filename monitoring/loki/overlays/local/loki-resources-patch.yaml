@@ -1,4 +1,4 @@
-# /monitoring/Loki/overlays/local/loki-resources-patch.yaml
+# /monitoring/loki/overlays/local/loki-resources-patch.yaml
 # Reduces Loki resource requests/limits for local development machines.
 # Applied as a strategic-merge patch by the local overlay kustomization.yaml.
 apiVersion: apps/v1

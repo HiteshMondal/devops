@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# monitoring/Loki/deploy_loki.sh — Deploy Loki log aggregation system
+# monitoring/loki/deploy_loki.sh — Deploy Loki log aggregation system
 # Works on all computers (Linux, macOS)
 # Supports all Kubernetes distributions: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s
 # Compatible with all environments: local, production, ArgoCD, direct mode (run.sh)
@@ -143,7 +143,7 @@ deploy_loki() {
 
     local overlay_dir
     overlay_dir=$(resolve_overlay_name)
-    local overlay_path="${PROJECT_ROOT}/monitoring/Loki/overlays/${overlay_dir}"
+    local overlay_path="${PROJECT_ROOT}/monitoring/loki/overlays/${overlay_dir}"
 
     print_kv "Distribution"  "${K8S_DISTRIBUTION}"
     print_kv "Namespace"     "${LOKI_NAMESPACE}"

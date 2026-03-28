@@ -46,7 +46,7 @@ deploy_monitoring() {
 }
 
 deploy_loki() {
-    bash "$PROJECT_ROOT/monitoring/Loki/deploy_loki.sh"
+    bash "$PROJECT_ROOT/monitoring/loki/deploy_loki.sh"
 }
 
 trivy() {
@@ -84,6 +84,11 @@ build_and_push_image_podman() {
 configure_dockerhub_username() {
     bash "$PROJECT_ROOT/app/docker/configure_dockerhub_username.sh"
 }
+
+run_mlops() {
+    bash "$PROJECT_ROOT/mlops.sh" "$@"
+}
+
 clear
 print_divider
 print_section "DevOps Project  --  Deployment Runner" ">"
@@ -567,6 +572,7 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
         deploy_loki
         trivy
         configure_gitlab
+        [[ "${MLOPS_ENABLED:-false}" == "true" ]] && run_mlops
         show_direct_access_info
     fi
 
@@ -652,6 +658,7 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
         deploy_loki
         trivy
         configure_gitlab
+        [[ "${MLOPS_ENABLED:-false}" == "true" ]] && run_mlops
 
         print_section "PRODUCTION DEPLOYMENT COMPLETE" "+"
         print_kv "Cluster"        "${K8S_DISTRIBUTION}"

@@ -1,4 +1,4 @@
-# /monitoring/Loki/base/loki-deployment.yaml
+# /monitoring/loki/base/loki-deployment.yaml
 #
 # Works in both environments: ArgoCD and direct
 # Supports: Minikube · Kind · K3s · K8s · EKS · GKE · AKS · MicroK8s

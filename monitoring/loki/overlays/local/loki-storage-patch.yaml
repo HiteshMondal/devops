@@ -1,4 +1,4 @@
-# /monitoring/Loki/overlays/local/loki-storage-patch.yaml
+# /monitoring/loki/overlays/local/loki-storage-patch.yaml
 
 - op: remove
   path: /spec/volumeClaimTemplates

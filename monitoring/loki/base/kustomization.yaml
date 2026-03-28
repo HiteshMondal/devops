@@ -1,4 +1,4 @@
-# /monitoring/Loki/base/kustomization.yaml
+# /monitoring/loki/base/kustomization.yaml
 # Base layer — ArgoCD and direct-apply safe.
 # Overlays (local / prod) extend this base via patches.
 #

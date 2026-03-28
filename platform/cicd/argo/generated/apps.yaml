@@ -27,7 +27,7 @@ spec:
   source:
     repoURL: https://github.com/HiteshMondal/devops.git
     targetRevision: main
-    path: monitoring/Loki/overlays/local
+    path: monitoring/loki/overlays/local
   destination:
     server: https://kubernetes.default.svc
     namespace: loki
@@ -39,7 +39,6 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - Replace=true
-      - ServerSideApply=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
@@ -107,8 +106,7 @@ spec:
       - CreateNamespace=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
-      - ApplyOutOfSyncOnly=true
-      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true     
       - Replace=true
     retry:
       limit: 3
@@ -166,7 +164,6 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - Replace=true
-      - ServerSideApply=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
@@ -206,7 +203,7 @@ spec:
   source:
     repoURL: https://github.com/HiteshMondal/devops.git
     targetRevision: main
-    path: kubernetes/overlays/local
+    path: app/k8s/overlays/local
 
   destination:
     server: https://kubernetes.default.svc
@@ -219,7 +216,6 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - Replace=true
-      - ServerSideApply=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ApplyOutOfSyncOnly=true

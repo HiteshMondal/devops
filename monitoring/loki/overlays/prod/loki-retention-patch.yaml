@@ -1,4 +1,4 @@
-# /monitoring/Loki/overlays/prod/loki-retention-patch.yaml
+# /monitoring/loki/overlays/prod/loki-retention-patch.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:

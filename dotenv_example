@@ -120,3 +120,85 @@ SESSION_SECRET=
 # Argo CD admin password
 # If unset, it will be retrieved from the default admin secret
 ARGOCD_ADMIN_PASSWORD=
+
+
+################################################################################
+# MLOPS CONFIGURATION
+# Everything defaults to disabled — set MLOPS_ENABLED=true to activate.
+################################################################################
+
+
+################################################################################
+# MLOPS — MASTER SWITCH
+################################################################################
+
+# Set to true to run the MLOps pipeline after Kubernetes deployment
+MLOPS_ENABLED=false
+
+# Individual feature toggles (only matter when MLOPS_ENABLED=true)
+DVC_ENABLED=true
+LAKEFS_ENABLED=false
+NEPTUNE_ENABLED=false
+EVIDENTLY_ENABLED=false
+WHYLABS_ENABLED=false
+
+# Pipeline runner: auto | metaflow | prefect | kubeflow | direct
+# auto = use whatever is installed, falling back to direct
+MLOPS_PIPELINE_RUNNER=auto
+
+# Skip stages (useful for debugging)
+MLOPS_SKIP_TRAINING=false
+MLOPS_SKIP_EVALUATION=false
+
+
+################################################################################
+# MODEL CONFIGURATION
+################################################################################
+
+# Name of the active serving model (updated automatically by mlops.sh)
+MODEL_NAME=baseline-v1
+
+# Path where model artifacts are saved
+MODEL_SAVE_PATH=models/artifacts/model.pkl
+
+# Data path (relative to project root)
+MLOPS_DATA_PATH=data/raw
+
+
+################################################################################
+# EVALUATION GATE
+# Model must meet BOTH thresholds to replace the current serving model.
+# Set both to 0.0 to always pass (useful during initial setup).
+################################################################################
+
+MLOPS_MIN_F1=0.0
+MLOPS_MIN_ACCURACY=0.0
+
+
+################################################################################
+# NEPTUNE AI — Experiment Tracking (optional)
+# Get these from app.neptune.ai → your project → API tokens
+################################################################################
+
+NEPTUNE_API_TOKEN=
+NEPTUNE_PROJECT=
+
+
+################################################################################
+# LAKEFS — Data Lake Versioning (optional)
+# Leave blank to skip LakeFS entirely.
+################################################################################
+
+LAKEFS_ENDPOINT=http://localhost:8001
+LAKEFS_ACCESS_KEY_ID=
+LAKEFS_SECRET_ACCESS_KEY=
+
+
+################################################################################
+# WHYLABS — Continuous Profiling (optional)
+# Get these from whylabsapp.com → your account
+################################################################################
+
+WHYLABS_API_KEY=
+WHYLABS_ORG_ID=
+WHYLABS_DATASET_ID=

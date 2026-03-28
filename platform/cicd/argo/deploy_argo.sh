@@ -1,5 +1,5 @@
 #!/bin/bash
-# /cicd/argo/deploy_argo.sh — Argo CD Deployment Script
+# /platform/cicd/argo/deploy_argo.sh — Argo CD Deployment Script
 # Usage: source in run.sh, then call deploy_argo
 #        Or run directly: ./deploy_argo.sh
 
@@ -111,7 +111,7 @@ install_argocd_server() {
     kubectl create namespace "$ARGOCD_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
     print_success "Namespace ready: ${BOLD}${ARGOCD_NAMESPACE}${RESET}"
 
-    local ARGO_MANIFEST="$PROJECT_ROOT/cicd/argo/install_argocd.yaml"
+    local ARGO_MANIFEST="$PROJECT_ROOT/platform/cicd/argo/install_argocd.yaml"
     if [[ -f "$ARGO_MANIFEST" ]]; then
         print_step "Applying local ArgoCD manifest..."
         kubectl apply -n "$ARGOCD_NAMESPACE" -f "$ARGO_MANIFEST"
@@ -237,7 +237,7 @@ generate_argocd_apps() {
 
     print_subsection "Generating ArgoCD Application Manifests"
 
-    local ARGO_DIR="$PROJECT_ROOT/cicd/argo"
+    local ARGO_DIR="$PROJECT_ROOT/platform/cicd/argo"
     local GENERATED_DIR="$ARGO_DIR/generated"
     mkdir -p "$GENERATED_DIR"
 
@@ -299,7 +299,7 @@ argocd_add_repo() {
 apply_argocd_apps() {
     print_subsection "Applying Argo CD Applications"
 
-    local OUTPUT="$PROJECT_ROOT/cicd/argo/generated/apps.yaml"
+    local OUTPUT="$PROJECT_ROOT/platform/cicd/argo/generated/apps.yaml"
     [[ -s "$OUTPUT" ]] || { print_error "Generated apps.yaml is empty or missing"; exit 1; }
 
     kubectl apply -n "$ARGOCD_NAMESPACE" -f "$OUTPUT"

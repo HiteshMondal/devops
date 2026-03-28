@@ -1,4 +1,4 @@
-# /monitoring/Loki/overlays/local/kustomization.yaml
+# /monitoring/loki/overlays/local/kustomization.yaml
 # Local overlay — Minikube, Kind, K3s, MicroK8s, or any single-node dev cluster.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization

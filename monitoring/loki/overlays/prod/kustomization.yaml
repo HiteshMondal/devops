@@ -1,4 +1,4 @@
-# /monitoring/Loki/overlays/prod/kustomization.yaml
+# /monitoring/loki/overlays/prod/kustomization.yaml
 # Production overlay — EKS, GKE, AKS, K3s, bare-metal Kubernetes.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization

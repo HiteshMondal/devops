@@ -1,4 +1,4 @@
-# /monitoring/Loki/overlays/prod/loki-storage-patch.yaml
+# /monitoring/loki/overlays/prod/loki-storage-patch.yaml
 # Configures the PVC storage class and size for cloud / bare-metal production clusters.
 #
 # storageClassName is intentionally omitted.

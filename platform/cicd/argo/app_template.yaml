@@ -27,7 +27,7 @@ spec:
   source:
     repoURL: ${GIT_REPO_URL}
     targetRevision: ${GIT_REPO_BRANCH}
-    path: monitoring/Loki/overlays/${DEPLOY_TARGET}
+    path: monitoring/loki/overlays/${DEPLOY_TARGET}
   destination:
     server: https://kubernetes.default.svc
     namespace: ${LOKI_NAMESPACE}
@@ -39,7 +39,6 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - Replace=true
-      - ServerSideApply=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
@@ -107,8 +106,7 @@ spec:
       - CreateNamespace=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
-      - ApplyOutOfSyncOnly=true
-      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true     
       - Replace=true
     retry:
       limit: 3
@@ -166,7 +164,6 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - Replace=true
-      - ServerSideApply=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
@@ -219,7 +216,6 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - Replace=true
-      - ServerSideApply=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ApplyOutOfSyncOnly=true

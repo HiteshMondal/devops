@@ -23,7 +23,6 @@ configure_gitlab () {
 
     if [ ! -d .git ]; then
         print_warning "Not a Git repository. Skipping GitLab CI/CD setup."
-        return 0
     fi
 
     print_subsection "STEP 1  --  GIT REPOSITORY STATUS"
