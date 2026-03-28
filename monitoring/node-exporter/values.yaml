@@ -2,6 +2,9 @@
 
 fullnameOverride: node-exporter
 
+nodeSelector:
+  kubernetes.io/os: linux
+
 service:
   enabled: true
   type: ClusterIP

@@ -326,78 +326,6 @@ _wait_for_app() {
         || print_warning "Timeout or issue waiting for ${app} — ArgoCD will continue to self-heal"
 }
 
-sync_argocd_apps() {
-    print_subsection "Syncing Argo CD Applications (sequential — respects sync-wave order)"
-
-    assert_portforward_alive
-
-    local apps=(
-        "${APP_NAME}-${DEPLOY_TARGET}"
-        "${APP_NAME}-monitoring"
-        "${APP_NAME}-loki"
-        "${APP_NAME}-trivy"
-    )
-
-    for app in "${apps[@]}"; do
-        assert_portforward_alive
-
-        if ! argocd_cmd app get "$app" >/dev/null 2>&1; then
-            print_warning "App not found yet: ${app} — it may appear after ArgoCD processes the manifest"
-            # Give ArgoCD a moment to register the application before continuing.
-            sleep 5
-            if ! argocd_cmd app get "$app" >/dev/null 2>&1; then
-                print_warning "App still not found: ${app} — skipping sync, will auto-sync"
-                continue
-            fi
-        fi
-
-        print_step "Syncing: ${BOLD}${app}${RESET}"
-
-        # Retry loop: if "another operation is in progress" back off and retry.
-        local sync_attempts=0
-        local sync_max=5
-        local synced=false
-
-        while [[ $sync_attempts -lt $sync_max ]]; do
-            local sync_out sync_exit
-            sync_out=$(argocd_cmd app sync "$app" 2>&1) && sync_exit=0 || sync_exit=$?
-
-            if [[ $sync_exit -eq 0 ]]; then
-                synced=true
-                break
-            fi
-
-            if echo "$sync_out" | grep -q "another operation is already in progress"; then
-                sync_attempts=$((sync_attempts + 1))
-                print_warning "Operation in progress for ${app} — waiting 15s before retry (${sync_attempts}/${sync_max})"
-                sleep 15
-            else
-                # Non-retryable error — log and move on
-                print_warning "Sync failed for ${app}: ${sync_out}"
-                break
-            fi
-        done
-
-        if [[ "$synced" == true ]]; then
-            print_success "Sync triggered for: ${BOLD}${app}${RESET}"
-        else
-            print_warning "Could not trigger sync for ${app} — ArgoCD auto-sync will handle it"
-        fi
-
-        # Wait for this app to become healthy before syncing the next one.
-        local app_timeout=300
-        [[ "$app" == "${APP_NAME}-${DEPLOY_TARGET}" ]] && app_timeout=60
-        if [[ "${CI:-false}" != "true" ]]; then
-            _wait_for_app "$app" "$app_timeout"
-        else
-            print_info "CI mode — skipping blocking wait for ${app}"
-        fi
-    done
-
-    print_success "All apps synced"
-}
-
-# wait_for_apps is kept for backward compatibility but sync_argocd_apps now
 # blocks on each app, so this becomes a lightweight final health check.
 wait_for_apps() {
     print_subsection "Final Health Check"
@@ -528,11 +456,8 @@ deploy_argo() {
     print_step "Waiting 10s for ArgoCD to register applications..."
     sleep 10
 
-    print_subsection "Step 7 — Sync Applications (sequential)"
-    sync_argocd_apps
-
     if [[ "${CI:-false}" != "true" ]]; then
-        print_subsection "Step 8 — Final Health Check"
+        print_subsection "Step 7 — Final Health Check"
         wait_for_apps
     else
         print_info "CI mode — skipping health check (ArgoCD will auto-sync)"

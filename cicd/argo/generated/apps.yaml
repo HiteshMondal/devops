@@ -38,6 +38,8 @@ spec:
       allowEmpty: false
     syncOptions:
       - CreateNamespace=true
+      - Replace=true
+      - ServerSideApply=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
@@ -163,6 +165,8 @@ spec:
       allowEmpty: false
     syncOptions:
       - CreateNamespace=true
+      - Replace=true
+      - ServerSideApply=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
@@ -214,6 +218,8 @@ spec:
       allowEmpty: false
     syncOptions:
       - CreateNamespace=true
+      - Replace=true
+      - ServerSideApply=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ApplyOutOfSyncOnly=true

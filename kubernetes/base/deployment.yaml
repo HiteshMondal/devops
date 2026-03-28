@@ -34,7 +34,7 @@ spec:
         fsGroup: 1000
       containers:
       - name: devops-app
-        image: devops-app:latest
+        image: hiteshmondaldocker/devops-app:latest
         imagePullPolicy: Always
         ports:
         - name: http
