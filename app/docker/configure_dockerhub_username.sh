@@ -24,7 +24,7 @@ configure_dockerhub_username() {
     local changed=0
     local overlay
     for overlay in local prod; do
-        local kfile="${PROJECT_ROOT}/kubernetes/overlays/${overlay}/kustomization.yaml"
+        local kfile="${PROJECT_ROOT}/app/k8s/overlays/${overlay}/kustomization.yaml"
         if [[ ! -f "$kfile" ]]; then
             echo "  ℹ️  overlays/${overlay}/kustomization.yaml not found — skipping"
             continue

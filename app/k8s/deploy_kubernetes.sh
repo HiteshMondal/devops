@@ -14,11 +14,11 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
 fi
 
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
-    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 fi
 readonly PROJECT_ROOT
 
-source "${PROJECT_ROOT}/lib/bootstrap.sh"
+source "${PROJECT_ROOT}/platform/lib/bootstrap.sh"
 
 load_env_if_needed
 
@@ -224,9 +224,9 @@ deploy() {
     # Prepare a working copy of manifests
     DEPLOY_TEMP_DIR=$(mktemp -d /tmp/k8s-deployment.XXXXXX)
 
-    cp -r "${PROJECT_ROOT}/kubernetes/base" "${DEPLOY_TEMP_DIR}/"
+    cp -r "${PROJECT_ROOT}/app/k8s/base"     "${DEPLOY_TEMP_DIR}/"
     if [[ -d "${PROJECT_ROOT}/kubernetes/overlays" ]]; then
-        cp -r "${PROJECT_ROOT}/kubernetes/overlays" "${DEPLOY_TEMP_DIR}/"
+        cp -r "${PROJECT_ROOT}/app/k8s/overlays" "${DEPLOY_TEMP_DIR}/"
     fi
 
     local overlay_dir="${DEPLOY_TEMP_DIR}/overlays/${env}"

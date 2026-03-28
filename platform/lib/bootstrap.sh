@@ -10,7 +10,7 @@ set -euo pipefail
     exit 1
 }
 
-_lib="$PROJECT_ROOT/lib"
+_lib="$PROJECT_ROOT/platform/lib"
 
 source "$_lib/colors.sh"     # terminal colour variables — no dependencies
 source "$_lib/logging.sh"    # print_* functions — requires colors.sh

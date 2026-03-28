@@ -13,7 +13,7 @@ fi
 readonly PROJECT_ROOT
 export PROJECT_ROOT
 
-source "${PROJECT_ROOT}/lib/bootstrap.sh"
+source "${PROJECT_ROOT}/platform/lib/bootstrap.sh"
 
 ARGOCD_SERVER=""
 ARGOCD_ADMIN_PASS=""

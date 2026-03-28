@@ -28,8 +28,8 @@ fi
 # LOAD SHARED LIBRARIES (SAFE TO SOURCE)
 load_libraries() {
     [[ -n "${PROJECT_ROOT:-}" ]] || { echo "FATAL: PROJECT_ROOT not set"; exit 1; }
-    source "$PROJECT_ROOT/lib/colors.sh"
-    source "$PROJECT_ROOT/lib/logging.sh"
+    source "$PROJECT_ROOT/platform/lib/colors.sh"
+    source "$PROJECT_ROOT/platform/lib/logging.sh"
 }
 
 load_libraries
@@ -38,7 +38,7 @@ load_libraries
 # Each runs in its OWN process — no variable / trap leakage
 
 deploy_kubernetes() {
-    bash "$PROJECT_ROOT/kubernetes/deploy_kubernetes.sh" "$@"
+    bash "$PROJECT_ROOT/app/k8s/deploy_kubernetes.sh" "$@"
 }
 
 deploy_monitoring() {
@@ -56,25 +56,25 @@ trivy() {
 deploy_infra() {
     # Pass INFRA_ACTION and CLOUD_PROVIDER as positional args to the script
     # These are set interactively below (prod mode) or from .env defaults
-    bash "$PROJECT_ROOT/infra/deploy_infra.sh" \
+    bash "$PROJECT_ROOT/platform/infra/deploy_infra.sh" \
         "${INFRA_ACTION:-plan}" \
         "${CLOUD_PROVIDER:-aws}"
 }
 
 deploy_argo() {
-    bash "$PROJECT_ROOT/cicd/argo/deploy_argo.sh"
+    bash "$PROJECT_ROOT/platform/cicd/argo/deploy_argo.sh"
 }
 
 configure_git_github() {
-    bash "$PROJECT_ROOT/cicd/github/configure_git_github.sh"
+    bash "$PROJECT_ROOT/platform/cicd/github/configure_git_github.sh"
 }
 
 configure_gitlab() {
-    bash "$PROJECT_ROOT/cicd/gitlab/configure_gitlab.sh"
+    bash "$PROJECT_ROOT/platform/cicd/gitlab/configure_gitlab.sh"
 }
 
 build_and_push_image() {
-    bash "$PROJECT_ROOT/app/build_and_push_image.sh"
+    bash "$PROJECT_ROOT/app/docker/build_and_push_image.sh"
 }
 
 build_and_push_image_podman() {
@@ -82,7 +82,7 @@ build_and_push_image_podman() {
 }
 
 configure_dockerhub_username() {
-    bash "$PROJECT_ROOT/app/configure_dockerhub_username.sh"
+    bash "$PROJECT_ROOT/app/docker/configure_dockerhub_username.sh"
 }
 clear
 print_divider

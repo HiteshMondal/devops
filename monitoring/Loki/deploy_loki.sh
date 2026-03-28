@@ -18,7 +18,7 @@ if [[ -z "${PROJECT_ROOT:-}" ]]; then
 fi
 export PROJECT_ROOT
 
-source "${PROJECT_ROOT}/lib/bootstrap.sh"
+source "${PROJECT_ROOT}/platform/lib/bootstrap.sh"
 
 load_env_if_needed
 
