@@ -183,7 +183,7 @@ build-docker-image:
     echo "Building and Pushing Docker Image"
     echo "============================================================================"
     export PROJECT_ROOT=$CI_PROJECT_DIR
-    source "$CI_PROJECT_DIR/app/build_and_push_image.sh"
+    source "$CI_PROJECT_DIR/app/docker/build_and_push_image.sh"
     build_and_push_image
     echo ""
     echo "✅ Docker image built and pushed successfully"
