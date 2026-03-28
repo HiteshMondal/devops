@@ -18,4 +18,4 @@ stages:
   - cleanup
 
 include:
-  - local: cicd/gitlab/.gitlab-ci.yml
+  - local: platform/cicd/gitlab/.gitlab-ci.yml
