@@ -164,6 +164,7 @@ MODEL_SAVE_PATH=models/artifacts/model.pkl
 # Data path (relative to project root)
 MLOPS_DATA_PATH=data/raw
 
+MLOPS_ACTION=full
 
 ################################################################################
 # EVALUATION GATE

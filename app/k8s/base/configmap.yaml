@@ -13,3 +13,5 @@ data:
   DB_HOST: "localhost"
   DB_PORT: "5432"
   DB_NAME: "devops_db"
+  MODEL_NAME: "baseline-v1"
+  MODEL_PATH: "/app/models/artifacts/model.pkl"

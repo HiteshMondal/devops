@@ -54,8 +54,6 @@ trivy() {
 }
 
 deploy_infra() {
-    # Pass INFRA_ACTION and CLOUD_PROVIDER as positional args to the script
-    # These are set interactively below (prod mode) or from .env defaults
     bash "$PROJECT_ROOT/platform/infra/deploy_infra.sh" \
         "${INFRA_ACTION:-plan}" \
         "${CLOUD_PROVIDER:-aws}"
@@ -101,7 +99,6 @@ print_subsection "Environment Configuration"
 
 ENV_FILE="$PWD/.env"
 
-# FILE CHECK
 if [[ ! -f "$ENV_FILE" ]]; then
     print_error ".env file not found"
     echo ""
@@ -113,27 +110,21 @@ fi
 
 print_success ".env file detected"
 
-# LOAD
 set -a
 source "$ENV_FILE"
 set +a
 
 print_step "Validating .env..."
 
-# VALIDATION
 required_vars=("APP_NAME" "NAMESPACE" "DOCKERHUB_USERNAME" "DOCKER_IMAGE_TAG" "APP_PORT" "REPLICAS")
 missing_vars=()
 invalid_numeric=()
 
 for var in "${required_vars[@]}"; do
     value="${!var:-}"
-
-    # Missing check
     if [[ -z "$value" ]]; then
         missing_vars+=("$var")
     fi
-
-    # Numeric validation (no quotes / must be integer)
     if [[ "$var" =~ ^(APP_PORT|REPLICAS|MIN_REPLICAS|MAX_REPLICAS)$ ]]; then
         if [[ -n "$value" && ! "$value" =~ ^[0-9]+$ ]]; then
             invalid_numeric+=("$var=$value")
@@ -143,7 +134,6 @@ done
 
 echo ""
 
-#  RESULTS 
 if [[ ${#missing_vars[@]} -eq 0 && ${#invalid_numeric[@]} -eq 0 ]]; then
     print_success "Configuration valid"
 else
@@ -154,7 +144,6 @@ else
         done
         echo ""
     fi
-
     if [[ ${#invalid_numeric[@]} -gt 0 ]]; then
         print_warning "Invalid numeric values (must be unquoted integers):"
         for entry in "${invalid_numeric[@]}"; do
@@ -229,10 +218,24 @@ ask() {
 if is_interactive; then
     print_subsection "Deployment Configuration"
     echo ""
-    ask DEPLOY_TARGET "Target environment"       "${DEPLOY_TARGET:-local}" local prod
-    ask DEPLOY_MODE   "Deployment mode"          "${DEPLOY_MODE:-direct}"  argocd direct
-    ask BUILD_PUSH    "Push image to registry?"  "${BUILD_PUSH:-true}"
-    ask DRY_RUN       "Enable dry-run mode?"     "${DRY_RUN:-false}"
+    ask DEPLOY_TARGET "Target environment"      "${DEPLOY_TARGET:-local}" local prod
+    ask DEPLOY_MODE   "Deployment mode"         "${DEPLOY_MODE:-direct}"  argocd direct
+    ask BUILD_PUSH    "Push image to registry?" "${BUILD_PUSH:-true}"
+    ask DRY_RUN       "Enable dry-run mode?"    "${DRY_RUN:-false}"
+    ask MLOPS_ENABLED "Enable MLOps pipeline (DVC + training + drift)?" \
+        "${MLOPS_ENABLED:-false}"
+
+    if [[ "${MLOPS_ENABLED}" == "true" ]]; then
+        ask MLOPS_ACTION      "MLOps action"              "${MLOPS_ACTION:-full}" \
+            full train-only eval-only drift-only pipeline-only
+        ask DVC_ENABLED       "Run DVC data pipeline?"    "${DVC_ENABLED:-true}"
+        ask NEPTUNE_ENABLED   "Log to Neptune AI?"         "${NEPTUNE_ENABLED:-false}"
+        ask EVIDENTLY_ENABLED "Run Evidently drift report?" "${EVIDENTLY_ENABLED:-false}"
+        ask WHYLABS_ENABLED   "Run WhyLabs profiling?"     "${WHYLABS_ENABLED:-false}"
+        ask LAKEFS_ENABLED    "Use LakeFS data versioning?" "${LAKEFS_ENABLED:-false}"
+    fi
+    export MLOPS_ENABLED MLOPS_ACTION DVC_ENABLED NEPTUNE_ENABLED
+    export EVIDENTLY_ENABLED WHYLABS_ENABLED LAKEFS_ENABLED
 
     # Cloud provider + infra action — only relevant when deploying to prod
     if [[ "${DEPLOY_TARGET}" == "prod" ]]; then
@@ -246,16 +249,24 @@ if is_interactive; then
     export CI=false
 else
     print_info "Non-interactive / CI mode — using .env values"
-    # In CI, CLOUD_PROVIDER and INFRA_ACTION must come from .env or environment
+    # Ensure all vars have safe defaults so later code never sees unbound errors
     : "${CLOUD_PROVIDER:=aws}"
     : "${INFRA_ACTION:=plan}"
+    : "${MLOPS_ENABLED:=false}"
+    : "${MLOPS_ACTION:=full}"
+    : "${DVC_ENABLED:=true}"
+    : "${NEPTUNE_ENABLED:=false}"
+    : "${EVIDENTLY_ENABLED:=false}"
+    : "${WHYLABS_ENABLED:=false}"
+    : "${LAKEFS_ENABLED:=false}"
     export CLOUD_PROVIDER INFRA_ACTION
+    export MLOPS_ENABLED MLOPS_ACTION DVC_ENABLED NEPTUNE_ENABLED
+    export EVIDENTLY_ENABLED WHYLABS_ENABLED LAKEFS_ENABLED
 fi
 
 # PREREQUISITES
 print_subsection "Checking Prerequisites"
 
-# Sudo check
 if command -v sudo >/dev/null 2>&1; then
     if ! id -nG "$USER" | grep -qw docker; then
         print_error "User ${BOLD}${USER}${RESET}${RED} is not in the docker group${RESET}"
@@ -266,7 +277,6 @@ if command -v sudo >/dev/null 2>&1; then
     print_success "Docker group access OK (sudo not required)"
 fi
 
-# Tool versions
 echo ""
 print_step "Detected tool versions:"
 echo ""
@@ -285,13 +295,11 @@ aws       --version 2>/dev/null | head -1 \
     | sed "s/^/     ${BOLD}/" | sed "s/$/${RESET}/" || true
 echo ""
 
-# Required tools
 for cmd in kubectl envsubst; do
     require_command "$cmd"
     print_success "${cmd} found"
 done
 
-# Container runtime
 if command -v docker >/dev/null 2>&1; then
     CONTAINER_RUNTIME="docker"
     if ! docker info >/dev/null 2>&1; then
@@ -381,11 +389,15 @@ echo ""
 print_divider
 echo -e "  ${BOLD}${BRIGHT_WHITE}Deployment Plan${RESET}"
 print_thin_divider
-print_kv "Deploy Target"   "${DEPLOY_TARGET}"
-print_kv "Deploy Mode"     "${DEPLOY_MODE}"
+print_kv "Deploy Target"  "${DEPLOY_TARGET}"
+print_kv "Deploy Mode"    "${DEPLOY_MODE}"
+print_kv "MLOps Enabled"  "${MLOPS_ENABLED}"
+if [[ "${MLOPS_ENABLED}" == "true" ]]; then
+    print_kv "MLOps Action" "${MLOPS_ACTION}"
+fi
 if [[ "${DEPLOY_TARGET}" == "prod" ]]; then
-    print_kv "Cloud Provider"  "${CLOUD_PROVIDER:-aws}"
-    print_kv "Infra Action"    "${INFRA_ACTION:-plan}"
+    print_kv "Cloud Provider" "${CLOUD_PROVIDER:-aws}"
+    print_kv "Infra Action"   "${INFRA_ACTION:-plan}"
 fi
 print_divider
 echo ""
@@ -411,14 +423,11 @@ setup_local_cluster() {
             ;;
         kind)
             require_command kind "https://kind.sigs.k8s.io/docs/user/quick-start/"
-
-            {  # wrap local variables in a block
+            {
                 local node_container
                 node_container=$(docker ps --format '{{.Names}}' | grep kind-control-plane || true)
-
                 if [[ -z "$node_container" ]]; then
                     print_step "Creating Kind cluster..."
-
                     cat > "$WORKDIR/kind-config.yaml" <<-EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
@@ -438,13 +447,11 @@ nodes:
       - containerPort: 443
         hostPort: 8443
 EOF
-
                     kind create cluster --config "$WORKDIR/kind-config.yaml"
                 else
                     print_success "Kind cluster already running"
                 fi
             }
-
             if [[ "${INGRESS_ENABLED:-true}" == "true" ]]; then
                 if ! kubectl get pods -n ingress-nginx >/dev/null 2>&1; then
                     print_step "Installing NGINX Ingress Controller..."
@@ -572,7 +579,7 @@ if [[ "$DEPLOY_TARGET" == "local" ]]; then
         deploy_loki
         trivy
         configure_gitlab
-        [[ "${MLOPS_ENABLED:-false}" == "true" ]] && run_mlops
+        [[ "${MLOPS_ENABLED:-false}" == "true" ]] && run_mlops "${MLOPS_ACTION:-full}"
         show_direct_access_info
     fi
 
@@ -584,10 +591,8 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
     echo ""
 
     if [[ "$DEPLOY_MODE" == "argocd" ]]; then
-        # Provision / update cloud infrastructure first
         deploy_infra
 
-        # Guard: only continue past 'plan' if action was apply
         if [[ "${INFRA_ACTION:-plan}" == "plan" ]]; then
             print_info "Infra action was 'plan' — review the plan above, then re-run with INFRA_ACTION=apply"
             exit 0
@@ -627,7 +632,6 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
         configure_gitlab || true
 
     else
-        # Direct mode
         deploy_infra
 
         if [[ "${INFRA_ACTION:-plan}" == "plan" ]]; then
@@ -658,7 +662,7 @@ elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
         deploy_loki
         trivy
         configure_gitlab
-        [[ "${MLOPS_ENABLED:-false}" == "true" ]] && run_mlops
+        [[ "${MLOPS_ENABLED:-false}" == "true" ]] && run_mlops "${MLOPS_ACTION:-full}"
 
         print_section "PRODUCTION DEPLOYMENT COMPLETE" "+"
         print_kv "Cluster"        "${K8S_DISTRIBUTION}"

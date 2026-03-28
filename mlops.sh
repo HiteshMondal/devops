@@ -28,41 +28,27 @@ source "${PROJECT_ROOT}/platform/lib/mlops_bootstrap.sh"
 load_env_if_needed
 set_mlops_defaults
 
+# STAGE 0 — Zero-touch bootstrap (install missing deps, validate workspace)
+# These run in isolated subshells — no variable leakage, safe to call always
+bash "${PROJECT_ROOT}/platform/mlops/install_deps.sh"
+bash "${PROJECT_ROOT}/platform/mlops/validate_mlops.sh"
+
+# After install_deps.sh has run, PYTHON_BIN may be set in that subshell but not
+# exported to THIS shell. Detect it again here so the rest of the script can use it.
+detect_python
+
 MLOPS_ACTION="${1:-full}"   # full | train-only | eval-only | pipeline-only | drift-only
 
-# STAGE 0 — Prerequisites
-
-setup_mlops_deps() {
-    print_subsection "MLOps dependency setup"
-
-    detect_python
-    print_success "Python: ${PYTHON_BIN}  ($(${PYTHON_BIN} --version 2>&1))"
-
-    # Core packages — always required
-    pip_ensure "pyyaml"   "yaml"
-    pip_ensure "pandas"   "pandas"
-
-    # Optional packages — only if the feature is enabled
-    [[ "${DVC_ENABLED}" == "true" ]] && pip_ensure "dvc" "dvc" || true
-    [[ "${NEPTUNE_ENABLED}" == "true" ]] && pip_ensure "neptune" "neptune" || true
-    [[ "${EVIDENTLY_ENABLED}" == "true" ]] && pip_ensure "evidently" "evidently" || true
-    [[ "${WHYLABS_ENABLED}" == "true" ]] && pip_ensure "whylogs[whylabs]" "whylogs" || true
-
-    if [[ "${MLOPS_PIPELINE_RUNNER}" == "auto" || "${MLOPS_PIPELINE_RUNNER}" == "metaflow" ]]; then
-        pip_ensure "metaflow" "metaflow" || true
-    fi
-    if [[ "${MLOPS_PIPELINE_RUNNER}" == "prefect" ]]; then
-        pip_ensure "prefect" "prefect" || true
-    fi
-    pip_ensure "scikit-learn" "sklearn"
-
+# STAGE 0b — Detect tool availability (lean version — no redundant pip installs)
+# install_deps.sh already installed packages; we just need to detect what's available.
+detect_mlops_tools() {
+    print_subsection "Detecting MLOps tool availability"
     detect_dvc
     detect_lakefs
     detect_neptune
     detect_whylabs
     detect_pipeline_runner
-
-    print_success "Dependency setup complete"
+    print_success "Tool detection complete  |  runner=${PIPELINE_RUNNER}"
 }
 
 # STAGE 1 — Data versioning (DVC + LakeFS)
@@ -84,15 +70,15 @@ run_dvc_pipeline() {
         print_success "DVC initialised"
     fi
 
-    # Create data directories expected by dvc.yaml
+    # Ensure all directories dvc.yaml expects exist
     mkdir -p data/raw data/processed data/features models/artifacts
 
-    # Check if there is any raw data to process
+    # Generate synthetic data if data/raw is empty — keeps demo working out of the box
     local raw_count
     raw_count=$(find data/raw -name "*.csv" -o -name "*.parquet" -o -name "*.json" 2>/dev/null | wc -l)
 
     if [[ "$raw_count" -eq 0 ]]; then
-        print_warning "No data files found in data/raw/ — generating synthetic sample for demo"
+        print_warning "No data files in data/raw/ — generating synthetic sample for demo"
         ${PYTHON_BIN} - <<'PYEOF'
 import pandas as pd, numpy as np, os
 np.random.seed(42)
@@ -101,7 +87,7 @@ df = pd.DataFrame({
     "feature_1": np.random.randn(n),
     "feature_2": np.random.randn(n),
     "feature_3": np.random.rand(n) * 10,
-    "target": (np.random.randn(n) > 0).astype(int),
+    "target":    (np.random.randn(n) > 0).astype(int),
 })
 os.makedirs("data/raw", exist_ok=True)
 df.to_csv("data/raw/dataset.csv", index=False)
@@ -117,7 +103,7 @@ PYEOF
         dvc repro 2>/dev/null || print_warning "dvc repro returned non-zero — check dvc.yaml"
     fi
 
-    # Push to DVC remote only if one is configured
+    # Push to remote only if one is configured
     if dvc remote list 2>/dev/null | grep -q "."; then
         print_step "Pushing data to DVC remote..."
         dvc push 2>/dev/null || print_warning "dvc push failed — remote may not be configured"
@@ -139,7 +125,7 @@ run_lakefs_setup() {
     fi
 }
 
-# STAGE 2 — Training  (direct or via pipeline runner)
+# STAGE 2 — Training (direct or via pipeline runner)
 
 run_training() {
     if [[ "${MLOPS_SKIP_TRAINING}" == "true" ]]; then
@@ -148,7 +134,6 @@ run_training() {
     fi
 
     print_subsection "Model training"
-
     mkdir -p models/artifacts
 
     case "${PIPELINE_RUNNER}" in
@@ -159,7 +144,7 @@ run_training() {
                 || { print_warning "Metaflow run failed — falling back to direct training"; _run_direct_training; }
             ;;
         prefect)
-            print_step "Running scheduled flow via Prefect..."
+            print_step "Running training via Prefect..."
             cd "${PROJECT_ROOT}"
             ${PYTHON_BIN} pipelines/prefect/retraining_flow.py 2>&1 \
                 || { print_warning "Prefect run failed — falling back to direct training"; _run_direct_training; }
@@ -171,16 +156,16 @@ run_training() {
 }
 
 _run_direct_training() {
-    print_step "Running training directly (src/main.py)..."
+    print_step "Running training directly..."
     cd "${PROJECT_ROOT}"
 
-    # Read params
     local target_col raw_path n_est max_d
     target_col=$(params_get "target_column" "target")
     raw_path=$(params_get "raw_path" "data/raw")
     n_est=$(params_get "n_estimators" "100")
     max_d=$(params_get "max_depth" "6")
 
+    # NOTE: <<PYEOF (unquoted) — bash expands ${target_col}, ${n_est} etc. intentionally
     ${PYTHON_BIN} - <<PYEOF
 import sys, os, json, pickle, warnings
 warnings.filterwarnings('ignore')
@@ -192,7 +177,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, f1_score
 from datetime import datetime
 
-raw_path = "${raw_path}"
+raw_path   = "${raw_path}"
 target_col = "${target_col}"
 
 files = glob.glob(os.path.join(raw_path, "*.csv"))
@@ -209,7 +194,7 @@ X = df.drop(columns=[target_col]).select_dtypes(include="number")
 y = df[target_col]
 
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-scaler = StandardScaler()
+scaler  = StandardScaler()
 X_train = scaler.fit_transform(X_train)
 X_test  = scaler.transform(X_test)
 
@@ -237,7 +222,7 @@ PYEOF
 
     print_success "Direct training complete"
 
-    # Neptune logging (if enabled and available)
+    # Neptune logging (PROJECT_ROOT read from os.environ inside the heredoc)
     if [[ "${NEPTUNE_ENABLED}" == "true" && "${NEPTUNE_AVAILABLE}" == "true" ]]; then
         print_step "Logging to Neptune..."
         ${PYTHON_BIN} - <<'PYEOF'
@@ -246,7 +231,7 @@ sys.path.insert(0, os.environ.get("PROJECT_ROOT", "."))
 try:
     from experiments.neptune.neptune_tracking import start_run, log_params, log_metrics, end_run
     import yaml
-    params = yaml.safe_load(open("params.yaml")) if os.path.exists("params.yaml") else {}
+    params  = yaml.safe_load(open("params.yaml")) if os.path.exists("params.yaml") else {}
     metrics = json.load(open("models/artifacts/eval_metrics.json"))
     run = start_run(name="mlops-auto-run", tags=["automated", "mlops.sh"])
     log_params(params.get("train", {}))
@@ -319,16 +304,15 @@ update_serving_model() {
     local metrics_file="${PROJECT_ROOT}/models/artifacts/eval_metrics.json"
     local ts=""
     if [[ -f "$metrics_file" ]]; then
-        ts=$($PYTHON_BIN -c "
+        ts=$(${PYTHON_BIN} -c "
 import json
 d = json.load(open('${metrics_file}'))
 print(d.get('timestamp','')[:10].replace('-',''))" 2>/dev/null || echo "")
     fi
 
     local new_tag="model-${ts:-$(date +%Y%m%d)}"
-
-    # Update MODEL_NAME in .env if present, otherwise skip
     local env_file="${PROJECT_ROOT}/.env"
+
     if [[ -f "$env_file" ]]; then
         if grep -q "^MODEL_NAME=" "$env_file"; then
             sed -i.bak "s|^MODEL_NAME=.*|MODEL_NAME=${new_tag}|" "$env_file"
@@ -351,7 +335,7 @@ run_kubeflow_compile() {
         print_info "Kubeflow pipeline compile only runs in prod — skipping"
         return 0
     fi
-    if ! $PYTHON_BIN -c "import kfp" 2>/dev/null; then
+    if ! ${PYTHON_BIN} -c "import kfp" 2>/dev/null; then
         print_info "kfp not installed — skipping Kubeflow pipeline compile"
         return 0
     fi
@@ -367,18 +351,19 @@ run_kubeflow_compile() {
 
 main() {
     print_section "MLOPS PIPELINE" ">"
-    print_kv "Action"          "${MLOPS_ACTION}"
-    print_kv "Deploy target"   "${DEPLOY_TARGET:-local}"
-    print_kv "DVC"             "${DVC_ENABLED}"
-    print_kv "LakeFS"          "${LAKEFS_ENABLED}"
-    print_kv "Neptune"         "${NEPTUNE_ENABLED}"
-    print_kv "Evidently"       "${EVIDENTLY_ENABLED}"
-    print_kv "WhyLabs"         "${WHYLABS_ENABLED}"
-    print_kv "Min F1"          "${MLOPS_MIN_F1}"
-    print_kv "Min accuracy"    "${MLOPS_MIN_ACCURACY}"
+    print_kv "Action"        "${MLOPS_ACTION}"
+    print_kv "Deploy target" "${DEPLOY_TARGET:-local}"
+    print_kv "DVC"           "${DVC_ENABLED}"
+    print_kv "LakeFS"        "${LAKEFS_ENABLED}"
+    print_kv "Neptune"       "${NEPTUNE_ENABLED}"
+    print_kv "Evidently"     "${EVIDENTLY_ENABLED}"
+    print_kv "WhyLabs"       "${WHYLABS_ENABLED}"
+    print_kv "Min F1"        "${MLOPS_MIN_F1}"
+    print_kv "Min accuracy"  "${MLOPS_MIN_ACCURACY}"
     echo ""
 
-    setup_mlops_deps
+    # Detect which tools are installed (no pip installs — that happened in install_deps.sh)
+    detect_mlops_tools
 
     case "${MLOPS_ACTION}" in
         train-only)
@@ -410,10 +395,16 @@ main() {
     print_divider
     print_section "MLOPS PIPELINE COMPLETE" "+"
     echo ""
-    print_kv "Artifacts"    "${PROJECT_ROOT}/models/artifacts/"
+    print_kv "Artifacts"     "${PROJECT_ROOT}/models/artifacts/"
     print_kv "Drift reports" "${PROJECT_ROOT}/monitoring/evidently/reports/"
     if [[ -f "${PROJECT_ROOT}/models/artifacts/eval_metrics.json" ]]; then
-        print_kv "Metrics" "$(cat ${PROJECT_ROOT}/models/artifacts/eval_metrics.json | ${PYTHON_BIN} -c 'import json,sys; d=json.load(sys.stdin); print(f"F1={d.get(\"test_f1\",d.get(\"f1\",\"N/A\")):.4f}  accuracy={d.get(\"test_accuracy\",d.get(\"accuracy\",\"N/A\")):.4f}")' 2>/dev/null || echo "see models/artifacts/eval_metrics.json")"
+        print_kv "Metrics" "$(${PYTHON_BIN} -c '
+import json, sys
+d = json.load(open("'"${PROJECT_ROOT}"'/models/artifacts/eval_metrics.json"))
+f1  = d.get("test_f1",  d.get("f1",  "N/A"))
+acc = d.get("test_accuracy", d.get("accuracy", "N/A"))
+print(f"F1={f1:.4f}  accuracy={acc:.4f}" if isinstance(f1, float) else f"F1={f1}  accuracy={acc}")
+' 2>/dev/null || echo "see models/artifacts/eval_metrics.json")"
     fi
     print_divider
 }
