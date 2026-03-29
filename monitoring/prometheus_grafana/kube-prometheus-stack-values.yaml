@@ -12,9 +12,14 @@ grafana:
 
     - name: Loki
       type: loki
+      uid: loki
       url: http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100
       access: proxy
       isDefault: false
+      editable: true
+      jsonData:
+        maxLines: 1000
+        timeout: 60
 
   sidecar:
 

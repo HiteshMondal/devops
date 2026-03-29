@@ -26,17 +26,21 @@ configure_git_github() {
     local ARGOCD_APP_PATH=""
 
     if [[ -n "${PROJECT_ROOT:-}" ]]; then
-        ARGOCD_APP_PATH="${PROJECT_ROOT}/cicd/argocd/application.yaml"
+        ARGOCD_APP_PATH="${PROJECT_ROOT}/platform/cicd/argo/generated/apps.yaml"
+
     elif [[ -n "${CI_PROJECT_DIR:-}" ]]; then
-        ARGOCD_APP_PATH="${CI_PROJECT_DIR}/cicd/argocd/application.yaml"
-    elif [[ -f "cicd/argocd/application.yaml" ]]; then
-        ARGOCD_APP_PATH="cicd/argocd/application.yaml"
-    elif [[ -f "argocd/application.yaml" ]]; then
-        ARGOCD_APP_PATH="argocd/application.yaml"
+        ARGOCD_APP_PATH="${CI_PROJECT_DIR}/platform/cicd/argo/generated/apps.yaml"
+
+    elif [[ -f "platform/cicd/argo/generated/apps.yaml" ]]; then
+        ARGOCD_APP_PATH="platform/cicd/argo/generated/apps.yaml"
+
+    elif [[ -f "cicd/argo/generated/apps.yaml" ]]; then
+        ARGOCD_APP_PATH="cicd/argo/generated/apps.yaml"
+
     fi
 
     if [[ -z "${ARGOCD_APP_PATH}" ]]; then
-        echo "⚠️  Warning: Could not locate argocd/application.yaml"
+        echo "⚠️  Warning: Could not locate ArgoCD apps.yaml"
         echo "   Skipping GitHub username injection"
         return 0
     fi
