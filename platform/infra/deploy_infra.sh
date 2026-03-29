@@ -43,7 +43,7 @@ fi
 # Defaults
 : "${INFRA_ACTION:=plan}"
 : "${CLOUD_PROVIDER:=aws}"
-: "${DEPLOY_TARGET:=prod}"
+: "${DEPLOY_TARGET:?DEPLOY_TARGET must be provided by run.sh}"
 
 ACTION="${1:-${INFRA_ACTION}}"
 PROVIDER="${2:-${CLOUD_PROVIDER}}"

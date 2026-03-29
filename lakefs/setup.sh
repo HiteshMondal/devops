@@ -61,7 +61,7 @@ install_lakectl() {
     esac
 
     local VERSION="v1.24.0"
-    local URL="https://github.com/treeverse/lakeFS/releases/download/${VERSION}/lakectl_${VERSION#v}_${OS}_${ARCH}.tar.gz"
+    local URL="https://github.com/treeverse/lakeFS/releases/download/${VERSION}/lakectl_${OS}_${ARCH}.tar.gz"
 
     curl -fsSL -o /tmp/lakectl.tar.gz "${URL}"
     tar -xzf /tmp/lakectl.tar.gz -C /tmp lakectl

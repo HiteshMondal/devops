@@ -1,17 +1,17 @@
-#!/bin/bash
-# run.sh — DevOps Project Deployment Runner
-# Should work and be compatible with all Linux computers
-# Works in both environments: ArgoCD and direct
-# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others
+#!/usr/bin/env bash
+# run.sh — DevOps Platform Deployment Runner
+# Fully menu-driven orchestrator (no CLI flags)
+# Compatible with all Linux environments and Kubernetes distributions
 
 set -euo pipefail
 IFS=$'\n\t'
+
+# PROJECT ROOT SAFETY
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly PROJECT_ROOT
 export PROJECT_ROOT
 
-# NEVER alias workdir to project root
 WORKDIR="/tmp/devops-run-${UID}"
 mkdir -p "$WORKDIR"
 readonly WORKDIR
@@ -19,713 +19,336 @@ export WORKDIR
 
 cd "$PROJECT_ROOT"
 
-# Absolute safety guard
-if [[ "$PROJECT_ROOT" == "/" || "$PROJECT_ROOT" == "$HOME" || "$PROJECT_ROOT" == "/home/$USER" ]]; then
-    echo "FATAL: PROJECT_ROOT resolves to an unsafe path: $PROJECT_ROOT"
+if [[ "$PROJECT_ROOT" == "/" || "$PROJECT_ROOT" == "$HOME" ]]; then
+    echo "FATAL: PROJECT_ROOT resolves to unsafe path"
     exit 99
 fi
 
-# LOAD SHARED LIBRARIES (SAFE TO SOURCE)
-[[ -n "${PROJECT_ROOT:-}" ]] || { echo "FATAL: PROJECT_ROOT not set"; exit 1; }
 source "$PROJECT_ROOT/platform/lib/colors.sh"
 source "$PROJECT_ROOT/platform/lib/logging.sh"
 
-# ACTION SCRIPT RUNNERS (ISOLATED EXECUTION)
-# Each runs in its OWN process — no variable / trap leakage
+# ENV FILE VALIDATION
 
-deploy_kubernetes() {
-    bash "$PROJECT_ROOT/app/k8s/deploy_kubernetes.sh" "$@"
-}
-
-deploy_monitoring() {
-    bash "$PROJECT_ROOT/monitoring/deploy_monitoring.sh"
-}
-
-deploy_loki() {
-    bash "$PROJECT_ROOT/monitoring/loki/deploy_loki.sh"
-}
-
-trivy() {
-    bash "$PROJECT_ROOT/monitoring/trivy/trivy.sh"
-}
-
-deploy_infra() {
-    bash "$PROJECT_ROOT/platform/infra/deploy_infra.sh" \
-        "${INFRA_ACTION:-plan}" \
-        "${CLOUD_PROVIDER:-aws}"
-}
-
-deploy_argo() {
-    bash "$PROJECT_ROOT/platform/cicd/argo/deploy_argo.sh"
-}
-
-configure_git_github() {
-    bash "$PROJECT_ROOT/platform/cicd/github/configure_git_github.sh"
-}
-
-configure_gitlab() {
-    bash "$PROJECT_ROOT/platform/cicd/gitlab/configure_gitlab.sh"
-}
-
-build_and_push_image() {
-    bash "$PROJECT_ROOT/app/docker/build_and_push_image.sh"
-}
-
-build_and_push_image_podman() {
-    bash "$PROJECT_ROOT/app/build_and_push_image_podman.sh"
-}
-
-configure_dockerhub_username() {
-    bash "$PROJECT_ROOT/app/docker/configure_dockerhub_username.sh"
-}
-
-run_mlops() {
-    bash "$PROJECT_ROOT/mlops.sh" "$@"
-}
-
-clear
-print_divider
-print_section "DevOps Project  --  Deployment Runner" ">"
-print_kv "Project Root" "${PROJECT_ROOT}"
-print_kv "Supports"     "Minikube  Kind  K3s  K8s  EKS  GKE  AKS  MicroK8s  |  Terraform  OpenTofu  Pulumi"
-print_divider
-
-# LOAD & VALIDATE .env
-print_subsection "Environment Configuration"
-
-ENV_FILE="$PWD/.env"
+ENV_FILE="$PROJECT_ROOT/.env"
 
 if [[ ! -f "$ENV_FILE" ]]; then
-    print_error ".env file not found"
-    echo ""
-    print_info "Create it using:"
-    print_cmd "" "cp -n dotenv_example .env"
-    echo ""
+    print_error ".env file missing"
     exit 1
 fi
-
-print_success ".env file detected"
 
 set -a
 source "$ENV_FILE"
 set +a
 
-print_step "Validating .env..."
+# CONTAINER RUNTIME DETECTION
 
-required_vars=("APP_NAME" "NAMESPACE" "DOCKERHUB_USERNAME" "DOCKER_IMAGE_TAG" "APP_PORT" "REPLICAS")
-missing_vars=()
-invalid_numeric=()
+detect_container_runtime() {
 
-for var in "${required_vars[@]}"; do
-    value="${!var:-}"
-    if [[ -z "$value" ]]; then
-        missing_vars+=("$var")
-    fi
-    if [[ "$var" =~ ^(APP_PORT|REPLICAS|MIN_REPLICAS|MAX_REPLICAS)$ ]]; then
-        if [[ -n "$value" && ! "$value" =~ ^[0-9]+$ ]]; then
-            invalid_numeric+=("$var=$value")
-        fi
-    fi
-done
+    if command -v docker >/dev/null 2>&1; then
+        CONTAINER_RUNTIME="docker"
 
-echo ""
-
-if [[ ${#missing_vars[@]} -eq 0 && ${#invalid_numeric[@]} -eq 0 ]]; then
-    print_success "Configuration valid"
-else
-    if [[ ${#missing_vars[@]} -gt 0 ]]; then
-        print_error "Missing variables:"
-        for var in "${missing_vars[@]}"; do
-            echo -e "     ${RED}•${RESET} ${BOLD}${var}${RESET}"
-        done
-        echo ""
-    fi
-    if [[ ${#invalid_numeric[@]} -gt 0 ]]; then
-        print_warning "Invalid numeric values (must be unquoted integers):"
-        for entry in "${invalid_numeric[@]}"; do
-            echo -e "     ${YELLOW}•${RESET} ${entry}"
-        done
-        echo ""
-        print_info "Example:"
-        echo -e "     ${ACCENT_CMD}APP_PORT=3000${RESET}   ${DIM}(not \"3000\")${RESET}"
-    fi
-    echo ""
-    print_info "Fix the above issues and re-run"
-    exit 1
-fi
-
-# HELPER FUNCTIONS
-is_interactive() {
-    [[ -t 0 && -z "${CI:-}" ]]
-}
-
-ask() {
-    local var_name="$1"
-    local prompt="$2"
-    local default="$3"
-    shift 3
-    local options=("$@")
-    local is_bool=false
-    if [[ "${#options[@]}" -eq 0 ]]; then
-        options=("true" "false")
-        is_bool=true
-    fi
-    while true; do
-        echo ""
-        echo -e "  ${BOLD}${BRIGHT_WHITE}${prompt}${RESET}"
-        print_thin_divider
-        if [[ "$is_bool" == true ]]; then
-            echo -e "  ${ACCENT_KEY}Options:${RESET}  ${ACCENT_CMD}true${RESET}  /  ${ACCENT_CMD}false${RESET}"
-        else
-            local i=1
-            for opt in "${options[@]}"; do
-                if [[ "$opt" == "$default" ]]; then
-                    echo -e "    ${BOLD}${BRIGHT_GREEN}${i})${RESET}  ${BOLD}${BRIGHT_WHITE}${opt}${RESET}  ${DIM}(default)${RESET}"
-                else
-                    echo -e "    ${DIM}${i})${RESET}  ${opt}"
-                fi
-                ((i++))
-            done
-        fi
-        echo ""
-        local input
-        read -rp "$(echo -e "  ${BOLD}${CYAN}Enter choice${RESET} ${DIM}[${default}]${RESET}${BOLD}${CYAN}:${RESET} ")" input
-        input="${input:-$default}"
-        if [[ "$input" =~ ^[0-9]+$ ]] && [[ "$is_bool" == false ]]; then
-            if (( input >= 1 && input <= ${#options[@]} )); then
-                input="${options[$((input-1))]}"
-            else
-                print_error "Invalid number. Choose 1-${#options[@]}"
-                continue
-            fi
-        fi
-        for opt in "${options[@]}"; do
-            if [[ "$input" == "$opt" ]]; then
-                export "$var_name=$input"
-                print_success "Selected: ${BOLD}${input}${RESET}"
-                return
-            fi
-        done
-        print_error "Invalid option. Choose from the listed options."
-    done
-}
-
-# DEPLOYMENT MODE SELECTOR
-
-detect_deploy_target() {
-
-    # Priority order:
-    # 1) CLI argument
-    # 2) environment variable
-    # 3) interactive prompt
-    # 4) fallback default
-
-    if [[ -n "${1:-}" ]]; then
-        DEPLOY_TARGET="$1"
-
-    elif [[ -n "${DEPLOY_TARGET:-}" ]]; then
-        DEPLOY_TARGET="$DEPLOY_TARGET"
-
-    elif is_interactive; then
-        print_subsection "Deployment Configuration"
-        echo ""
-        ask DEPLOY_TARGET "Target environment" "local" local prod
+    elif command -v podman >/dev/null 2>&1; then
+        CONTAINER_RUNTIME="podman"
 
     else
-        DEPLOY_TARGET="local"
+        print_error "Docker or Podman required"
+        exit 1
     fi
 
-    case "$DEPLOY_TARGET" in
-        local|prod) ;;
+    export CONTAINER_RUNTIME
+
+    print_success "Container runtime detected"
+    print_kv "Runtime" "$CONTAINER_RUNTIME"
+}
+
+# KUBERNETES DETECTION
+
+detect_k8s_cluster() {
+
+    require_command kubectl
+
+    if ! kubectl cluster-info >/dev/null 2>&1; then
+        print_error "No Kubernetes cluster detected"
+        exit 1
+    fi
+
+    K8S_CONTEXT=$(kubectl config current-context)
+    export K8S_CONTEXT
+
+    print_success "Connected to cluster"
+    print_kv "Context" "$K8S_CONTEXT"
+}
+
+# ENVIRONMENT SELECTION
+
+select_environment() {
+
+    print_subsection "Select Environment"
+
+    echo "1) Local"
+    echo "2) Production"
+    echo ""
+
+    read -rp "Choose environment [1]: " choice
+    choice="${choice:-1}"
+
+    case "$choice" in
+        1) DEPLOY_TARGET="local" ;;
+        2) DEPLOY_TARGET="prod" ;;
+        *) print_error "Invalid selection"; exit 1 ;;
+    esac
+
+    export DEPLOY_TARGET
+
+    print_success "Environment selected"
+    print_kv "Environment" "$DEPLOY_TARGET"
+}
+
+# COMPONENT FLAGS DEFAULTS
+
+ENABLE_INFRA=false
+ENABLE_IMAGE=false
+ENABLE_ARGO=false
+ENABLE_KUBERNETES=false
+ENABLE_MONITORING=false
+ENABLE_LOKI=false
+ENABLE_TRIVY=false
+ENABLE_MLOPS=false
+
+# DEPLOYMENT MENU
+
+select_components() {
+
+    print_subsection "Select Deployment Mode"
+
+    echo "1) Full Platform"
+    echo "2) Infrastructure Only"
+    echo "3) Build Container Image Only"
+    echo "4) ArgoCD Only"
+    echo "5) Kubernetes Stack"
+    echo "6) Monitoring Stack"
+    echo "7) Kubernetes + Monitoring"
+    echo "8) MLOps Stack"
+    echo "9) Custom Selection"
+    echo ""
+
+    read -rp "Choose option [1]: " option
+    option="${option:-1}"
+
+    case "$option" in
+
+        # FULL PLATFORM
+
+        1)
+            ENABLE_INFRA=true
+            ENABLE_IMAGE=true
+            ENABLE_ARGO=true
+            ENABLE_KUBERNETES=true
+            ENABLE_MONITORING=true
+            ENABLE_LOKI=true
+            ENABLE_TRIVY=true
+            ENABLE_MLOPS=true
+            ;;
+
+        # INFRASTRUCTURE ONLY
+
+        2)
+            ENABLE_INFRA=true
+            ;;
+
+        # BUILD IMAGE ONLY
+
+        3)
+            ENABLE_IMAGE=true
+            ;;
+
+        # ARGOCD ONLY
+
+        4)
+            ENABLE_ARGO=true
+            ;;
+
+        # KUBERNETES STACK
+
+        5)
+            ENABLE_INFRA=true
+            ENABLE_IMAGE=true
+            ENABLE_ARGO=true
+            ENABLE_KUBERNETES=true
+            ;;
+
+        # MONITORING STACK
+
+        6)
+            ENABLE_INFRA=true
+            ENABLE_ARGO=true
+            ENABLE_MONITORING=true
+            ENABLE_LOKI=true
+            ENABLE_TRIVY=true
+            ;;
+
+        # K8S + MONITORING STACK
+
+        7)
+            ENABLE_INFRA=true
+            ENABLE_IMAGE=true
+            ENABLE_ARGO=true
+            ENABLE_KUBERNETES=true
+            ENABLE_MONITORING=true
+            ENABLE_LOKI=true
+            ENABLE_TRIVY=true
+            ;;
+
+        # MLOPS STACK
+
+        8)
+            ENABLE_INFRA=true
+            ENABLE_IMAGE=true
+            ENABLE_ARGO=true
+            ENABLE_KUBERNETES=true
+            ENABLE_MLOPS=true
+            ;;
+
+        # CUSTOM MODE
+
+        9)
+            custom_component_selection
+            ;;
+
         *)
-            print_error "Invalid DEPLOY_TARGET: ${BOLD}${DEPLOY_TARGET}${RESET}"
-            print_info "Valid values: ${ACCENT_CMD}local${RESET} or ${ACCENT_CMD}prod${RESET}"
+            print_error "Invalid selection"
             exit 1
             ;;
     esac
-    export DEPLOY_TARGET
 }
 
-configure_defaults() {
+# CUSTOM COMPONENT SELECTION
 
-# LOCAL PROFILE (FULL MLOPS STACK)
-if [[ "$DEPLOY_TARGET" == "local" ]]; then
-    DEPLOY_MODE="direct"
-    BUILD_PUSH="false"
-    CLOUD_PROVIDER="none"
-    INFRA_ACTION="skip"
+custom_component_selection() {
 
-    # ENABLE FULL LOCAL MLOPS STACK
-    MLOPS_ENABLED="true"
-    MLOPS_ACTION="full"
-    DVC_ENABLED="true"
-    NEPTUNE_ENABLED="true"
-    EVIDENTLY_ENABLED="true"
-    WHYLABS_ENABLED="true"
-    LAKEFS_ENABLED="true"
+    print_subsection "Custom Component Selection"
 
-    # PLATFORM FEATURES
-    INGRESS_ENABLED="true"
-    DRY_RUN="false"
+    ask() {
 
-# PRODUCTION PROFILE (FULL CLOUD STACK)
-else
-    DEPLOY_MODE="argocd"
-    BUILD_PUSH="true"
-    CLOUD_PROVIDER="${CLOUD_PROVIDER:-aws}"
-    INFRA_ACTION="${INFRA_ACTION:-apply}"
+        local label="$1"
+        local var="$2"
 
-    # FULL MLOPS STACK ENABLED
-    MLOPS_ENABLED="true"
-    MLOPS_ACTION="full"
-    DVC_ENABLED="true"
-    NEPTUNE_ENABLED="true"
-    EVIDENTLY_ENABLED="true"
-    WHYLABS_ENABLED="true"
-    LAKEFS_ENABLED="true"
+        read -rp "$label [y/N]: " response
 
-    # PLATFORM FEATURES
-    INGRESS_ENABLED="true"
-    DRY_RUN="false"
-fi
+        if [[ "$response" =~ ^[Yy]$ ]]; then
+            eval "$var=true"
+        fi
+    }
 
-# EXPORT EVERYTHING
-export DEPLOY_MODE
-export BUILD_PUSH
-export CLOUD_PROVIDER
-export INFRA_ACTION
-export MLOPS_ENABLED
-export MLOPS_ACTION
-export DVC_ENABLED
-export NEPTUNE_ENABLED
-export EVIDENTLY_ENABLED
-export WHYLABS_ENABLED
-export LAKEFS_ENABLED
-export INGRESS_ENABLED
-export DRY_RUN
-
+    ask "Deploy Infrastructure?" ENABLE_INFRA
+    ask "Build Container Image?" ENABLE_IMAGE
+    ask "Deploy ArgoCD?" ENABLE_ARGO
+    ask "Deploy Kubernetes App?" ENABLE_KUBERNETES
+    ask "Deploy Monitoring Stack?" ENABLE_MONITORING
+    ask "Deploy Loki?" ENABLE_LOKI
+    ask "Run Trivy Scan?" ENABLE_TRIVY
+    ask "Run MLOps Stack?" ENABLE_MLOPS
 }
 
-# EXECUTION
-detect_deploy_target "${1:-}"
-configure_defaults
+# EXECUTION DEPENDENCY VALIDATION
 
-# PREREQUISITES
-print_subsection "Checking Prerequisites"
+validate_dependencies() {
 
-if command -v sudo >/dev/null 2>&1; then
-    if ! id -nG "$USER" | grep -qw docker; then
-        print_error "User ${BOLD}${USER}${RESET}${RED} is not in the docker group${RESET}"
-        print_info  "Fix with:"
-        print_cmd   "" "sudo usermod -aG docker $USER && newgrp docker"
-        exit 1
-    fi
-    print_success "Docker group access OK (sudo not required)"
-fi
-
-echo ""
-print_step "Detected tool versions:"
-echo ""
-docker    --version 2>/dev/null | head -1 | sed "s/^/     ${BOLD}/" | sed "s/$/${RESET}/" \
-    || echo -e "     ${DIM}docker:     not found${RESET}"
-kubectl   version --client --short 2>/dev/null | head -1 \
-    | sed "s/^/     ${BOLD}/" | sed "s/$/${RESET}/" \
-    || kubectl version --client 2>/dev/null | grep "Client Version" \
-    | sed "s/^/     ${BOLD}/" | sed "s/$/${RESET}/" \
-    || echo -e "     ${DIM}kubectl:    not found${RESET}"
-terraform --version 2>/dev/null | head -1 \
-    | sed "s/^/     ${BOLD}/" | sed "s/$/${RESET}/" || true
-tofu      version 2>/dev/null  | head -1 \
-    | sed "s/^/     ${BOLD}/" | sed "s/$/${RESET}/" || true
-aws       --version 2>/dev/null | head -1 \
-    | sed "s/^/     ${BOLD}/" | sed "s/$/${RESET}/" || true
-echo ""
-
-for cmd in kubectl envsubst; do
-    require_command "$cmd"
-    print_success "${cmd} found"
-done
-
-if command -v docker >/dev/null 2>&1; then
-    CONTAINER_RUNTIME="docker"
-    if ! docker info >/dev/null 2>&1; then
-        print_error "Docker daemon is not accessible (permission issue)"
-        print_cmd "Fix with:" "sudo usermod -aG docker $USER && newgrp docker"
-        exit 1
-    fi
-    print_success "Container runtime: ${BOLD}Docker${RESET}"
-elif command -v podman >/dev/null 2>&1; then
-    CONTAINER_RUNTIME="podman"
-    print_success "Container runtime: ${BOLD}Podman${RESET}"
-else
-    print_error "Neither Docker nor Podman found"
-    print_url "Install Docker:"  "https://docs.docker.com/get-docker/"
-    print_url "Install Podman:"  "https://podman.io/getting-started/installation"
-    exit 1
-fi
-
-export CONTAINER_RUNTIME
-
-# KUBERNETES CLUSTER DETECTION
-detect_k8s_cluster() {
-    print_subsection "Detecting Kubernetes Cluster"
-
-    if ! kubectl cluster-info >/dev/null 2>&1; then
-        print_error "Kubernetes cluster is not reachable"
-        echo ""
-        print_info "Try one of the following:"
-        echo ""
-        echo -e "  ${BOLD}Minikube:${RESET}"
-        echo -e "     minikube start"
-        echo -e "     kubectl config use-context minikube"
-        echo ""
-        echo -e "  ${BOLD}Kind:${RESET}"
-        echo -e "     kind get clusters"
-        echo -e "     kind delete cluster   ${DIM}# if cluster is broken${RESET}"
-        echo -e "     kind create cluster"
-        echo -e "     kubectl cluster-info --context kind-kind"
-        echo ""
-        echo -e "  ${BOLD}Check contexts:${RESET}"
-        echo -e "     kubectl config get-contexts"
-        echo -e "     kubectl config use-context <name>"
-        echo ""
-        print_info "Then re-run the script"
-        exit 1
+    if [[ "$ENABLE_ARGO" == true ]]; then
+        ENABLE_KUBERNETES=true
     fi
 
-    local k8s_dist="unknown"
-    local context
-    context=$(kubectl config current-context 2>/dev/null || echo "")
+    if [[ "$ENABLE_MONITORING" == true || \
+          "$ENABLE_LOKI" == true || \
+          "$ENABLE_TRIVY" == true || \
+          "$ENABLE_MLOPS" == true ]]; then
 
-    if kubectl get nodes -o json 2>/dev/null | grep -q '"minikube.k8s.io/version"'; then
-        k8s_dist="minikube"
-    elif [[ "$context" == *"kind"* ]] || kubectl get nodes -o json 2>/dev/null | grep -q "kind-control-plane"; then
-        k8s_dist="kind"
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"eks.amazonaws.com"'; then
-        k8s_dist="eks"
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"cloud.google.com/gke"'; then
-        k8s_dist="gke"
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"kubernetes.azure.com"'; then
-        k8s_dist="aks"
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"k3s.io"'; then
-        k8s_dist="k3s"
-    elif kubectl get nodes -o json 2>/dev/null | grep -q '"microk8s.io"'; then
-        k8s_dist="microk8s"
+        ENABLE_KUBERNETES=true
+    fi
+}
+
+# ACTION RUNNERS
+
+deploy_infra() {
+
+    bash "$PROJECT_ROOT/platform/infra/deploy_infra.sh"
+}
+
+deploy_image() {
+
+    bash "$PROJECT_ROOT/platform/cicd/github/configure_git_github.sh"
+    bash "$PROJECT_ROOT/platform/cicd/gitlab/configure_gitlab.sh"
+
+    if [[ "$CONTAINER_RUNTIME" == "podman" ]]; then
+        bash "$PROJECT_ROOT/app/build_and_push_image_podman.sh"
     else
-        k8s_dist="kubernetes"
+        bash "$PROJECT_ROOT/app/docker/build_and_push_image.sh"
     fi
-
-    export K8S_DISTRIBUTION="$k8s_dist"
-    export K8S_CONTEXT="$context"
-
-    local nodes
-    nodes=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
-
-    print_success "Connected to: ${BOLD}${k8s_dist}${RESET}"
-    print_kv "Context" "${context}"
-    print_kv "Nodes"   "${nodes}"
 }
 
-detect_k8s_cluster
+deploy_argo() {
 
-: "${DEPLOY_TARGET:?Set DEPLOY_TARGET in .env  (local or prod)}"
-: "${DEPLOY_MODE:?Set DEPLOY_MODE in .env  (argocd or direct)}"
+    bash "$PROJECT_ROOT/platform/cicd/argo/deploy_argo.sh"
+}
 
-echo ""
-print_divider
-echo -e "  ${BOLD}${BRIGHT_WHITE}Deployment Plan${RESET}"
-print_thin_divider
-print_kv "Deploy Target"  "${DEPLOY_TARGET}"
-print_kv "Deploy Mode"    "${DEPLOY_MODE}"
-print_kv "MLOps Enabled"  "${MLOPS_ENABLED}"
-if [[ "${MLOPS_ENABLED}" == "true" ]]; then
-    print_kv "MLOps Action" "${MLOPS_ACTION}"
+deploy_kubernetes() {
+
+    bash "$PROJECT_ROOT/app/k8s/deploy_kubernetes.sh"
+}
+
+deploy_monitoring() {
+
+    bash "$PROJECT_ROOT/monitoring/deploy_monitoring.sh"
+}
+
+deploy_loki() {
+
+    bash "$PROJECT_ROOT/monitoring/loki/deploy_loki.sh"
+}
+
+deploy_trivy() {
+
+    bash "$PROJECT_ROOT/monitoring/trivy/trivy.sh"
+}
+
+deploy_mlops() {
+
+    bash "$PROJECT_ROOT/mlops.sh"
+}
+
+# MAIN EXECUTION FLOW
+
+select_environment
+select_components
+validate_dependencies
+detect_container_runtime
+
+if [[ "$ENABLE_KUBERNETES" == true ]]; then
+    detect_k8s_cluster
 fi
-if [[ "${DEPLOY_TARGET}" == "prod" ]]; then
-    print_kv "Cloud Provider" "${CLOUD_PROVIDER:-aws}"
-    print_kv "Infra Action"   "${INFRA_ACTION:-plan}"
-fi
-print_divider
-echo ""
 
-# LOCAL CLUSTER SETUP  (Minikube, Kind, K3s, MicroK8s)
-setup_local_cluster() {
-    case "$K8S_DISTRIBUTION" in
-        minikube)
-            require_command minikube "https://minikube.sigs.k8s.io/docs/start/"
-            if [[ "$(minikube status --format='{{.Host}}')" != "Running" ]]; then
-                print_error "Minikube is not running"
-                print_cmd "Start it with:" "minikube start --memory=4096 --cpus=2"
-                exit 1
-            fi
-            if [[ "$CONTAINER_RUNTIME" == "docker" ]]; then
-                print_step "Configuring Docker env for Minikube..."
-                eval "$(minikube docker-env)"
-            fi
-            if [[ "${MINIKUBE_INGRESS:-false}" == "true" ]]; then
-                print_step "Enabling Ingress addon..."
-                minikube addons enable ingress
-            fi
-            ;;
-        kind)
-            require_command kind "https://kind.sigs.k8s.io/docs/user/quick-start/"
-            {
-                local node_container
-                node_container=$(docker ps --format '{{.Names}}' | grep kind-control-plane || true)
-                if [[ -z "$node_container" ]]; then
-                    print_step "Creating Kind cluster..."
-                    cat > "$WORKDIR/kind-config.yaml" <<-EOF
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-  - role: control-plane
-    extraPortMappings:
-      - containerPort: 30080
-        hostPort: 30080
-      - containerPort: 30300
-        hostPort: 30300
-      - containerPort: 30900
-        hostPort: 30900
-      - containerPort: 30430
-        hostPort: 30430
-      - containerPort: 80
-        hostPort: 8081
-      - containerPort: 443
-        hostPort: 8443
-EOF
-                    kind create cluster --config "$WORKDIR/kind-config.yaml"
-                else
-                    print_success "Kind cluster already running"
-                fi
-            }
-            if [[ "${INGRESS_ENABLED:-true}" == "true" ]]; then
-                if ! kubectl get pods -n ingress-nginx >/dev/null 2>&1; then
-                    print_step "Installing NGINX Ingress Controller..."
-                    kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-                    kubectl wait --namespace ingress-nginx \
-                        --for=condition=ready pod \
-                        --selector=app.kubernetes.io/component=controller \
-                        --timeout=90s || true
-                fi
-            fi
-            ;;
-        k3s)
-            print_info "K3s detected — using built-in Traefik ingress controller"
-            ;;
-        microk8s)
-            require_command microk8s "https://microk8s.io/docs/getting-started"
-            if [[ "${INGRESS_ENABLED:-true}" == "true" ]]; then
-                print_step "Enabling MicroK8s Ingress addon..."
-                microk8s enable ingress || true
-            fi
-            ;;
-    esac
-}
+print_section "Deployment Plan"
 
-# IMAGE BUILD
-build_image() {
-    print_subsection "Container Image"
-
-    configure_git_github
-    configure_dockerhub_username
-
-    if [[ "${BUILD_PUSH:-false}" == "true" && "$K8S_DISTRIBUTION" != "minikube" ]]; then
-        print_step "Building and pushing image to registry..."
-        if [[ "$CONTAINER_RUNTIME" == "podman" ]] && declare -f build_and_push_image_podman >/dev/null 2>&1; then
-            build_and_push_image_podman
-        else
-            build_and_push_image
-        fi
-    else
-        print_step "Building image locally (no push)..."
-        if [[ "$CONTAINER_RUNTIME" == "podman" ]]; then
-            podman build -t "$APP_NAME:latest" "$PROJECT_ROOT/app"
-        else
-            docker build -t "$APP_NAME:latest" "$PROJECT_ROOT/app"
-        fi
-        print_success "Image built: ${BOLD}${APP_NAME}:latest${RESET}"
-    fi
-}
-
-# SHOW DIRECT-MODE ACCESS INFO
-show_direct_access_info() {
-    echo ""
-    print_section "APPLICATION ACCESS" ">"
-    print_kv "Distribution" "${K8S_DISTRIBUTION}"
-    echo ""
-
-    case "$K8S_DISTRIBUTION" in
-        minikube)
-            local ip node_port
-            ip=$(minikube ip 2>/dev/null || echo "localhost")
-            node_port=$(kubectl get svc "${APP_NAME}-service" -n "$NAMESPACE" \
-                -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-            if [[ -n "$node_port" ]]; then
-                print_access_box "APPLICATION" ">" \
-                    "URL:Application URL:http://${ip}:${node_port}"
-            fi
-            print_access_box "MINIKUBE DASHBOARD" ">" \
-                "CMD:Open Kubernetes Dashboard:|minikube dashboard"
-            ;;
-        kind)
-            local node_port
-            node_port=$(kubectl get svc "${APP_NAME}-service" -n "$NAMESPACE" \
-                -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-            if [[ -n "$node_port" ]]; then
-                print_access_box "APPLICATION" ">" \
-                    "URL:Application URL:http://localhost:${node_port}"
-            fi
-            ;;
-        k3s|microk8s)
-            local node_ip node_port
-            node_ip=$(kubectl get nodes \
-                -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
-                2>/dev/null || echo "localhost")
-            node_port=$(kubectl get svc "${APP_NAME}-service" -n "$NAMESPACE" \
-                -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "")
-            if [[ -n "$node_port" ]]; then
-                print_access_box "APPLICATION" ">" \
-                    "URL:Application URL:http://${node_ip}:${node_port}"
-            fi
-            ;;
-        eks|gke|aks)
-            print_access_box "APPLICATION" ">" \
-                "CMD:Get external IP / hostname:|kubectl get svc ${APP_NAME}-service -n ${NAMESPACE}" \
-                "CMD:Get ingress address:|kubectl get ingress -n ${NAMESPACE}"
-            ;;
-        *)
-            print_access_box "APPLICATION" ">" \
-                "NOTE:App is inside the cluster -- use port-forward to reach it locally" \
-                "SEP:" \
-                "CMD:Step 1  --  Start port-forward:|kubectl port-forward svc/${APP_NAME}-service ${APP_PORT}:80 -n ${NAMESPACE}" \
-                "URL:Step 2  --  Open in browser:http://localhost:${APP_PORT}"
-            ;;
-    esac
-}
-
-# DEPLOYMENT: LOCAL
-if [[ "$DEPLOY_TARGET" == "local" ]]; then
-    print_section "DEPLOYING TO LOCAL KUBERNETES" ">"
-
-    setup_local_cluster
-    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        export DOCKER_IMAGE_TAG="$(git rev-parse --short HEAD)"
-    else
-        export DOCKER_IMAGE_TAG="local-$(date +%s)"
-    fi
-    build_image
-
-    if [[ "$DEPLOY_MODE" == "argocd" ]]; then
-        deploy_argo
-        configure_gitlab || true
-    else
-        print_subsection "Direct Mode Deployment"
-        deploy_kubernetes local
-        deploy_monitoring
-        deploy_loki
-        trivy
-        configure_gitlab
-        [[ "${MLOPS_ENABLED:-false}" == "true" ]] && run_mlops "${MLOPS_ACTION:-full}"
-        show_direct_access_info
-    fi
-
-# DEPLOYMENT: PRODUCTION
-elif [[ "$DEPLOY_TARGET" == "prod" ]]; then
-    print_section "DEPLOYING TO PRODUCTION (CLOUD)" ">"
-    print_kv "Cloud Provider" "${CLOUD_PROVIDER:-aws}"
-    print_kv "Infra Action"   "${INFRA_ACTION:-plan}"
-    echo ""
-
-    if [[ "$DEPLOY_MODE" == "argocd" ]]; then
-        deploy_infra
-
-        if [[ "${INFRA_ACTION:-plan}" == "plan" ]]; then
-            print_info "Infra action was 'plan' — review the plan above, then re-run with INFRA_ACTION=apply"
-            exit 0
-        fi
-
-        case "$K8S_DISTRIBUTION" in
-            eks)
-                print_subsection "AWS EKS"
-                require_command aws "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
-                ;;
-            gke)
-                print_subsection "GCP GKE"
-                require_command gcloud "https://cloud.google.com/sdk/docs/install"
-                ;;
-            aks)
-                print_subsection "Azure AKS"
-                require_command az "https://learn.microsoft.com/en-us/cli/azure/install-azure-cli"
-                ;;
-            *)
-                print_warning "Generic cloud cluster — skipping cloud-specific CLI checks"
-                ;;
-        esac
-
-        configure_git_github
-        configure_dockerhub_username
-
-        if [[ "${BUILD_PUSH:-true}" == "true" ]]; then
-            print_step "Building and pushing image..."
-            if [[ "$CONTAINER_RUNTIME" == "podman" ]] && declare -f build_and_push_image_podman >/dev/null 2>&1; then
-                build_and_push_image_podman
-            else
-                build_and_push_image
-            fi
-        fi
-
-        deploy_argo
-        configure_gitlab || true
-
-    else
-        deploy_infra
-
-        if [[ "${INFRA_ACTION:-plan}" == "plan" ]]; then
-            print_info "Infra action was 'plan' — review the plan above, then re-run with INFRA_ACTION=apply"
-            exit 0
-        fi
-
-        case "$K8S_DISTRIBUTION" in
-            eks) require_command aws    "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html" ;;
-            gke) require_command gcloud "https://cloud.google.com/sdk/docs/install" ;;
-            aks) require_command az     "https://learn.microsoft.com/en-us/cli/azure/install-azure-cli" ;;
-            *)   print_warning "Generic cloud Kubernetes cluster — skipping cloud-specific checks" ;;
-        esac
-
-        configure_git_github
-        configure_dockerhub_username
-
-        if [[ "${BUILD_PUSH:-true}" == "true" ]]; then
-            if [[ "$CONTAINER_RUNTIME" == "podman" ]] && declare -f build_and_push_image_podman >/dev/null 2>&1; then
-                build_and_push_image_podman
-            else
-                build_and_push_image
-            fi
-        fi
-
-        deploy_kubernetes prod
-        deploy_monitoring
-        deploy_loki
-        trivy
-        configure_gitlab
-        [[ "${MLOPS_ENABLED:-false}" == "true" ]] && run_mlops "${MLOPS_ACTION:-full}"
-
-        print_section "PRODUCTION DEPLOYMENT COMPLETE" "+"
-        print_kv "Cluster"        "${K8S_DISTRIBUTION}"
-        print_kv "Cloud Provider" "${CLOUD_PROVIDER:-aws}"
-        echo ""
-        print_access_box "VERIFY DEPLOYMENT" ">" \
-            "NOTE:Use these commands to confirm the deployment is healthy" \
-            "SEP:" \
-            "CMD:Check all services:|kubectl get svc -n ${NAMESPACE}" \
-            "CMD:Check ingress rules:|kubectl get ingress -n ${NAMESPACE}" \
-            "CMD:Check pod status:|kubectl get pods -n ${NAMESPACE}"
-    fi
-
-else
-    print_error "Invalid DEPLOY_TARGET: ${BOLD}${DEPLOY_TARGET}${RESET}"
-    print_info "Valid values:  ${ACCENT_CMD}local${RESET}  or  ${ACCENT_CMD}prod${RESET}"
-    exit 1
-fi
+print_kv "Infra" "$ENABLE_INFRA"
+print_kv "Image" "$ENABLE_IMAGE"
+print_kv "ArgoCD" "$ENABLE_ARGO"
+print_kv "Kubernetes" "$ENABLE_KUBERNETES"
+print_kv "Monitoring" "$ENABLE_MONITORING"
+print_kv "Loki" "$ENABLE_LOKI"
+print_kv "Trivy" "$ENABLE_TRIVY"
+print_kv "MLOps" "$ENABLE_MLOPS"
 
 print_divider
+
+# EXECUTION ORDER
+
+[[ "$ENABLE_INFRA" == true ]] && deploy_infra
+[[ "$ENABLE_IMAGE" == true ]] && deploy_image
+[[ "$ENABLE_ARGO" == true ]] && deploy_argo
+[[ "$ENABLE_KUBERNETES" == true ]] && deploy_kubernetes
+[[ "$ENABLE_MONITORING" == true ]] && deploy_monitoring
+[[ "$ENABLE_LOKI" == true ]] && deploy_loki
+[[ "$ENABLE_TRIVY" == true ]] && deploy_trivy
+[[ "$ENABLE_MLOPS" == true ]] && deploy_mlops
+
+print_section "Deployment Complete" "✓"
