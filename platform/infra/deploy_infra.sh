@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-###############################################################################
-# infra/deploy_infra.sh — Infrastructure Deployment Orchestrator
+######################################## /platform/infra/deploy_infra.sh — Infrastructure Deployment Orchestrator
 # Supports: Terraform (AWS) + OpenTofu (OCI) + Pulumi (Azure)
-# Usage: ./deploy_infra.sh [action] [aws|oci|azure]
-###############################################################################
-
+# Usage: ./deploy_infra.sh [plan|apply|destroy] [aws|oci|azure]
+#######################################
 set -euo pipefail
 IFS=$'\n\t'
 
@@ -14,21 +12,29 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     return 1 2>/dev/null || exit 1
 fi
 
-# Resolve PROJECT_ROOT
+# Resolve PROJECT_ROOT correctly
 if [[ -z "${PROJECT_ROOT:-}" ]]; then
-    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 fi
 readonly PROJECT_ROOT
 
-source "${PROJECT_ROOT}/platform/lib/bootstrap.sh"
+# Load bootstrap helpers
+BOOTSTRAP="${PROJECT_ROOT}/platform/lib/bootstrap.sh"
+if [[ ! -f "$BOOTSTRAP" ]]; then
+    echo "ERROR: bootstrap.sh not found at $BOOTSTRAP"
+    exit 1
+fi
 
-# Load .env
+# shellcheck source=/dev/null
+source "$BOOTSTRAP"
+
+# Load .env safely
 ENV_FILE="${PROJECT_ROOT}/.env"
 if [[ -f "$ENV_FILE" ]]; then
-    set -a
+    set -o allexport
     # shellcheck source=/dev/null
     source "$ENV_FILE"
-    set +a
+    set +o allexport
 else
     print_error ".env file not found at ${ENV_FILE}"
     exit 1
@@ -37,16 +43,22 @@ fi
 # Defaults
 : "${INFRA_ACTION:=plan}"
 : "${CLOUD_PROVIDER:=aws}"
+: "${DEPLOY_TARGET:=prod}"
 
-# Parse args
 ACTION="${1:-${INFRA_ACTION}}"
 PROVIDER="${2:-${CLOUD_PROVIDER}}"
 
-# Normalise provider aliases
+# Normalize provider aliases
 case "$PROVIDER" in
-    aws|terraform)          PROVIDER="aws" ;;
-    oci|oracle|opentofu)    PROVIDER="oci" ;;
-    azure|pulumi)           PROVIDER="azure" ;;
+    aws|terraform)
+        PROVIDER="aws"
+        ;;
+    oci|oracle|opentofu)
+        PROVIDER="oci"
+        ;;
+    azure|pulumi)
+        PROVIDER="azure"
+        ;;
     *)
         print_error "Invalid provider: ${BOLD}${PROVIDER}${RESET}"
         print_info "Valid values: aws | oci | azure"
@@ -54,11 +66,17 @@ case "$PROVIDER" in
         ;;
 esac
 
-# Normalise action aliases
+# Normalize action aliases
 case "$ACTION" in
-    plan|preview)   ACTION="plan" ;;
-    apply|up)       ACTION="apply" ;;
-    destroy)        ACTION="destroy" ;;
+    plan|preview)
+        ACTION="plan"
+        ;;
+    apply|up)
+        ACTION="apply"
+        ;;
+    destroy)
+        ACTION="destroy"
+        ;;
     *)
         print_error "Invalid action: ${BOLD}${ACTION}${RESET}"
         print_info "Valid values: plan | apply | destroy"
@@ -66,135 +84,125 @@ case "$ACTION" in
         ;;
 esac
 
-#  AWS / Terraform 
+# AWS / Terraform
 deploy_terraform() {
     print_subsection "AWS Infrastructure — Terraform"
+    local tf_dir="${PROJECT_ROOT}/platform/infra/terraform"
+    require_command terraform \
+        "https://developer.hashicorp.com/terraform/install"
 
-    local tf_dir="${PROJECT_ROOT}/infra/terraform"
-    if [[ ! -d "$tf_dir" ]]; then
-        print_error "Terraform directory not found: ${tf_dir}"
-        exit 1
-    fi
+    cd "$tf_dir"
 
-    if ! command -v terraform >/dev/null 2>&1; then
-        print_error "terraform CLI not found"
-        print_info "Install from: https://developer.hashicorp.com/terraform/install"
-        exit 1
-    fi
-
-    cd "${tf_dir}"
-
+    terraform init -upgrade
     case "$ACTION" in
         plan)
-            terraform init -upgrade
             terraform validate
             terraform plan -out=tfplan
-            print_info "Review the plan above, then re-run with action=apply"
             ;;
         apply)
-            terraform init -upgrade
             terraform validate
             terraform plan -out=tfplan
             terraform apply tfplan
             print_success "Terraform apply complete"
             ;;
         destroy)
-            terraform init -upgrade
-            print_warning "This will destroy all Terraform-managed infrastructure"
+            print_warning "Destroying Terraform infrastructure"
             terraform destroy -auto-approve
             print_success "Terraform destroy complete"
             ;;
     esac
 }
 
-#  OCI / OpenTofu 
+# OCI / OpenTofu
 deploy_opentofu() {
     print_subsection "OCI Infrastructure — OpenTofu"
 
-    local tofu_dir="${PROJECT_ROOT}/infra/OpenTofu"
-    if [[ ! -d "$tofu_dir" ]]; then
-        print_error "OpenTofu directory not found: ${tofu_dir}"
-        exit 1
-    fi
-
+    local tofu_dir="${PROJECT_ROOT}/platform/infra/OpenTofu"
     local iac_bin
+
     if command -v tofu >/dev/null 2>&1; then
         iac_bin="tofu"
     elif command -v terraform >/dev/null 2>&1; then
         iac_bin="terraform"
-        print_info "OpenTofu CLI (tofu) not found — falling back to terraform"
+        print_warning "Using terraform fallback for OpenTofu"
     else
-        print_error "Neither 'tofu' nor 'terraform' CLI found"
-        print_info "Install OpenTofu: https://opentofu.org/docs/intro/install/"
+        print_error "Neither tofu nor terraform CLI found"
         exit 1
     fi
 
-    cd "${tofu_dir}"
+    cd "$tofu_dir"
+
+    "$iac_bin" init -upgrade
 
     case "$ACTION" in
         plan)
-            "${iac_bin}" init -upgrade
-            "${iac_bin}" validate
-            "${iac_bin}" plan -out=tfplan
-            print_info "Review the plan above, then re-run with action=apply"
+            "$iac_bin" validate
+            "$iac_bin" plan -out=tfplan
             ;;
         apply)
-            "${iac_bin}" init -upgrade
-            "${iac_bin}" validate
-            "${iac_bin}" plan -out=tfplan
-            "${iac_bin}" apply tfplan
+            "$iac_bin" validate
+            "$iac_bin" plan -out=tfplan
+            "$iac_bin" apply tfplan
             print_success "OpenTofu apply complete"
             ;;
         destroy)
-            "${iac_bin}" init -upgrade
-            print_warning "This will destroy all OpenTofu-managed infrastructure"
-            "${iac_bin}" destroy -auto-approve
+            print_warning "Destroying OpenTofu infrastructure"
+            "$iac_bin" destroy -auto-approve
             print_success "OpenTofu destroy complete"
             ;;
     esac
 }
 
-#  Azure / Pulumi 
+# Azure / Pulumi
 deploy_pulumi() {
     print_subsection "Azure Infrastructure — Pulumi"
 
-    local pulumi_script="${PROJECT_ROOT}/infra/Pulumi/deploy_pulumi.sh"
-    if [[ ! -f "$pulumi_script" ]]; then
-        print_error "deploy_pulumi.sh not found at: ${pulumi_script}"
-        exit 1
-    fi
+    require_command pulumi \
+        "https://www.pulumi.com/docs/install/"
 
-    chmod +x "${pulumi_script}"
+    local pulumi_dir="${PROJECT_ROOT}/platform/infra/Pulumi"
 
-    # Map generic ACTION to Pulumi-specific action names
-    local pulumi_action
+    cd "$pulumi_dir"
+
+    local stack="${DEPLOY_TARGET}"
+
+    pulumi stack select "$stack" \
+        || pulumi stack init "$stack"
+
     case "$ACTION" in
-        plan)    pulumi_action="preview" ;;
-        apply)   pulumi_action="up"      ;;
-        destroy) pulumi_action="destroy" ;;
-        *)       pulumi_action="$ACTION" ;;
+        plan)
+            pulumi preview
+            ;;
+        apply)
+            pulumi up --yes
+            print_success "Pulumi apply complete"
+            ;;
+        destroy)
+            pulumi destroy --yes
+            print_success "Pulumi destroy complete"
+            ;;
     esac
-
-    print_kv "Mapped Action" "${pulumi_action}"
-    print_kv "Stack"         "${DEPLOY_TARGET:-prod}"
-    echo ""
-
-    bash "${pulumi_script}" "${pulumi_action}" "${DEPLOY_TARGET:-prod}"
 }
 
-#  Main 
+# MAIN EXECUTION
 print_section "INFRASTRUCTURE DEPLOYMENT" ">"
 echo ""
-print_kv "Provider" "${PROVIDER}"
-print_kv "Action"   "${ACTION}"
+print_kv "Provider" "$PROVIDER"
+print_kv "Action"   "$ACTION"
+print_kv "Stack"    "$DEPLOY_TARGET"
 echo ""
 print_divider
 echo ""
-
 case "$PROVIDER" in
-    aws)   deploy_terraform ;;
-    oci)   deploy_opentofu  ;;
-    azure) deploy_pulumi    ;;
+    aws)
+        deploy_terraform
+        ;;
+    oci)
+        deploy_opentofu
+        ;;
+    azure)
+        deploy_pulumi
+        ;;
 esac
 
 print_section "INFRASTRUCTURE COMPLETE" "+"

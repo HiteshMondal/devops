@@ -1,0 +1,46 @@
+grafana:
+
+  adminUser: ${GRAFANA_ADMIN_USER}
+  adminPassword: ${GRAFANA_ADMIN_PASSWORD}
+
+  service:
+    type: ${MONITORING_SERVICE_TYPE}
+
+  defaultDashboardsEnabled: true
+
+  additionalDataSources:
+
+    - name: Loki
+      type: loki
+      url: http://loki.${LOKI_NAMESPACE}.svc.cluster.local:3100
+      access: proxy
+      isDefault: false
+
+  sidecar:
+
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      folder: /var/lib/grafana/dashboards/default
+
+    datasources:
+      enabled: true
+
+  dashboards:
+
+    default:
+
+      node-exporter:
+        gnetId: 1860
+        revision: 37
+        datasource: Prometheus
+
+      kubernetes-cluster:
+        gnetId: 6417
+        revision: 1
+        datasource: Prometheus
+
+      kube-state-metrics:
+        gnetId: 13332
+        revision: 1
+        datasource: Prometheus

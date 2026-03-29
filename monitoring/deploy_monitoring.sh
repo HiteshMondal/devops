@@ -285,6 +285,60 @@ wait_for_rollout() {
     kubectl rollout status "$resource" -n "$namespace" --timeout=300s
 }
 
+print_monitoring_access() {
+    local svc="$1"
+    local namespace="$2"
+    local port="$3"
+    local label="$4"
+
+    detect_k8s_distribution
+
+    local node_port=""
+    local node_ip=""
+    node_port=$(kubectl get svc "$svc" -n "$namespace" \
+        -o jsonpath="{.spec.ports[0].nodePort}" 2>/dev/null || true)
+
+    case "$K8S_DISTRIBUTION" in
+        minikube)
+            node_ip=$(minikube ip 2>/dev/null || true)
+            ;;
+        kind)
+            node_ip="localhost"
+            ;;
+        *)
+            node_ip=$(kubectl get nodes \
+                -o jsonpath="{.items[0].status.addresses[?(@.type=='InternalIP')].address}" \
+                2>/dev/null || true)
+            ;;
+    esac
+
+    if [[ -n "$node_ip" && -n "$node_port" ]]; then
+        log_url "${label} URL" "http://${node_ip}:${node_port}"
+        return
+    fi
+
+    log_warning "Could not determine automatic access URL for ${label}"
+    log_info "Use port-forward manually:"
+    log_url "${label}" "kubectl port-forward svc/${svc} -n ${namespace} ${port}:${port}"
+}
+
+resolve_k8s_service_config() {
+
+    case "$K8S_DISTRIBUTION" in
+        minikube|kind|k3s|microk8s)
+            MONITORING_SERVICE_TYPE="NodePort"
+            ;;
+        eks|gke|aks)
+            MONITORING_SERVICE_TYPE="LoadBalancer"
+            ;;
+        *)
+            MONITORING_SERVICE_TYPE="NodePort"
+            ;;
+    esac
+
+    export MONITORING_SERVICE_TYPE
+}
+
 # Main monitoring deployment
 deploy_monitoring() {
 
@@ -310,31 +364,49 @@ deploy_monitoring() {
 
     print_success "Namespace ready"
 
-
     # PROMETHEUS
-
     print_subsection "Deploying Prometheus"
 
+    substitute_env_vars_to_file \
+      "$PROJECT_ROOT/monitoring/prometheus_grafana/kube-prometheus-stack-values.yaml" \
+      "/tmp/kps-values.yaml"
+
     helm upgrade --install prometheus \
-        prometheus-community/prometheus \
-        --namespace "$namespace" \
-        --set server.service.type="$service_type" \
-        --wait \
-        --timeout 5m
+      prometheus-community/kube-prometheus-stack \
+      --namespace "$namespace" \
+      --create-namespace \
+      -f /tmp/kps-values.yaml \
+      --set prometheus.service.type="$service_type" \
+      --wait \
+      --timeout 5m
 
-    wait_for_rollout deployment/prometheus-server "$namespace"
+    print_success "Prometheus stack ready"
 
-    print_success "Prometheus ready"
+    print_subsection "Provisioning Grafana Dashboards"
+    local dashboard_dir="$PROJECT_ROOT/monitoring/dashboards"
+    local namespace="${PROMETHEUS_NAMESPACE:-monitoring}"
 
-    print_service_access \
-        prometheus-server \
-        "$namespace" \
-        "$PROMETHEUS_PORT" \
-        "PROMETHEUS"
+    shopt -s nullglob
 
+    for file in "$dashboard_dir"/*.json; do
+
+        local name
+        name=$(basename "$file" .json)
+
+        print_step "Registering dashboard: $name"
+
+        kubectl create configmap "grafana-dashboard-$name" \
+            --from-file="$file" \
+            -n "$namespace" \
+            --dry-run=client -o yaml | \
+        kubectl label --local -f - grafana_dashboard=1 -o yaml | \
+        kubectl apply -f -
+    done
+
+    shopt -u nullglob
+    print_success "Dashboards provisioned automatically"
 
     # GRAFANA
-
     print_subsection "Deploying Grafana"
 
     if ! helm repo list | grep -q grafana; then
@@ -342,40 +414,15 @@ deploy_monitoring() {
     fi
     helm repo update >/dev/null
 
-    helm upgrade --install grafana grafana/grafana \
-      --namespace "$namespace" \
-      --set service.type="$service_type" \
-      --set adminUser="$GRAFANA_ADMIN_USER" \
-      --set adminPassword="$GRAFANA_ADMIN_PASSWORD" \
-      --set datasources."datasources\.yaml".apiVersion=1 \
-      --set datasources."datasources\.yaml".datasources[0].name=Prometheus \
-      --set datasources."datasources\.yaml".datasources[0].type=prometheus \
-      --set datasources."datasources\.yaml".datasources[0].url=http://prometheus-server.$namespace.svc.cluster.local \
-      --set datasources."datasources\.yaml".datasources[0].access=proxy \
-      --set datasources."datasources\.yaml".datasources[0].isDefault=true \
-      --set datasources."datasources\.yaml".datasources[0].uid=prometheus \
-      --set datasources."datasources\.yaml".datasources[1].name=Loki \
-      --set datasources."datasources\.yaml".datasources[1].type=loki \
-      --set datasources."datasources\.yaml".datasources[1].url=http://loki.$loki_namespace.svc.cluster.local:3100 \
-      --set datasources."datasources\.yaml".datasources[1].access=proxy \
-      --set datasources."datasources\.yaml".datasources[1].uid=loki \
-      --wait \
-      --timeout 5m
-
-    wait_for_rollout deployment/grafana "$namespace"
-
-    print_success "Grafana ready"
-
-    print_service_access \
-        grafana \
-        "$namespace" \
-        "$GRAFANA_PORT" \
-        "GRAFANA"
+    GRAFANA_ADMIN_PASSWORD=$(kubectl get secret \
+      prometheus-grafana \
+      -n "$namespace" \
+      -o jsonpath="{.data.admin-password}" | base64 -d)
 
     print_access_box "GRAFANA CREDENTIALS" ">" \
-        "CRED:Username:${GRAFANA_ADMIN_USER}" \
-        "CRED:Password:${GRAFANA_ADMIN_PASSWORD}"
-    print_access_box "GRAFANA DASHBOARDS" ">" \
+      "CRED:Username:admin" \
+      "CRED:Password:${GRAFANA_ADMIN_PASSWORD}"
+    print_success "Grafana dashboards auto-provisioned from monitoring/dashboards/" ">" \
       "NOTE:Import dashboards via ID" \
       "SEP:" \
       "CRED:Node Exporter Full:1860" \
@@ -391,10 +438,17 @@ deploy_monitoring() {
 
     kubectl rollout status daemonset/node-exporter \
         -n "$namespace" \
-        --timeout=120s || true
+        --timeout=60s || print_warning "node-exporter rollout still progressing"
 
     print_success "Node Exporter ready"
 
+    print_monitoring_access prometheus-grafana "$namespace" "$GRAFANA_PORT" "Grafana"
+
+    PROM_SERVICE=$(kubectl get svc -n "$namespace" \
+        prometheus-kube-prometheus-prometheus \
+        -o jsonpath="{.metadata.name}" 2>/dev/null || true)
+
+    print_monitoring_access "$PROM_SERVICE" "$namespace" "$PROMETHEUS_PORT" "Prometheus"
 
     # SUMMARY
 

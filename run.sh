@@ -26,13 +26,9 @@ if [[ "$PROJECT_ROOT" == "/" || "$PROJECT_ROOT" == "$HOME" || "$PROJECT_ROOT" ==
 fi
 
 # LOAD SHARED LIBRARIES (SAFE TO SOURCE)
-load_libraries() {
-    [[ -n "${PROJECT_ROOT:-}" ]] || { echo "FATAL: PROJECT_ROOT not set"; exit 1; }
-    source "$PROJECT_ROOT/platform/lib/colors.sh"
-    source "$PROJECT_ROOT/platform/lib/logging.sh"
-}
-
-load_libraries
+[[ -n "${PROJECT_ROOT:-}" ]] || { echo "FATAL: PROJECT_ROOT not set"; exit 1; }
+source "$PROJECT_ROOT/platform/lib/colors.sh"
+source "$PROJECT_ROOT/platform/lib/logging.sh"
 
 # ACTION SCRIPT RUNNERS (ISOLATED EXECUTION)
 # Each runs in its OWN process — no variable / trap leakage
@@ -214,55 +210,105 @@ ask() {
     done
 }
 
-# INTERACTIVE DEPLOYMENT OPTIONS
-if is_interactive; then
-    print_subsection "Deployment Configuration"
-    echo ""
-    ask DEPLOY_TARGET "Target environment"      "${DEPLOY_TARGET:-local}" local prod
-    ask DEPLOY_MODE   "Deployment mode"         "${DEPLOY_MODE:-direct}"  argocd direct
-    ask BUILD_PUSH    "Push image to registry?" "${BUILD_PUSH:-true}"
-    ask DRY_RUN       "Enable dry-run mode?"    "${DRY_RUN:-false}"
-    ask MLOPS_ENABLED "Enable MLOps pipeline (DVC + training + drift)?" \
-        "${MLOPS_ENABLED:-false}"
+# DEPLOYMENT MODE SELECTOR
 
-    if [[ "${MLOPS_ENABLED}" == "true" ]]; then
-        ask MLOPS_ACTION      "MLOps action"              "${MLOPS_ACTION:-full}" \
-            full train-only eval-only drift-only pipeline-only
-        ask DVC_ENABLED       "Run DVC data pipeline?"    "${DVC_ENABLED:-true}"
-        ask NEPTUNE_ENABLED   "Log to Neptune AI?"         "${NEPTUNE_ENABLED:-false}"
-        ask EVIDENTLY_ENABLED "Run Evidently drift report?" "${EVIDENTLY_ENABLED:-false}"
-        ask WHYLABS_ENABLED   "Run WhyLabs profiling?"     "${WHYLABS_ENABLED:-false}"
-        ask LAKEFS_ENABLED    "Use LakeFS data versioning?" "${LAKEFS_ENABLED:-false}"
-    fi
-    export MLOPS_ENABLED MLOPS_ACTION DVC_ENABLED NEPTUNE_ENABLED
-    export EVIDENTLY_ENABLED WHYLABS_ENABLED LAKEFS_ENABLED
+detect_deploy_target() {
 
-    # Cloud provider + infra action — only relevant when deploying to prod
-    if [[ "${DEPLOY_TARGET}" == "prod" ]]; then
-        print_divider
-        print_subsection "Production Infrastructure Options"
+    # Priority order:
+    # 1) CLI argument
+    # 2) environment variable
+    # 3) interactive prompt
+    # 4) fallback default
+
+    if [[ -n "${1:-}" ]]; then
+        DEPLOY_TARGET="$1"
+
+    elif [[ -n "${DEPLOY_TARGET:-}" ]]; then
+        DEPLOY_TARGET="$DEPLOY_TARGET"
+
+    elif is_interactive; then
+        print_subsection "Deployment Configuration"
         echo ""
-        ask CLOUD_PROVIDER "Cloud provider / IaC tool" "${CLOUD_PROVIDER:-aws}" aws oci azure
-        ask INFRA_ACTION   "Infrastructure action"     "${INFRA_ACTION:-plan}"  plan apply destroy
+        ask DEPLOY_TARGET "Target environment" "local" local prod
+
+    else
+        DEPLOY_TARGET="local"
     fi
 
-    export CI=false
+    case "$DEPLOY_TARGET" in
+        local|prod) ;;
+        *)
+            print_error "Invalid DEPLOY_TARGET: ${BOLD}${DEPLOY_TARGET}${RESET}"
+            print_info "Valid values: ${ACCENT_CMD}local${RESET} or ${ACCENT_CMD}prod${RESET}"
+            exit 1
+            ;;
+    esac
+    export DEPLOY_TARGET
+}
+
+configure_defaults() {
+
+# LOCAL PROFILE (FULL MLOPS STACK)
+if [[ "$DEPLOY_TARGET" == "local" ]]; then
+    DEPLOY_MODE="direct"
+    BUILD_PUSH="false"
+    CLOUD_PROVIDER="none"
+    INFRA_ACTION="skip"
+
+    # ENABLE FULL LOCAL MLOPS STACK
+    MLOPS_ENABLED="true"
+    MLOPS_ACTION="full"
+    DVC_ENABLED="true"
+    NEPTUNE_ENABLED="true"
+    EVIDENTLY_ENABLED="true"
+    WHYLABS_ENABLED="true"
+    LAKEFS_ENABLED="true"
+
+    # PLATFORM FEATURES
+    INGRESS_ENABLED="true"
+    DRY_RUN="false"
+
+# PRODUCTION PROFILE (FULL CLOUD STACK)
 else
-    print_info "Non-interactive / CI mode — using .env values"
-    # Ensure all vars have safe defaults so later code never sees unbound errors
-    : "${CLOUD_PROVIDER:=aws}"
-    : "${INFRA_ACTION:=plan}"
-    : "${MLOPS_ENABLED:=false}"
-    : "${MLOPS_ACTION:=full}"
-    : "${DVC_ENABLED:=true}"
-    : "${NEPTUNE_ENABLED:=false}"
-    : "${EVIDENTLY_ENABLED:=false}"
-    : "${WHYLABS_ENABLED:=false}"
-    : "${LAKEFS_ENABLED:=false}"
-    export CLOUD_PROVIDER INFRA_ACTION
-    export MLOPS_ENABLED MLOPS_ACTION DVC_ENABLED NEPTUNE_ENABLED
-    export EVIDENTLY_ENABLED WHYLABS_ENABLED LAKEFS_ENABLED
+    DEPLOY_MODE="argocd"
+    BUILD_PUSH="true"
+    CLOUD_PROVIDER="${CLOUD_PROVIDER:-aws}"
+    INFRA_ACTION="${INFRA_ACTION:-apply}"
+
+    # FULL MLOPS STACK ENABLED
+    MLOPS_ENABLED="true"
+    MLOPS_ACTION="full"
+    DVC_ENABLED="true"
+    NEPTUNE_ENABLED="true"
+    EVIDENTLY_ENABLED="true"
+    WHYLABS_ENABLED="true"
+    LAKEFS_ENABLED="true"
+
+    # PLATFORM FEATURES
+    INGRESS_ENABLED="true"
+    DRY_RUN="false"
 fi
+
+# EXPORT EVERYTHING
+export DEPLOY_MODE
+export BUILD_PUSH
+export CLOUD_PROVIDER
+export INFRA_ACTION
+export MLOPS_ENABLED
+export MLOPS_ACTION
+export DVC_ENABLED
+export NEPTUNE_ENABLED
+export EVIDENTLY_ENABLED
+export WHYLABS_ENABLED
+export LAKEFS_ENABLED
+export INGRESS_ENABLED
+export DRY_RUN
+
+}
+
+# EXECUTION
+detect_deploy_target "${1:-}"
+configure_defaults
 
 # PREREQUISITES
 print_subsection "Checking Prerequisites"

@@ -182,6 +182,8 @@ deploy_loki() {
     if kubectl get daemonset promtail -n "${LOKI_NAMESPACE}" >/dev/null 2>&1; then
         print_step "Removing existing Promtail DaemonSet..."
         kubectl delete daemonset promtail -n "${LOKI_NAMESPACE}" --ignore-not-found
+        kubectl wait --for=delete daemonset/promtail -n "${LOKI_NAMESPACE}" --timeout=60s 2>/dev/null || true
+        kubectl wait --for=delete pod -l app=promtail -n "${LOKI_NAMESPACE}" --timeout=60s 2>/dev/null || true
         print_success "Promtail DaemonSet removed"
     else
         print_info "No existing Promtail DaemonSet — skipping pre-delete"

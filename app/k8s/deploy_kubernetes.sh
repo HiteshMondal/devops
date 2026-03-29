@@ -225,7 +225,7 @@ deploy() {
     DEPLOY_TEMP_DIR=$(mktemp -d /tmp/k8s-deployment.XXXXXX)
 
     cp -r "${PROJECT_ROOT}/app/k8s/base"     "${DEPLOY_TEMP_DIR}/"
-    if [[ -d "${PROJECT_ROOT}/kubernetes/overlays" ]]; then
+    if [[ -d "${PROJECT_ROOT}/app/k8s/overlays" ]]; then
         cp -r "${PROJECT_ROOT}/app/k8s/overlays" "${DEPLOY_TEMP_DIR}/"
     fi
 

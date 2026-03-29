@@ -135,7 +135,7 @@ spec:
           mountPath: /etc/grafana/provisioning/datasources
 
         - name: grafana-dashboard-provider
-          mountPath: /etc/grafana/provisioning/dashboards-provider
+          mountPath: /etc/grafana/provisioning/dashboards
 
         - name: loki-dashboard
           mountPath: /etc/grafana/dashboards/custom

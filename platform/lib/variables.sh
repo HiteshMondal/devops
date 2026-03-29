@@ -15,6 +15,7 @@
 : "${DOCKER_IMAGE_TAG:=latest}"
 : "${INGRESS_ENABLED:=true}"
 : "${INGRESS_HOST:=devops-app.local}"
+: "${DOCKERHUB_USERNAME:=hiteshmondaldocker}"
 
 #  DATABASE 
 : "${DB_HOST:=localhost}"
@@ -57,7 +58,6 @@
 : "${GRAFANA_CPU_LIMIT:=200m}"
 : "${GRAFANA_MEMORY_REQUEST:=128Mi}"
 : "${GRAFANA_MEMORY_LIMIT:=256Mi}"
-: "${GRAFANA_PORT:=3000}"
 
 #  LOKI 
 : "${LOKI_ENABLED:=true}"

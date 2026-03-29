@@ -13,7 +13,7 @@ if [[ -z "${PROJECT_ROOT:-}" ]]; then
     PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 fi
 
-source "${PROJECT_ROOT}/lib/bootstrap.sh"
+source "${PROJECT_ROOT}/platform/lib/bootstrap.sh"
 
 #  Defaults (all overridable via .env or environment) 
 : "${LAKEFS_ENDPOINT:=http://localhost:8001}"
