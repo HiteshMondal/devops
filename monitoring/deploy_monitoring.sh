@@ -313,12 +313,12 @@ print_monitoring_access() {
     esac
 
     if [[ -n "$node_ip" && -n "$node_port" ]]; then
-        log_url "${label} URL" "http://${node_ip}:${node_port}"
+        print_url "${label} URL" "http://${node_ip}:${node_port}"
         return
     fi
 
-    log_warning "Could not determine automatic access URL for ${label}"
-    log_info "Use port-forward manually:"
+    print_warning "Could not determine automatic access URL for ${label}"
+    print_info "Use port-forward manually:"
     log_url "${label}" "kubectl port-forward svc/${svc} -n ${namespace} ${port}:${port}"
 }
 
