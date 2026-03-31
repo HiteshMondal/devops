@@ -184,9 +184,16 @@ select_cloud_provider() {
 # STEP 3 — DEPLOYMENT MODE
 
 select_components() {
+    if [[ "$DEPLOY_TARGET" == "prod" ]]; then
+        FULL_DESC="Infrastructure + Image + ArgoCD + App + Monitoring + MLOps"
+    else
+        FULL_DESC="Image + ArgoCD + App + Monitoring + MLOps"
+    fi
     echo ""
+    if [[ "$DEPLOY_TARGET" == "prod" ]]; then
+
     _menu "Deployment Mode" \
-        "Full Platform|Infrastructure + Image + ArgoCD + App + Monitoring + MLOps" \
+        "Full Platform|${FULL_DESC}" \
         "Infrastructure Only|Provision cloud resources (Terraform / OpenTofu / Pulumi)" \
         "Build & Push Image|Build Docker image and push to DockerHub" \
         "ArgoCD Only|Install & configure Argo CD on the cluster" \
@@ -196,7 +203,25 @@ select_components() {
         "MLOps Stack|DVC + Training + Evaluation + Drift detection" \
         "Custom Selection|Pick individual components interactively"
 
-    _prompt_choice 1 9
+    else
+
+    _menu "Deployment Mode" \
+        "Full Platform|${FULL_DESC}" \
+        "Build & Push Image|Build Docker image and push to DockerHub" \
+        "ArgoCD Only|Install & configure Argo CD on the cluster" \
+        "Kubernetes Stack|Image + ArgoCD + App deployment" \
+        "Monitoring Stack|Prometheus + Grafana + Loki + Trivy" \
+        "App + Monitoring|Full app deployment with observability" \
+        "MLOps Stack|DVC + Training + Evaluation + Drift detection" \
+        "Custom Selection|Pick individual components interactively"
+
+    fi
+
+    if [[ "$DEPLOY_TARGET" == "prod" ]]; then
+        _prompt_choice 1 9
+    else
+        _prompt_choice 1 8
+    fi
 
     case "$REPLY" in
         1)  # Full Platform
@@ -209,8 +234,12 @@ select_components() {
             ENABLE_TRIVY=true
             ENABLE_MLOPS=true
             ;;
-        2)  # Infrastructure Only
-            ENABLE_INFRA=true
+        2)
+            if [[ "$DEPLOY_TARGET" == "prod" ]]; then
+                ENABLE_INFRA=true
+            else
+                print_warning "Cloud infrastructure provisioning not available in LOCAL mode"
+            fi
             ;;
         3)  # Build & Push Image Only
             ENABLE_IMAGE=true
@@ -307,6 +336,15 @@ select_infra_action() {
 # DEPENDENCY ENFORCEMENT
 
 _enforce_dependencies() {
+
+    # Infrastructure allowed only in production environments
+    if [[ "$DEPLOY_TARGET" != "prod" ]]; then
+        if [[ "$ENABLE_INFRA" == true ]]; then
+            print_warning "Infrastructure provisioning is disabled in LOCAL environment"
+            ENABLE_INFRA=false
+        fi
+    fi
+
     # ArgoCD requires a running cluster
     [[ "$ENABLE_ARGO" == true ]] && ENABLE_KUBERNETES=true
 
@@ -414,6 +452,10 @@ _run_step() {
 }
 
 deploy_infra() {
+    if [[ "$DEPLOY_TARGET" != "prod" ]]; then
+        print_error "Infrastructure provisioning supported only in production environment"
+        exit 1
+    fi
     print_subsection "Infrastructure — ${CLOUD_PROVIDER^^}"
     INFRA_ACTION="$INFRA_ACTION" CLOUD_PROVIDER="$CLOUD_PROVIDER" \
         bash "$PROJECT_ROOT/platform/infra/deploy_infra.sh" "$INFRA_ACTION" "$CLOUD_PROVIDER"
@@ -453,35 +495,34 @@ _elapsed() {
 
 # MAIN EXECUTION FLOW
 
-# Step 1 — environment
+# environment
 select_environment
 
-# Step 2 — deployment mode
 select_components
 
-# Step 3 — infra specifics (only when infra is selected)
+# Resolve implicit dependencies early
+_enforce_dependencies
+
+# Infra questions only if still valid
 if [[ "$ENABLE_INFRA" == true ]]; then
     select_cloud_provider
     select_infra_action
 fi
 
-# Resolve implicit dependencies
-_enforce_dependencies
-
-# Step 4 — confirm
+# confirm
 _confirm_plan
 
-# Step 5 — runtime detection
+# runtime detection
 print_subsection "Detecting Runtime Environment"
 detect_container_runtime
 
-if [[ "$ENABLE_KUBERNETES" == true ]]; then
+if [[ "$ENABLE_KUBERNETES" == true || "$ENABLE_ARGO" == true ]]; then
     detect_k8s_cluster
 fi
 
 print_divider
 
-# Step 6 — execute in dependency order
+# execute in dependency order
 [[ "$ENABLE_INFRA"      == true ]] && deploy_infra
 [[ "$ENABLE_IMAGE"      == true ]] && deploy_image
 [[ "$ENABLE_ARGO"       == true ]] && deploy_argo

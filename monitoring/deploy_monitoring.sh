@@ -1,6 +1,6 @@
 #!/bin/bash
 # monitoring/deploy_monitoring.sh — Universal Monitoring Deployment Script
-# Should work and be compatible with all Linux computers
+# Should work and be compatible with all Linux computers including WSL.
 # Works in both environments: ArgoCD and direct
 # Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others
 #
@@ -300,7 +300,13 @@ print_monitoring_access() {
 
     case "$K8S_DISTRIBUTION" in
         minikube)
-            node_ip=$(minikube ip 2>/dev/null || true)
+            local svc_url
+            svc_url=$(minikube service "$svc" -n "$namespace" --url 2>/dev/null || true)
+
+            if [[ -n "$svc_url" ]]; then
+                print_url "${label} URL" "$svc_url"
+                return
+            fi
             ;;
         kind)
             node_ip="localhost"

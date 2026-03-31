@@ -1,16 +1,27 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
 clear
+
 echo "========================================"
-echo " DevOps Tools Installer"
+echo " DevOps Workstation Bootstrap Installer"
 echo "========================================"
 echo ""
 
-#############################################################
-# Auto Detect OS (Ubuntu / Debian)
-#############################################################
+##########################################################
+# Root / sudo detection
+##########################################################
+
+if [[ "$EUID" -eq 0 ]]; then
+    SUDO=""
+else
+    SUDO="sudo"
+fi
+
+##########################################################
+# Detect OS
+##########################################################
 
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
@@ -20,221 +31,271 @@ else
 fi
 
 case "$ID" in
-    ubuntu)
-        OS="ubuntu"
-        ;;
-    debian)
-        OS="debian"
-        ;;
-    *)
-        echo "Unsupported distro: $ID"
-        echo "Supported: Ubuntu / Debian"
-        exit 1
-        ;;
+ubuntu|debian)
+    OS="$ID"
+    ;;
+*)
+    echo "Unsupported distro: $ID"
+    exit 1
+    ;;
 esac
 
-echo "Detected OS: $OS"
+CODENAME="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
+
+echo "Detected OS: $OS ($CODENAME)"
 echo ""
 
-# Root check
-if [ "$EUID" -eq 0 ]; then
-    HAS_ROOT=true
-else
-    HAS_ROOT=false
-fi
+##########################################################
+# Detect Architecture
+##########################################################
 
-#############################################################
-# Install Docker 
-#############################################################
+ARCH=$(uname -m)
 
-if [[ "$OS" == "debian" ]]; then
+case "$ARCH" in
+x86_64)
+    AWS_ARCH="x86_64"
+    KIND_ARCH="amd64"
+    ;;
+aarch64)
+    AWS_ARCH="aarch64"
+    KIND_ARCH="arm64"
+    ;;
+*)
+    echo "Unsupported architecture: $ARCH"
+    exit 1
+    ;;
+esac
 
-# Debian
-sudo apt update
-sudo apt install ca-certificates curl
-sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-sudo chmod a+r /etc/apt/keyrings/docker.asc
+##########################################################
+# Update system once
+##########################################################
 
-sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
-Types: deb
-URIs: https://download.docker.com/linux/debian
-Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
-Components: stable
-Signed-By: /etc/apt/keyrings/docker.asc
-EOF
+echo "Updating package index..."
+$SUDO apt update
 
-sudo apt update
+##########################################################
+# Install base dependencies
+##########################################################
 
-sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-sudo systemctl status docker
-sudo systemctl start docker
-sudo docker run hello-world
+echo "Installing base utilities..."
 
-elif [[ "$OS" == "ubuntu" ]]; then
-
-# Ubuntu
-sudo apt update
-sudo apt install ca-certificates curl
-sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-sudo chmod a+r /etc/apt/keyrings/docker.asc
-
-sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
-Types: deb
-URIs: https://download.docker.com/linux/ubuntu
-Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
-Components: stable
-Signed-By: /etc/apt/keyrings/docker.asc
-EOF
-
-sudo apt update
-sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-sudo systemctl status docker
-sudo systemctl start docker
-sudo docker run hello-world
-
-fi
-
-#############################################################
-# Install Base Utilities Required by Deployment Scripts
-#############################################################
-
-echo ""
-echo "Installing required base utilities..."
-echo ""
-
-sudo apt update
-sudo apt install -y \
+$SUDO apt install -y \
+ca-certificates \
+curl \
+wget \
+gnupg \
+lsb-release \
 git \
 gettext \
 jq \
 tar \
-coreutils
+coreutils \
+unzip
 
 echo "Base utilities installed"
+echo ""
 
-#############################################################
-# Install Kubernetes
-#############################################################
+##########################################################
+# Install Docker
+##########################################################
 
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl.sha256"
-echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+echo "Installing Docker..."
 
-# Root vs Non-root handling
-if [ "$HAS_ROOT" = true ]; then
-    sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-else
-    echo "No root access — installing kubectl to ~/.local/bin"
+if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
 
-    chmod +x kubectl
-    mkdir -p ~/.local/bin
-    mv ./kubectl ~/.local/bin/kubectl
+$SUDO install -m 0755 -d /etc/apt/keyrings
 
-    echo ""
-    echo "Add this to your shell config (~/.bashrc or ~/.zshrc):"
-    echo 'export PATH="$HOME/.local/bin:$PATH"'
+$SUDO curl -fsSL \
+https://download.docker.com/linux/$OS/gpg \
+-o /etc/apt/keyrings/docker.asc
+
+$SUDO chmod a+r /etc/apt/keyrings/docker.asc
+
+echo \
+"deb [arch=$(dpkg --print-architecture) \
+signed-by=/etc/apt/keyrings/docker.asc] \
+https://download.docker.com/linux/$OS \
+$CODENAME stable" \
+| $SUDO tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+$SUDO apt update
+
 fi
 
-# Minikube
-curl -LO https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
-sudo install minikube-linux-amd64 /usr/local/bin/minikube && rm minikube-linux-amd64
+$SUDO apt install -y \
+docker-ce \
+docker-ce-cli \
+containerd.io \
+docker-buildx-plugin \
+docker-compose-plugin
 
-# Kind
-[ $(uname -m) = x86_64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-amd64
-[ $(uname -m) = aarch64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-arm64
-chmod +x ./kind
-sudo mv ./kind /usr/local/bin/kind
+$SUDO systemctl enable docker
+$SUDO systemctl start docker
 
-#############################################################
-# Terraform
-#############################################################
+$SUDO usermod -aG docker "$USER" || true
 
-sudo apt-get update && sudo apt-get install -y gnupg software-properties-common
-wget -O- https://apt.releases.hashicorp.com/gpg | \
-gpg --dearmor | \
-sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
-
-gpg --no-default-keyring \
---keyring /usr/share/keyrings/hashicorp-archive-keyring.gpg \
---fingerprint
-
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(grep -oP '(?<=UBUNTU_CODENAME=).*' /etc/os-release || lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-
-sudo apt update
-sudo apt-get install terraform
-
-#############################################################
-# AWS CLI
-#############################################################
-sudo apt install -y unzip curl
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip
-sudo ./aws/install
-
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip
-sudo ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
-
-#############################################################
-# OPTIONAL: LIGHTWEIGHT GUI (LXDE)
-#############################################################
-echo " Optional: Lightweight Desktop (LXDE)"
+echo "Docker installed"
+echo "Log out/in required for docker group usage"
 echo ""
-echo "Adds a minimal GUI (mouse, clipboard, terminal)"
-echo "Recommended for VM usage (VirtualBox, etc.)"
+
+##########################################################
+# Install kubectl
+##########################################################
+
+echo "Installing kubectl..."
+
+KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+
+curl -LO \
+"https://dl.k8s.io/release/$KUBECTL_VERSION/bin/linux/$KIND_ARCH/kubectl"
+
+chmod +x kubectl
+
+$SUDO mv kubectl /usr/local/bin/
+
+echo "kubectl installed"
 echo ""
+
+##########################################################
+# Install Minikube
+##########################################################
+
+echo "Installing Minikube..."
+
+curl -LO \
+https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-$KIND_ARCH
+
+chmod +x minikube-linux-$KIND_ARCH
+
+$SUDO mv minikube-linux-$KIND_ARCH /usr/local/bin/minikube
+
+echo "Minikube installed"
+echo ""
+
+##########################################################
+# Install Kind
+##########################################################
+
+echo "Installing Kind..."
+
+curl -Lo kind \
+https://kind.sigs.k8s.io/dl/latest/kind-linux-$KIND_ARCH
+
+chmod +x kind
+
+$SUDO mv kind /usr/local/bin/
+
+echo "Kind installed"
+echo ""
+
+##########################################################
+# Install Terraform
+##########################################################
+
+echo "Installing Terraform..."
+
+if [[ ! -f /usr/share/keyrings/hashicorp-archive-keyring.gpg ]]; then
+
+wget -O- https://apt.releases.hashicorp.com/gpg \
+| gpg --dearmor \
+| $SUDO tee \
+/usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
+
+echo \
+"deb [arch=$(dpkg --print-architecture) \
+signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+https://apt.releases.hashicorp.com \
+$CODENAME main" \
+| $SUDO tee \
+/etc/apt/sources.list.d/hashicorp.list > /dev/null
+
+$SUDO apt update
+
+fi
+
+$SUDO apt install -y terraform
+
+echo "Terraform installed"
+echo ""
+
+##########################################################
+# Install AWS CLI
+##########################################################
+
+echo "Installing AWS CLI..."
+
+curl \
+"https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" \
+-o awscliv2.zip
+
+unzip -q awscliv2.zip
+
+$SUDO ./aws/install --update
+
+rm -rf aws awscliv2.zip
+
+echo "AWS CLI installed"
+echo ""
+
+##########################################################
+# Optional GUI install (LXDE)
+##########################################################
+
+echo ""
+echo "Optional: Install lightweight desktop (LXDE)"
 echo "1) Install LXDE"
-echo "2) Skip (CLI only)"
+echo "2) Skip"
 echo ""
 
-read -rp "Enter choice [1-2]: " gui_choice
+read -rp "Enter choice [1-2]: " GUI_CHOICE
 
-case "$gui_choice" in
-    1)
-        echo ""
-        echo "Installing LXDE..."
-        echo ""
-        sudo apt update
-        sudo apt install -y lxde-core lxterminal lightdm
-        echo ""
-        echo "Configuring display manager..."
-        sudo dpkg-reconfigure lightdm
-        echo ""
-        echo "Enabling GUI services..."
-        sudo systemctl enable lightdm
-        sudo systemctl start lightdm
-        echo ""
-        echo " LXDE Installation Complete"
-        echo ""
-        echo "System reboot is required to start GUI properly"
-        echo ""
+case "$GUI_CHOICE" in
 
-        read -rp "Reboot now? [Y/n]: " reboot_choice
-        reboot_choice="${reboot_choice:-Y}"
+1)
 
-        if [[ "$reboot_choice" =~ ^[Yy]$ ]]; then
-            echo "Rebooting..."
-            sleep 2
-            sudo reboot
-        else
-            echo ""
-            echo "You can reboot later using:"
-            echo "sudo reboot"
-        fi
-        ;;
-    2)
-        echo ""
-        echo "Skipping GUI installation (CLI mode)"
-        ;;
-    *)
-        echo ""
-        echo "Invalid choice — skipping GUI installation"
-        ;;
+echo "Installing LXDE..."
+
+$SUDO apt install -y \
+lxde-core \
+lxterminal \
+lightdm
+
+echo lightdm | $SUDO tee \
+/etc/X11/default-display-manager > /dev/null
+
+$SUDO systemctl enable lightdm
+$SUDO systemctl start lightdm
+
+echo ""
+echo "LXDE installed successfully"
+echo ""
+
+read -rp "Reboot now? [Y/n]: " reboot_choice
+reboot_choice=${reboot_choice:-Y}
+
+if [[ "$reboot_choice" =~ ^[Yy]$ ]]; then
+$SUDO reboot
+fi
+
+;;
+
+*)
+
+echo "Skipping GUI installation"
+
+;;
+
 esac
+
+##########################################################
+# Final message
+##########################################################
 
 echo ""
 echo "========================================"
 echo " Installation Complete"
 echo "========================================"
+echo ""
+echo "Recommended next step:"
+echo "Log out and log back in to enable Docker"
+echo ""
