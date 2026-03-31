@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # run.sh — DevOps Platform Deployment Runner
-# Fully menu-driven orchestrator (no CLI flags)
-# Compatible with all Linux environments and Kubernetes distributions
+# Should work and be compatible with all Linux computers including WSL.
+# Works in both environments: ArgoCD and direct
+# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others.
 
 set -euo pipefail
 IFS=$'\n\t'

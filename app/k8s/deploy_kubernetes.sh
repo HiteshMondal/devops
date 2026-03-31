@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Should work and be compatible with all Linux computers
+# Should work and be compatible with all Linux computers including WSL.
 # Works in both environments: ArgoCD and direct
-# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others
-# Usage: ./deploy_kubernetes.sh [local|prod]
+# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others.
+# Usage: ./deploy_kubernetes.sh.
 
 set -euo pipefail
 IFS=$'\n\t'

@@ -2,7 +2,9 @@
 # mlops.sh — MLOps Orchestrator
 # Integrates: DVC, LakeFS, Neptune, Metaflow, Prefect, Kubeflow,
 #             Evidently, WhyLabs, notebooks, experiments — zero manual edits needed.
-#
+# Should work and be compatible with all Linux computers including WSL.
+# Works in both environments: ArgoCD and direct
+# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others.
 # Usage (called automatically by run.sh when MLOPS_ENABLED=true):
 #   ./mlops.sh
 #   ./mlops.sh train-only

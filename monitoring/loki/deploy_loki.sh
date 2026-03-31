@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # monitoring/loki/deploy_loki.sh — Deploy Loki log aggregation system
-# Works on all computers (Linux, macOS)
-# Supports all Kubernetes distributions: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s
-# Compatible with all environments: local, production, ArgoCD, direct mode (run.sh)
+# Should work and be compatible with all Linux computers including WSL.
+# Works in both environments: ArgoCD and direct
+# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others.
 
 set -euo pipefail
 IFS=$'\n\t'

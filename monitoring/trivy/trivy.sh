@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# monitoring/trivy/trivy.sh — Deploy Trivy security scanner with Metrics Exporter
+# monitoring/trivy/trivy.sh — Deploy Trivy security scanner with Metrics Exporter.
+# Should work and be compatible with all Linux computers including WSL.
+# Works in both environments: ArgoCD and direct
+# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others.
 # Usage: ./trivy.sh
 
 set -euo pipefail

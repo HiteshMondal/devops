@@ -2,7 +2,7 @@
 # monitoring/deploy_monitoring.sh — Universal Monitoring Deployment Script
 # Should work and be compatible with all Linux computers including WSL.
 # Works in both environments: ArgoCD and direct
-# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others
+# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others.
 #
 # Dashboard provisioning via ConfigMap has been removed.
 # Dashboards are imported through the Grafana UI (Dashboards → Import).
