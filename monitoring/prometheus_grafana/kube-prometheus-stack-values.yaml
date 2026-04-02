@@ -49,3 +49,10 @@ grafana:
         gnetId: 13332
         revision: 1
         datasource: Prometheus
+
+prometheus:
+  prometheusSpec:
+    serviceMonitorNamespaceSelector:
+      matchLabels: {}    # watch ALL namespaces
+    serviceMonitorSelector:
+      matchLabels: {}    # match ALL ServiceMonitors (not just release: prometheus)

@@ -91,7 +91,7 @@ metadata:
   namespace: trivy-system
 spec:
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
   resources:
     requests:
       storage: 1Gi

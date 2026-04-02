@@ -91,3 +91,26 @@ spec:
     port: 8082
     targetPort: metrics
     protocol: TCP
+
+---
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: trivy-exporter
+  namespace: trivy-system
+  labels:
+    release: prometheus        # must match kube-prometheus-stack's release label
+    app: trivy-exporter
+spec:
+  namespaceSelector:
+    matchNames:
+      - trivy-system
+  selector:
+    matchLabels:
+      app: trivy-exporter
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 60s
+    scrapeTimeout: 30s

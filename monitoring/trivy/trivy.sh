@@ -274,28 +274,22 @@ trivy_main() {
 
     print_divider
 
+    PROM_SERVICE="prometheus-kube-prometheus-prometheus"
+
     print_access_box "TRIVY METRICS ACCESS" ">" \
         "NOTE:Three steps to verify Trivy is scraping and exporting metrics" \
         "SEP:" \
         "CMD:Step 1  --  Start port-forward:|kubectl port-forward -n ${TRIVY_NAMESPACE} svc/trivy-exporter ${TRIVY_METRICS_PORT}:${TRIVY_METRICS_PORT}" \
         "CMD:Step 2  --  Query metrics endpoint:|curl http://localhost:${TRIVY_METRICS_PORT}/metrics | grep trivy" \
-        "SEP:"
-        
-        PROM_SERVICE="prometheus-kube-prometheus-prometheus"
-
-        print_access_box "TRIVY METRICS ACCESS" ">" \
-            "NOTE:Three steps to verify Trivy is scraping and exporting metrics" \
-            "SEP:" \
-            "CMD:Step 1  --  Start port-forward:|kubectl port-forward -n ${TRIVY_NAMESPACE} svc/trivy-exporter ${TRIVY_METRICS_PORT}:${TRIVY_METRICS_PORT}" \
-            "CMD:Step 2  --  Query metrics endpoint:|curl http://localhost:${TRIVY_METRICS_PORT}/metrics | grep trivy" \
-            "SEP:" \
-            "CMD:Step 3  --  Open Prometheus targets:|kubectl port-forward -n ${PROMETHEUS_NAMESPACE} svc/${PROM_SERVICE} ${PROMETHEUS_PORT}:${PROMETHEUS_PORT}"
-
-    print_access_box "TRIVY GRAFANA DASHBOARD IDs" ">" \
-        "NOTE:In Grafana:  Dashboards  ->  New  ->  Import  ->  paste ID below" \
         "SEP:" \
-        "CRED:Trivy Workload Vulnerabilities:17046" \
-        "CRED:Trivy Operator -- Vulnerabilities:16337"
+        "CMD:Step 3  --  Open Prometheus targets:|kubectl port-forward -n ${PROMETHEUS_NAMESPACE} svc/${PROM_SERVICE} ${PROMETHEUS_PORT}:${PROMETHEUS_PORT}"
+
+    print_access_box "TRIVY GRAFANA DASHBOARD" ">" \
+        "NOTE:Custom dashboard built on your trivy-exporter metrics" \
+        "SEP:" \
+        "CMD:Dashboard file:|monitoring/dashboards/trivy-dashboard.json" \
+        "SEP:" \
+        "NOTE:In Grafana:  Dashboards  ->  New  ->  Import  ->  Upload JSON file"
 
     print_access_box "VIEW SCAN RESULTS" ">" \
         "CMD:View initial scan logs:|kubectl logs -n ${TRIVY_NAMESPACE} job/trivy-initial-scan" \
