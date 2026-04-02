@@ -279,8 +279,17 @@ trivy_main() {
         "SEP:" \
         "CMD:Step 1  --  Start port-forward:|kubectl port-forward -n ${TRIVY_NAMESPACE} svc/trivy-exporter ${TRIVY_METRICS_PORT}:${TRIVY_METRICS_PORT}" \
         "CMD:Step 2  --  Query metrics endpoint:|curl http://localhost:${TRIVY_METRICS_PORT}/metrics | grep trivy" \
-        "SEP:" \
-        "URL:Step 3  --  Prometheus targets (Status -> Targets):http://localhost:${PROMETHEUS_PORT}/targets"
+        "SEP:"
+        
+        PROM_SERVICE="prometheus-kube-prometheus-prometheus"
+
+        print_access_box "TRIVY METRICS ACCESS" ">" \
+            "NOTE:Three steps to verify Trivy is scraping and exporting metrics" \
+            "SEP:" \
+            "CMD:Step 1  --  Start port-forward:|kubectl port-forward -n ${TRIVY_NAMESPACE} svc/trivy-exporter ${TRIVY_METRICS_PORT}:${TRIVY_METRICS_PORT}" \
+            "CMD:Step 2  --  Query metrics endpoint:|curl http://localhost:${TRIVY_METRICS_PORT}/metrics | grep trivy" \
+            "SEP:" \
+            "CMD:Step 3  --  Open Prometheus targets:|kubectl port-forward -n ${PROMETHEUS_NAMESPACE} svc/${PROM_SERVICE} ${PROMETHEUS_PORT}:${PROMETHEUS_PORT}"
 
     print_access_box "TRIVY GRAFANA DASHBOARD IDs" ">" \
         "NOTE:In Grafana:  Dashboards  ->  New  ->  Import  ->  paste ID below" \

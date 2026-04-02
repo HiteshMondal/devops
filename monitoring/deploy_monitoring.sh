@@ -130,7 +130,7 @@ deploy_node_exporter() {
 
     print_step "Waiting for node-exporter pods..."
     kubectl rollout status daemonset/node-exporter \
-        -n "$PROMETHEUS_NAMESPACE" --timeout=120s || true
+        -n "$PROMETHEUS_NAMESPACE" --timeout=30s || true
 
     print_success "node-exporter deployed"
 }
@@ -444,7 +444,7 @@ deploy_monitoring() {
 
     kubectl rollout status daemonset/node-exporter \
         -n "$namespace" \
-        --timeout=60s || print_warning "node-exporter rollout still progressing"
+        --timeout=30s || print_warning "node-exporter rollout still progressing"
 
     print_success "Node Exporter ready"
 
