@@ -6,6 +6,9 @@
 #  Python environment 
 
 detect_python() {
+    # Pip installs binaries here — must be in PATH before any tool checks
+    export PATH="${HOME}/.local/bin:/usr/local/bin:${PATH}"
+
     local py=""
     for candidate in python3 python; do
         if command -v "$candidate" >/dev/null 2>&1; then
@@ -30,28 +33,73 @@ detect_python() {
 pip_ensure() {
     local pkg="$1"
     local import_name="${2:-$1}"
-    if ! $PYTHON_BIN -c "import ${import_name}" 2>/dev/null; then
-        print_step "Installing ${pkg}..."
-        $PYTHON_BIN -m pip install --quiet --break-system-packages "${pkg}" 2>/dev/null \
-            || $PYTHON_BIN -m pip install --quiet "${pkg}" 2>/dev/null \
-            || { print_warning "Could not install ${pkg} — skipping"; return 1; }
+
+    # Ensure pip's bin dir is always in PATH
+    export PATH="${HOME}/.local/bin:${PATH}"
+
+    if $PYTHON_BIN -c "import ${import_name}" 2>/dev/null; then
+        print_success "${pkg}: already installed"
+        return 0
     fi
-    return 0
+
+    print_step "Installing ${pkg}..."
+    $PYTHON_BIN -m pip install --quiet --break-system-packages "${pkg}" 2>/dev/null \
+        || $PYTHON_BIN -m pip install --quiet "${pkg}" 2>/dev/null \
+        || { print_warning "Could not install ${pkg} — skipping"; return 1; }
+
+    # Re-export after install so the binary is immediately findable
+    export PATH="${HOME}/.local/bin:${PATH}"
+
+    if $PYTHON_BIN -c "import ${import_name}" 2>/dev/null; then
+        print_success "${pkg}: installed"
+    else
+        print_warning "${pkg}: installed but import check failed"
+    fi
+}
+
+ensure_local_bin_in_path() {
+
+    local local_bin="$HOME/.local/bin"
+
+    if [[ -d "$local_bin" ]]; then
+        case ":$PATH:" in
+            *":$local_bin:"*) ;;
+            *)
+                export PATH="$local_bin:$PATH"
+                print_info "Added ~/.local/bin to PATH (runtime only)"
+                ;;
+        esac
+    fi
 }
 
 #  MLOps tool detection 
 
 detect_dvc() {
+
     if command -v dvc >/dev/null 2>&1; then
         export DVC_AVAILABLE=true
-        return 0
+        print_success "DVC: $(dvc --version 2>/dev/null || echo ok)"
+        return
     fi
-    # Try installing it
-    if pip_ensure "dvc" "dvc"; then
+
+    print_warning "DVC not found — installing automatically..."
+
+    ${PYTHON_BIN} -m pip install --quiet --user dvc 2>/dev/null \
+        || ${PYTHON_BIN} -m pip install --quiet dvc 2>/dev/null \
+        || {
+            print_warning "DVC install failed — skipping pipeline stage"
+            export DVC_AVAILABLE=false
+            return
+        }
+
+    ensure_local_bin_in_path
+
+    if command -v dvc >/dev/null 2>&1; then
         export DVC_AVAILABLE=true
+        print_success "DVC installed successfully"
     else
         export DVC_AVAILABLE=false
-        print_info "DVC not available — data pipeline steps will be skipped"
+        print_warning "DVC installed but binary not visible"
     fi
 }
 

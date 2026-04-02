@@ -41,10 +41,53 @@ detect_python
 
 MLOPS_ACTION="${1:-full}"   # full | train-only | eval-only | pipeline-only | drift-only
 
+echo "Checking Python virtual environment..."
+
+if [[ ! -d "${PROJECT_ROOT}/.venv" ]]; then
+    echo "Creating virtual environment..."
+    "${PYTHON_BIN}" -m venv "${PROJECT_ROOT}/.venv"
+fi
+
+echo "Activating virtual environment..."
+source "${PROJECT_ROOT}/.venv/bin/activate"
+
+export PATH="${PROJECT_ROOT}/.venv/bin:$PATH"
+
+echo "Upgrading pip..."
+pip install --upgrade pip
+
+echo "Installing core ML dependencies inside virtual environment..."
+
+pip install \
+    pandas \
+    numpy \
+    scikit-learn \
+    pyyaml \
+    dvc
+
+echo "Checking DVC installation..."
+
+if ! command -v dvc &> /dev/null; then
+    echo "Installing DVC..."
+    pip install dvc
+else
+    echo "DVC already installed."
+fi
+
+echo "Ensuring DVC repo initialized..."
+
+if [[ ! -d "${PROJECT_ROOT}/.dvc" ]]; then
+    dvc init --no-scm 2>/dev/null || dvc init
+fi
+
+echo "DVC version:"
+dvc version
+
 # STAGE 0b — Detect tool availability (lean version — no redundant pip installs)
 # install_deps.sh already installed packages; we just need to detect what's available.
 detect_mlops_tools() {
     print_subsection "Detecting MLOps tool availability"
+    ensure_local_bin_in_path
     detect_dvc
     detect_lakefs
     detect_neptune
@@ -89,7 +132,7 @@ df = pd.DataFrame({
     "feature_1": np.random.randn(n),
     "feature_2": np.random.randn(n),
     "feature_3": np.random.rand(n) * 10,
-    "target":    (np.random.randn(n) > 0).astype(int),
+    "target": ((np.random.randn(n) + np.random.randn(n)) > 0).astype(int),
 })
 os.makedirs("data/raw", exist_ok=True)
 df.to_csv("data/raw/dataset.csv", index=False)
@@ -98,11 +141,13 @@ PYEOF
         print_success "Synthetic dataset created at data/raw/dataset.csv"
     fi
 
-    print_step "Running DVC pipeline (dvc repro)..."
-    if dvc repro --no-commit 2>&1 | grep -qE "(Stage|Running|Cached)"; then
+    print_step "Running DVC pipeline..."
+
+    if dvc repro --no-commit; then
         print_success "DVC pipeline complete"
     else
-        dvc repro 2>/dev/null || print_warning "dvc repro returned non-zero — check dvc.yaml"
+        print_warning "dvc repro failed — check dvc.yaml"
+        return 1
     fi
 
     # Push to remote only if one is configured
@@ -161,9 +206,9 @@ _run_direct_training() {
     print_step "Running training directly..."
     cd "${PROJECT_ROOT}"
 
-    local target_col raw_path n_est max_d
+    local target_col data_path n_est max_d
     target_col=$(params_get "target_column" "target")
-    raw_path=$(params_get "raw_path" "data/raw")
+    data_path=$(params_get "data_path" "data/processed/data.csv")
     n_est=$(params_get "n_estimators" "100")
     max_d=$(params_get "max_depth" "6")
 
@@ -179,15 +224,15 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, f1_score
 from datetime import datetime
 
-raw_path   = "${raw_path}"
 target_col = "${target_col}"
+data_file = "${data_path}"
 
-files = glob.glob(os.path.join(raw_path, "*.csv"))
-if not files:
-    print(f"No CSV files in {raw_path}", file=sys.stderr)
+if not os.path.exists(data_file):
+    print(f"{data_file} missing — run DVC pipeline first", file=sys.stderr)
     sys.exit(1)
 
-df = pd.read_csv(files[0]).dropna()
+df = pd.read_csv(data_file)
+
 if target_col not in df.columns:
     print(f"Column '{target_col}' not found", file=sys.stderr)
     sys.exit(1)

@@ -157,3 +157,17 @@ models/
 
 # MISC / GENERATED
 config-demo
+
+# DVC internals — never commit these
+.dvc/cache/
+.dvc/tmp/
+.dvc/config.local
+
+# Metaflow local run database — no value in git
+.metaflow/
+
+# Generated data and model artifacts
+data/raw/
+data/processed/
+data/features/
+models/artifacts/

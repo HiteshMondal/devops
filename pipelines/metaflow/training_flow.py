@@ -37,7 +37,7 @@ if METAFLOW_AVAILABLE:
         """
 
         # ── CLI parameters (override params.yaml values) ──────────────────────
-        raw_path      = Parameter("raw_path",      default="data/raw",  help="Raw data directory")
+        data_path     = Parameter("data_path",     default="data/processed/data.csv")
         target_column = Parameter("target_column", default="target",    help="Target column name")
         test_size     = Parameter("test_size",     default=0.2,         help="Test split ratio")
         random_seed   = Parameter("random_seed",   default=42,          help="Random seed")
@@ -46,10 +46,11 @@ if METAFLOW_AVAILABLE:
 
         @step
         def start(self):
-            """Load params and log run info."""
             self.params = load_params()
+            (PROJECT_ROOT / "models" / "artifacts").mkdir(parents=True, exist_ok=True)
             print(f"[metaflow] Run ID: {current.run_id}")
             print(f"[metaflow] Target column: {self.target_column}")
+
             self.next(self.prepare)
 
         @step
@@ -59,11 +60,12 @@ if METAFLOW_AVAILABLE:
             import pandas as pd
             from sklearn.model_selection import train_test_split
 
-            files = glob.glob(str(PROJECT_ROOT / self.raw_path / "*.csv"))
-            if not files:
-                raise FileNotFoundError(f"No CSV files in {self.raw_path}")
+            data_file = PROJECT_ROOT / self.data_path
 
-            df = pd.read_csv(files[0]).dropna()
+            if not data_file.exists():
+                raise FileNotFoundError(f"{data_file} not found. Run DVC pipeline first.")
+
+            df = pd.read_csv(data_file)
 
             if self.target_column not in df.columns:
                 raise ValueError(f"Column '{self.target_column}' not found in dataset")
@@ -121,16 +123,34 @@ if METAFLOW_AVAILABLE:
         def evaluate(self):
             """Evaluate on the held-out test set."""
             import pickle
+            import json
+            from datetime import datetime
             from sklearn.metrics import accuracy_score, f1_score
 
-            clf   = pickle.loads(self.model_bytes)
+            clf = pickle.loads(self.model_bytes)
             preds = clf.predict(self.X_test)
 
             self.eval_metrics = {
                 "test_accuracy": float(accuracy_score(self.y_test, preds)),
-                "test_f1":       float(f1_score(self.y_test, preds, average="weighted", zero_division=0)),
+                "test_f1": float(f1_score(self.y_test, preds, average="weighted", zero_division=0)),
             }
+
             print(f"[metaflow] Eval metrics: {self.eval_metrics}")
+
+            metrics_path = PROJECT_ROOT / "models" / "artifacts" / "eval_metrics.json"
+            metrics_path.parent.mkdir(parents=True, exist_ok=True)
+
+            metrics = {
+                **self.eval_metrics,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+            with open(metrics_path, "w") as f:
+                json.dump(metrics, f, indent=2)
+
+            print(f"[metaflow] Metrics saved: {metrics_path}")
+
+            # ✅ transition MUST be last
             self.next(self.end)
 
         @step
