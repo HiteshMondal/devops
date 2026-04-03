@@ -32,7 +32,7 @@ load_env_if_needed
 : "${TRIVY_METRICS_PORT:=8082}"
 : "${TRIVY_NAMESPACE:=trivy-system}"
 : "${TRIVY_VERSION:=0.57.1}"
-: "${TRIVY_IMAGE_TAG:=1.0}"
+: "${TRIVY_IMAGE_TAG:=1.1}"
 : "${PROMETHEUS_PORT:=9090}"
 : "${PROMETHEUS_NAMESPACE:=monitoring}"
 : "${SCAN_INTERVAL:=300}"
@@ -78,6 +78,7 @@ sys.exit(1)
     docker build \
         --no-cache \
         --build-arg "TRIVY_VERSION=${TRIVY_VERSION}" \
+        --build-arg "KUBECTL_VERSION=${KUBECTL_VERSION:-v1.29.3}" \
         -t "${DOCKERHUB_USERNAME}/trivy-runner:${TRIVY_IMAGE_TAG}" \
         "${PROJECT_ROOT}/monitoring/trivy/trivy-runner" \
         || { print_error "Failed to build trivy-runner"; return 1; }
@@ -193,7 +194,7 @@ deploy_trivy() {
 
     print_step "Reconciling PVCs (handling immutability)..."
     reconcile_pvc "trivy-cache-pvc"   "${TRIVY_NAMESPACE}" "ReadWriteOnce"
-    reconcile_pvc "trivy-reports-pvc" "${TRIVY_NAMESPACE}" "ReadWriteOnce"
+    reconcile_pvc "trivy-reports-pvc" "${TRIVY_NAMESPACE}" "ReadWriteMany"
 
     print_step "Reconciling initial scan Job (handling immutability)..."
     reconcile_initial_scan_job "${TRIVY_NAMESPACE}"
@@ -303,71 +304,3 @@ trivy_main() {
 }
 
 trivy_main
-
-##############################################
-
-hitesh@debian:~/Documents/Projects/devops$ # 1. Is the exporter pod running?
-
-kubectl get pods -n trivy-system
-
-# 2. Are there any report files?
-
-kubectl exec -n trivy-system deploy/trivy-exporter -- ls -la /reports/
-
-# 3. What does the exporter log say?
-
-kubectl logs -n trivy-system deploy/trivy-exporter --tail=30
-
-# 4. Did the initial scan job succeed?
-
-kubectl get job trivy-initial-scan -n trivy-system
-
-# 5. What metrics are actually exposed?
-
-kubectl exec -n trivy-system deploy/trivy-exporter -- wget -qO- http://localhost:8082/metrics | grep -E "^trivy_"
-
-# 6. Is Prometheus scraping it? (check targets)
-
-kubectl get servicemonitor trivy-exporter -n trivy-system
-
-NAME                              READY   STATUS    RESTARTS   AGE
-
-trivy-exporter-544c5bf8f6-p2lb8   1/1     Running   0          16m
-
-trivy-initial-scan-2pr85          0/1     Error     0          14m
-
-trivy-initial-scan-2vvlp          0/1     Error     0          13m
-
-trivy-initial-scan-cmv2v          0/1     Error     0          16m
-
-trivy-initial-scan-mwhns          0/1     Error     0          13m
-
-total 8
-
-drwxrwxrwx 2 root root 4096 Apr  2 14:02 .
-
-drwxr-xr-x 1 root root 4096 Apr  2 14:04 ..
-
-2026-04-02 14:04:31,825 - INFO - Starting Trivy Metrics Exporter on port 8082
-
-2026-04-02 14:04:31,825 - INFO - Reading reports from: /reports
-
-2026-04-02 14:04:31,826 - INFO - Update interval: 300s
-
-2026-04-02 14:04:31,918 - INFO - HTTP server listening on :8082
-
-2026-04-02 14:04:31,919 - INFO - No Trivy reports found
-
-2026-04-02 14:09:31,920 - INFO - No Trivy reports found
-
-2026-04-02 14:14:31,921 - INFO - No Trivy reports found
-
-NAME                 STATUS   COMPLETIONS   DURATION   AGE
-
-trivy-initial-scan   Failed   0/1           16m        16m
-
-command terminated with exit code 127
-
-NAME             AGE
-
-trivy-exporter   16m

@@ -27,6 +27,9 @@ export PROJECT_ROOT
 source "${PROJECT_ROOT}/platform/lib/bootstrap.sh"
 source "${PROJECT_ROOT}/platform/lib/mlops_bootstrap.sh"
 
+DVC_PIPELINE_FILE="${PROJECT_ROOT}/pipelines/dvc/dvc.yaml"
+readonly DVC_PIPELINE_FILE
+
 load_env_if_needed
 set_mlops_defaults
 
@@ -77,7 +80,9 @@ fi
 echo "Ensuring DVC repo initialized..."
 
 if [[ ! -d "${PROJECT_ROOT}/.dvc" ]]; then
-    dvc init --no-scm 2>/dev/null || dvc init
+    dvc init --no-scm
+else
+    echo "DVC already initialized."
 fi
 
 echo "DVC version:"
@@ -143,7 +148,7 @@ PYEOF
 
     print_step "Running DVC pipeline..."
 
-    if dvc repro --no-commit; then
+    if dvc repro -f "${DVC_PIPELINE_FILE}" --no-commit; then
         print_success "DVC pipeline complete"
     else
         print_warning "dvc repro failed — check dvc.yaml"

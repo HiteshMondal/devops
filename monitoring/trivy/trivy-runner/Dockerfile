@@ -3,7 +3,6 @@
 
 # Global build arguments
 ARG TRIVY_VERSION=0.57.1
-ARG KUBECTL_VERSION=v1.29.3
 
 # Extract Trivy binary
 FROM aquasec/trivy:${TRIVY_VERSION} AS trivy-source
@@ -25,17 +24,7 @@ RUN apk add --no-cache \
         ca-certificates
 
 # Install kubectl (official upstream method)
-ARG KUBECTL_VERSION
-
-RUN ARCH=$(uname -m) && \
-    case "$ARCH" in \
-        x86_64) ARCH=amd64 ;; \
-        aarch64) ARCH=arm64 ;; \
-    esac && \
-    curl -fsSL -o kubectl \
-        "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" && \
-    install -m 0755 kubectl /usr/local/bin/kubectl && \
-    rm kubectl
+RUN apk add --no-cache kubectl
 
 # Copy Trivy binary
 COPY --from=trivy-source /usr/local/bin/trivy /usr/local/bin/trivy

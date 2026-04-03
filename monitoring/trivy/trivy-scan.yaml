@@ -137,14 +137,13 @@ spec:
             - name: scan-reports
               mountPath: /reports
             - name: trivy-cache
-              mountPath: /tmp/trivy/.cache
+              mountPath: /tmp/trivy-cache
           volumes:
           - name: scan-reports
             persistentVolumeClaim:
               claimName: trivy-reports-pvc
           - name: trivy-cache
-            persistentVolumeClaim:
-              claimName: trivy-cache-pvc
+            emptyDir: {}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -199,11 +198,10 @@ spec:
         - name: scan-reports
           mountPath: /reports
         - name: trivy-cache
-          mountPath: /tmp/trivy/.cache
+          mountPath: /tmp/trivy-cache
       volumes:
       - name: scan-reports
         persistentVolumeClaim:
           claimName: trivy-reports-pvc
       - name: trivy-cache
-        persistentVolumeClaim:
-          claimName: trivy-cache-pvc
+        emptyDir: {}

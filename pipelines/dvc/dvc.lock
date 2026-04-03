@@ -1,19 +1,19 @@
 schema: '2.0'
 stages:
   prepare:
-    cmd: .venv/bin/python app/src/prepare.py
+    cmd: ../../.venv/bin/python ../../app/src/prepare.py
     deps:
-    - path: app/src/prepare.py
+    - path: ../../app/src/prepare.py
       hash: md5
       md5: 210354f95594340bc36889c0bb026ff0
       size: 658
-    - path: data/raw
+    - path: ../../data/raw
       hash: md5
       md5: 9563c255a2bf6df86f13ccf6a851f947.dir
       size: 29820
       nfiles: 1
     outs:
-    - path: data/processed/data.csv
+    - path: ../../data/processed/data.csv
       hash: md5
       md5: 970ed969839f47a908933d4db1648436
       size: 38631
