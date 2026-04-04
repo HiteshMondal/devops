@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # lakefs/setup.sh — LakeFS setup: deploy, create repositories, configure hooks
 # Versions both data (raw/processed/features) and model artifacts
-# Works on all Linux systems; connects to any LakeFS instance (local or cloud)
-#
+# Should work and be compatible with all Linux computers including WSL.
 # Usage:
 #   ./lakefs/setup.sh
 #   LAKEFS_ENDPOINT=http://my-lakefs:8000 ./lakefs/setup.sh
@@ -44,34 +43,112 @@ install_lakectl() {
     print_subsection "lakectl CLI"
 
     if command -v lakectl >/dev/null 2>&1; then
-        local ver
-        ver=$(lakectl --version 2>/dev/null || echo 'unknown version')
-        print_success "lakectl already installed: ${ver}"
-        return
+        print_success "lakectl already installed: $(lakectl --version)"
+        return 0
     fi
 
     print_step "Installing lakectl..."
 
-    local OS ARCH
-    OS="$(uname | tr '[:upper:]' '[:lower:]')"
-    ARCH="$(uname -m)"
-    case "$ARCH" in
-        x86_64)          ARCH="amd64" ;;
-        aarch64|arm64)   ARCH="arm64" ;;
+    local OS ARCH DOWNLOAD_URL TMP_DIR INSTALL_DIR
+
+    INSTALL_DIR="/usr/local/bin"
+
+    # Detect OS
+    case "$(uname -s)" in
+        Linux)  OS="linux" ;;
+        Darwin) OS="darwin" ;;
+        *)
+            print_error "Unsupported OS: $(uname -s)"
+            return 1
+            ;;
     esac
 
-    local VERSION="v1.24.0"
-    local URL="https://github.com/treeverse/lakeFS/releases/download/${VERSION}/lakectl_${OS}_${ARCH}.tar.gz"
+    # Detect architecture
+    case "$(uname -m)" in
+        x86_64|amd64) ARCH="amd64" ;;
+        arm64|aarch64) ARCH="arm64" ;;
+        *)
+            print_error "Unsupported architecture: $(uname -m)"
+            return 1
+            ;;
+    esac
 
-    curl -fsSL -o /tmp/lakectl.tar.gz "${URL}"
-    tar -xzf /tmp/lakectl.tar.gz -C /tmp lakectl
-    sudo mv /tmp/lakectl /usr/local/bin/lakectl
-    sudo chmod +x /usr/local/bin/lakectl
-    rm -f /tmp/lakectl.tar.gz
+    print_step "Resolving latest lakectl release..."
 
-    local installed_ver
-    installed_ver=$(lakectl --version 2>/dev/null || echo 'ok')
-    print_success "lakectl installed: ${installed_ver}"
+    # Prefer jq if available (most reliable)
+    if command -v jq >/dev/null 2>&1; then
+        DOWNLOAD_URL="$(
+            curl -fsSL https://api.github.com/repos/treeverse/lakeFS/releases/latest \
+            | jq -r ".assets[].browser_download_url" \
+            | grep "lakectl_${OS}_${ARCH}\.tar\.gz$" \
+            | head -n 1
+        )"
+    else
+        # fallback parser (no jq)
+        DOWNLOAD_URL="$(
+            curl -fsSL https://api.github.com/repos/treeverse/lakeFS/releases/latest \
+            | grep browser_download_url \
+            | grep "lakectl_${OS}_${ARCH}\.tar\.gz" \
+            | cut -d '"' -f 4 \
+            | head -n 1
+        )"
+    fi
+
+    if [[ -z "${DOWNLOAD_URL}" ]]; then
+        print_warning "GitHub API lookup failed — trying fallback installer..."
+
+        if command -v brew >/dev/null 2>&1; then
+            print_step "Installing via Homebrew..."
+            brew install lakefs
+            return
+        fi
+
+        if command -v apt-get >/dev/null 2>&1; then
+            print_error "APT install for lakectl not available"
+        fi
+
+        print_error "Could not determine lakectl download URL"
+        print_error "Check internet access or install manually:"
+        print_error "https://github.com/treeverse/lakeFS/releases"
+        return 1
+    fi
+
+    print_step "Downloading lakectl..."
+
+    TMP_DIR="$(mktemp -d)"
+
+    if ! curl -fL "${DOWNLOAD_URL}" -o "${TMP_DIR}/lakectl.tar.gz"; then
+        print_error "Download failed"
+        rm -rf "${TMP_DIR}"
+        return 1
+    fi
+
+    print_step "Extracting lakectl..."
+
+    if ! tar -xzf "${TMP_DIR}/lakectl.tar.gz" -C "${TMP_DIR}"; then
+        print_error "Extraction failed"
+        rm -rf "${TMP_DIR}"
+        return 1
+    fi
+
+    chmod +x "${TMP_DIR}/lakectl"
+
+    print_step "Installing lakectl → ${INSTALL_DIR}"
+
+    if [[ -w "${INSTALL_DIR}" ]]; then
+        mv "${TMP_DIR}/lakectl" "${INSTALL_DIR}/lakectl"
+    else
+        sudo mv "${TMP_DIR}/lakectl" "${INSTALL_DIR}/lakectl"
+    fi
+
+    rm -rf "${TMP_DIR}"
+
+    if command -v lakectl >/dev/null 2>&1; then
+        print_success "lakectl installed: $(lakectl --version)"
+    else
+        print_error "lakectl installation failed"
+        return 1
+    fi
 }
 
 #  Deploy LakeFS via Docker Compose (local only) 
@@ -148,10 +225,10 @@ create_repo() {
 
     lakectl_cmd repo create \
         "lakefs://${repo}" \
-        "local://${PROJECT_ROOT}/lakefs/repositories/${repo}" \
+        "mem://" \
         --default-branch "${DEFAULT_BRANCH}"
 
-    print_success "Repository created: ${repo}  (${description})"
+    print_success "Repository created: ${repo} (${description})"
 }
 
 #  Upload seed data if available 

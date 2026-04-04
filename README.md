@@ -1,64 +1,65 @@
 ```
-                        ██████╗ ███████╗██╗   ██╗ ██████╗ ██████╗ ███████╗
-                        ██╔══██╗██╔════╝██║   ██║██╔═══██╗██╔══██╗██╔════╝
-                        ██║  ██║█████╗  ██║   ██║██║   ██║██████╔╝███████╗
-                        ██║  ██║██╔══╝  ╚██╗ ██╔╝██║   ██║██╔═══╝ ╚════██║
-                        ██████╔╝███████╗ ╚████╔╝ ╚██████╔╝██║     ███████║
-                        ╚═════╝ ╚══════╝  ╚═══╝   ╚═════╝ ╚═╝     ╚══════╝
+                ██████╗ ███████╗██╗   ██╗ ██████╗ ██████╗ ███████╗
+                ██╔══██╗██╔════╝██║   ██║██╔═══██╗██╔══██╗██╔════╝
+                ██║  ██║█████╗  ██║   ██║██║   ██║██████╔╝███████╗
+                ██║  ██║██╔══╝  ╚██╗ ██╔╝██║   ██║██╔═══╝ ╚════██║
+                ██████╔╝███████╗ ╚████╔╝ ╚██████╔╝██║     ███████║
+                ╚═════╝ ╚══════╝  ╚═══╝   ╚═════╝ ╚═╝     ╚══════╝
 ```
 
-## 🚀 End-to-End DevOps Platform
+## End-to-End DevOps + MLOps Platform
 
-A **production-grade DevOps project** demonstrating the complete lifecycle of a cloud-native application — from containerization and CI/CD to infrastructure provisioning, Kubernetes orchestration, monitoring, and security.
+A **production-grade DevOps and MLOps project** demonstrating the complete lifecycle of a cloud-native AI/ML application — from containerization and CI/CD to infrastructure provisioning, Kubernetes orchestration, ML pipelines, monitoring, drift detection, and security scanning.
 
-Designed to reflect **real-world DevOps and platform engineering practices**, not just tutorials.
+Designed to reflect **real-world platform engineering and MLOps practices**, not just tutorials.
 
 ---
 
-## 🌍 Overview
+## Overview
 
 This project provides a **single-command deployment system** that works across:
 
-* 🖥️ Local Kubernetes (Minikube, Kind, K3s, MicroK8s)
-* ☁️ Cloud Kubernetes (AWS EKS, GKE, AKS, Oracle OKE)
+- Local Kubernetes (Minikube, Kind, K3s, MicroK8s)
+- Cloud Kubernetes (AWS EKS, GKE, AKS, Oracle OKE)
 
-Everything is automated via:
+Everything is orchestrated via:
 
 ```bash
 ./run.sh
 ```
 
-The runner interactively guides you through environment, mode, and cloud provider selection — then handles the rest automatically.
+The runner interactively guides you through environment, component, and cloud provider selection — then handles the rest automatically, including runtime detection, dependency resolution, and cluster-aware configuration.
 
 ---
 
-## Architecture at a Glance
+## Architecture
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                        ./run.sh                                │
-│           (Interactive orchestrator — detects everything)      │
-└────────────┬──────────────────────────────┬────────────────────┘
-             │                              │
-     ┌───────▼───────┐              ┌───────▼────────┐
-     │  LOCAL TARGET │              │  PROD TARGET   │
-     │  ─────────────│              │  ───────────── │
-     │  Minikube     │              │  AWS EKS       │
-     │  Kind         │              │  GKE           │
-     │  K3s          │              │  AKS           │
-     │  MicroK8s     │              │  OCI OKE       │
-     └───────┬───────┘              └───────┬────────┘
-             │                              │
-     ┌───────▼──────────────────────────────▼─────────┐
-     │                DEPLOYMENT PIPELINE             │
-     │                                                │
-     │  1. Build & Push Image  (Docker / Podman)      │
-     │  2. Provision Infra     (Terraform / OpenTofu) │
-     │  3. Deploy App to K8s   (app/k8s/ + Kustomize) │
-     │  4. Deploy Monitoring   (Prometheus + Grafana) │
-     │  5. Deploy Logging      (Loki + Promtail)      │
-     │  6. Security Scan       (Trivy)                │
-     └────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                           ./run.sh                                 │
+│          (Interactive orchestrator — detects everything)           │
+└──────────────┬────────────────────────────────┬────────────────────┘
+               │                                │
+       ┌───────▼────────┐              ┌────────▼───────┐
+       │  LOCAL TARGET  │              │  PROD TARGET   │
+       │  ──────────────│              │  ────────────  │
+       │  Minikube      │              │  AWS EKS       │
+       │  Kind          │              │  GKE           │
+       │  K3s           │              │  AKS           │
+       │  MicroK8s      │              │  OCI OKE       │
+       └───────┬────────┘              └────────┬───────┘
+               │                                │
+       ┌───────▼────────────────────────────────▼────────┐
+       │                 DEPLOYMENT PIPELINE             │
+       │                                                 │
+       │  1. Build & Push Image   (Docker / Podman)      │
+       │  2. Provision Infra      (Terraform / OpenTofu) │
+       │  3. Deploy App to K8s    (Kustomize overlays)   │
+       │  4. Deploy Monitoring    (Prometheus + Grafana) │
+       │  5. Deploy Logging       (Loki + Promtail)      │
+       │  6. Security Scan        (Trivy)                │
+       │  7. MLOps Pipeline       (Train / Drift / Log)  │
+       └─────────────────────────────────────────────────┘
 ```
 
 ---
@@ -69,47 +70,53 @@ The runner interactively guides you through environment, mode, and cloud provide
 |---|---|
 | **Single Command** | Interactive `run.sh` orchestrates the entire pipeline |
 | **Container Runtime** | Docker and Podman both supported, auto-detected |
+| **Application** | FastAPI (Python 3.11) served via Uvicorn on port 3000 |
 | **Kubernetes** | Kustomize base + overlays for local and prod environments |
-| **Deployment Modes** | Direct kubectl apply **or** full GitOps via ArgoCD |
+| **Deployment Modes** | Direct `kubectl apply` or full GitOps via ArgoCD |
 | **CI/CD** | GitHub Actions and GitLab CI pipelines, ready to use |
-| **Infrastructure** | Terraform (AWS), OpenTofu (Oracle Cloud), Pulumi (Azure) |
+| **Infrastructure** | Terraform (AWS EKS), OpenTofu (OCI OKE), Pulumi (AKS) |
 | **Observability** | Prometheus, Grafana, Loki, Promtail, Node Exporter, kube-state-metrics |
-| **Security** | Trivy image vulnerability scanning with Kubernetes integration |
-| **ML Tracking** | Neptune experiment tracking, Evidently drift detection, WhyLabs profiling |
+| **Security** | Trivy image scanning with Prometheus metrics export |
+| **ML Pipelines** | Metaflow, Prefect, Kubeflow, DVC — all wired together |
+| **Experiment Tracking** | Neptune.ai integration |
+| **Drift Detection** | Evidently — HTML + JSON reports auto-generated |
+| **Data Profiling** | WhyLabs continuous profiling via whylogs |
 | **Cluster Detection** | Auto-detects Minikube, Kind, K3s, MicroK8s, EKS, GKE, AKS and adapts |
 
 ---
 
 ## Core Stack
 
-* **Application**: FastAPI (Python) — [`app/src/main.py`](./app/src/main.py)
-* **Containerization**: Docker / Podman — [`app/docker/docker_documentation.md`](./app/docker/docker_documentation.md)
-* **Orchestration**: Kubernetes — [`app/k8s/documentation.md`](./app/k8s/documentation.md)
-* **CI/CD**: GitHub Actions + GitLab CI/CD
-* **Infrastructure**: Terraform / OpenTofu / Pulumi — [`platform/infra/documentation.md`](./platform/infra/documentation.md)
-* **Monitoring**: Prometheus + Grafana + Loki — [`monitoring/documentation.md`](./monitoring/documentation.md)
-* **Security**: Trivy
+**Application**: FastAPI (Python) — [`app/src/main.py`](./app/src/main.py)
+**Containerization**: Docker / Podman — [`app/docker/docker_documentation.md`](./app/docker/docker_documentation.md)
+**Orchestration**: Kubernetes — [`app/k8s/documentation.md`](./app/k8s/documentation.md)
+**CI/CD** | GitHub Actions · GitLab CI · ArgoCD |
+**Infrastructure**: Terraform / OpenTofu / Pulumi — [`platform/infra/documentation.md`](./platform/infra/documentation.md)
+**Monitoring**: Prometheus + Grafana + Loki — [`monitoring/documentation.md`](./monitoring/documentation.md)
+**ML Pipelines** | Metaflow · Prefect · Kubeflow · DVC |
+**ML Tracking** | Neptune · Evidently · WhyLabs |
 
 ---
 
-## ⚙️ Prerequisites
+## Prerequisites
 
 Ensure the following tools are installed:
 
-* Docker or Podman
-* kubectl
-* Terraform / OpenTofu (for cloud deployment)
-* AWS CLI (for EKS deployment)
-* A running Kubernetes cluster
+- Docker or Podman
+- `kubectl`
+- `helm`
+- Terraform / OpenTofu (for cloud deployment)
+- AWS CLI / Azure CLI / OCI CLI (for respective cloud targets)
+- A running Kubernetes cluster
 
-Run the automated installer (Ubuntu / Debian):
+Run the automated installer (Ubuntu / Debian / WSL):
 
 ```bash
 chmod +x install.sh
 ./install.sh
 ```
 
-👉 Docker without sudo:
+Docker without sudo:
 
 ```bash
 sudo usermod -aG docker $USER
@@ -126,11 +133,9 @@ newgrp docker
 git clone https://github.com/HiteshMondal/devops.git
 cd devops
 
-cp dotenv_example .env
+cp .env.example .env
 nano .env
 ```
-
-> See [`dotenv_example`](./dotenv_example) for all available variables.
 
 ### 2. Launch
 
@@ -139,49 +144,36 @@ chmod +x run.sh
 ./run.sh
 ```
 
-The runner will prompt you for:
+The runner will prompt you through:
 
 ```
 Target environment  →  local | prod
-Deployment mode     →  direct | argocd
-Push image?         →  true | false
-Dry-run mode?       →  true | false
+Deployment mode     →  Full Platform | Custom Selection | ...
 
 # If prod:
 Cloud provider      →  aws | oci | azure
 Infra action        →  plan | apply | destroy
 ```
 
-Then it detects your cluster, validates tools, builds the image, and deploys everything automatically.
+It then auto-detects your container runtime and Kubernetes cluster, resolves dependencies between components, and executes everything in the correct order.
 
 ---
 
-## Deployment Modes
+## Component Selection
 
-### Direct Mode (`DEPLOY_MODE=direct`)
+When launching `run.sh`, you can deploy the full platform or choose individual components:
 
-Applies Kubernetes manifests directly using `kubectl` and Kustomize.
+| Option | Components |
+|---|---|
+| Full Platform | Everything |
+| Infrastructure Only | Terraform / OpenTofu / Pulumi |
+| Image Only | Build + push container image |
+| Kubernetes Stack | Image + Kubernetes app |
+| Monitoring Stack | Prometheus + Grafana + Loki + Trivy |
+| App + Monitoring | Kubernetes app + full monitoring |
+| MLOps Stack | Image + Kubernetes + ML pipelines |
+| Custom Selection | Pick each component individually |
 
-```
-run.sh
- └─ build image          (app/docker/build_and_push_image.sh)
- └─ deploy app           (app/k8s/deploy_kubernetes.sh)
- └─ deploy monitoring    (monitoring/deploy_monitoring.sh)
- └─ deploy loki          (monitoring/Loki/deploy_loki.sh)
- └─ run trivy scan       (monitoring/trivy/trivy.sh)
-```
-
-### GitOps Mode (`DEPLOY_MODE=argocd`)
-
-Installs ArgoCD, registers your Git repository, and creates Application manifests. ArgoCD continuously reconciles cluster state with your repo.
-
-```
-run.sh
- └─ install ArgoCD          (platform/cicd/argo/deploy_argo.sh)
- └─ register Git remote
- └─ generate + apply Apps   (platform/cicd/argo/app_template.yaml)
- └─ ArgoCD watches repo → auto-syncs on every push
-```
 ---
 
 ## Target Environments
@@ -191,25 +183,32 @@ run.sh
 | Distribution | Ingress | Service Type | Notes |
 |---|---|---|---|
 | Minikube | nginx (addon) | NodePort | Configures Docker env automatically |
-| Kind | nginx (installed) | NodePort | Installs ingress controller if missing |
+| Kind | nginx (installed) | NodePort | Loads image directly into cluster |
 | K3s | Traefik (built-in) | NodePort | Uses built-in ingress |
 | MicroK8s | nginx (addon) | NodePort | Enables addons automatically |
 
 ### Production Cloud
 
-| Provider | IaC Tool | Cluster | Database | Config |
-|---|---|---|---|---|
-| AWS | Terraform | EKS | RDS PostgreSQL | `platform/infra/terraform/` |
-| Oracle Cloud | OpenTofu | OKE | Autonomous DB | `platform/infra/OpenTofu/` |
-| Azure | Pulumi | AKS | PostgreSQL Flexible | `platform/infra/Pulumi/` |
+| Provider | IaC Tool | Cluster | Database |
+|---|---|---|---|
+| AWS | Terraform | EKS | RDS PostgreSQL |
+| Oracle Cloud | OpenTofu | OKE | Autonomous DB (Always-Free) |
+| Azure | Pulumi | AKS | PostgreSQL Flexible Server |
 
-```bash
-INFRA_ACTION=plan    # Review first
-./run.sh
+---
 
-INFRA_ACTION=apply   # Then apply
-./run.sh
-```
+## Application
+
+The app is a **FastAPI** service (`app/src/main.py`) running on port **3000**.
+
+| Endpoint | Description |
+|---|---|
+| `GET /` | App info and environment |
+| `GET /health` | Healthcheck (used by K8s probes) |
+| `GET /predict` | Model inference placeholder |
+| `GET /metrics/summary` | Basic request metrics |
+
+The image is built with a **multi-stage Dockerfile** — a builder stage compiles dependencies, a lean runtime stage runs as a non-root user. Compatible with both Docker and Podman.
 
 ---
 
@@ -225,14 +224,46 @@ Managed via Kustomize — `app/k8s/base/` + `app/k8s/overlays/`.
 | `deployment.yaml` | App deployment with resource limits |
 | `service.yaml` | ClusterIP / NodePort / LoadBalancer (auto-selected) |
 | `ingress.yaml` | Ingress with configurable host and class |
-| `hpa.yaml` | Horizontal Pod Autoscaler (min 2, max 10 replicas) |
+| `hpa.yaml` | Horizontal Pod Autoscaler (min 2 → max 10 replicas) |
 | `configmap.yaml` | Runtime configuration injection |
 | `secrets.yaml` | DB credentials, JWT secret, API key |
+| `model-pvc.yaml` | PersistentVolumeClaim for ML model artifacts |
 
-**Prod overlay** (`app/k8s/overlays/prod/`) adds:
+**Prod overlay** (`app/k8s/overlays/prod/`) adds NetworkPolicy and PodDisruptionBudget.
 
-- `NetworkPolicy` — restricts pod-to-pod traffic
-- `PodDisruptionBudget` — ensures availability during node drains
+---
+
+## MLOps Pipeline
+
+```
+ml/
+ ├── configs/          # dataset, params, training, deployment YAML configs
+ ├── data/             # raw → processed → features (DVC-tracked)
+ ├── models/artifacts/ # model.pkl + eval_metrics.json
+ ├── pipelines/
+ │   ├── dvc/          # preprocess → train → evaluate stages
+ │   ├── metaflow/     # training_flow.py (local + cloud)
+ │   ├── prefect/      # retraining_flow.py (drift-gated)
+ │   └── kubeflow/     # training_pipeline.py (compiled to YAML)
+ └── experiments/
+     └── neptune/      # experiment tracking + model artifact logging
+```
+
+Run the MLOps pipeline manually:
+
+```bash
+# Train
+bash platform/mlops/mlops.sh train
+
+# Check drift
+bash platform/mlops/mlops.sh drift
+
+# Trigger retraining
+bash platform/mlops/mlops.sh retrain
+
+# Validate environment
+bash platform/mlops/validate_mlops.sh
+```
 
 ---
 
@@ -243,23 +274,17 @@ Managed via Kustomize — `app/k8s/base/` + `app/k8s/overlays/`.
 Deployed to the `monitoring` namespace via `monitoring/deploy_monitoring.sh`.
 
 ```bash
-kubectl port-forward svc/grafana 3000:3000 -n monitoring
-# Open: http://localhost:3000  (admin / admin123)
+kubectl port-forward svc/prometheus-grafana 3000:80 -n monitoring
+# Open: http://localhost:3000
 ```
 
-**Recommended dashboard IDs** (Dashboards → Import):
-
-| Dashboard | ID |
-|---|---|
-| Node Exporter Full | 1860 |
-| Kubernetes Cluster | 6417 |
-| kube-state-metrics v2 | 13332 |
-| Loki Logs | 14055 |
-| Trivy Vulnerabilities | 17046 |
+Dashboards are auto-provisioned from `monitoring/dashboards/` via ConfigMap.
 
 ### Loki + Promtail
 
-Deployed to the `loki` namespace via `monitoring/Loki/deploy_loki.sh`. Promtail runs as a DaemonSet. Add Loki as a Grafana datasource:
+Deployed via `monitoring/loki/deploy_loki.sh`. Promtail runs as a DaemonSet and ships pod logs to Loki.
+
+Add Loki as a Grafana datasource:
 
 ```
 http://loki.loki.svc.cluster.local:3100
@@ -267,40 +292,41 @@ http://loki.loki.svc.cluster.local:3100
 
 Custom Loki 3.0 dashboard included at `monitoring/dashboards/devops-loki-dashboard.json`.
 
+### Drift Detection + Profiling
+
+| Tool | Trigger | Output |
+|---|---|---|
+| Evidently | `monitoring/deploy_monitoring.sh` or `mlops.sh drift` | HTML report + `drift_summary.json` |
+| WhyLabs | `monitoring/deploy_monitoring.sh` (if `WHYLABS_ENABLED=true`) | Profile uploaded to WhyLabs dashboard |
+
+Both are controlled via `.env`:
+
+```env
+EVIDENTLY_ENABLED=true
+WHYLABS_ENABLED=true
+WHYLABS_API_KEY=...
+WHYLABS_ORG_ID=...
+WHYLABS_DATASET_ID=...
+```
+
 ---
+
 
 ## CI/CD Pipelines
 
-### GitHub Actions (`.github/workflows/prod.yml`)
+### GitHub Actions
 
-Triggers on push to `main`:
-
-1. Build container image
-2. Push to DockerHub
-3. Deploy to Kubernetes (kubectl or ArgoCD sync)
-
-Configure in **Settings → Secrets and Variables → Actions**:
+Triggers on push to `main`. Configure secrets in **Settings → Secrets and Variables → Actions**:
 
 ```
 DOCKERHUB_USERNAME
 DOCKERHUB_TOKEN
-KUBECONFIG          ← base64-encoded kubeconfig for your cluster
+KUBECONFIG          ← base64-encoded kubeconfig
 ```
 
-### GitLab CI (`platform/cicd/gitlab/.gitlab-ci.yml`)
+### GitLab CI
 
 Same stages, configured via **Settings → CI/CD → Variables**.
-
----
-
-## Security
-
-**Trivy** runs as a Kubernetes CronJob, scans all running images for CVEs, and exports results as Prometheus metrics visible in Grafana.
-
-```bash
-# Deploy standalone
-bash monitoring/trivy/trivy.sh
-```
 
 ---
 
@@ -310,13 +336,46 @@ bash monitoring/trivy/trivy.sh
 ./reset.sh
 ```
 
-⚠️ Deletes containers, local Kubernetes cluster state, and networks.
+Deletes containers, local Kubernetes cluster state, and networks.
+
+---
+
+## Project Structure
+
+```
+.
+├── run.sh                          # Main orchestrator
+├── install.sh                      # Dependency installer
+├── reset.sh                        # Cleanup script
+├── app/
+│   ├── src/                        # FastAPI application
+│   ├── k8s/                        # Kubernetes manifests (Kustomize)
+│   └── docker/                     # Docker build + compose
+├── ml/
+│   ├── configs/                    # ML configuration YAMLs
+│   ├── data/                       # Raw, processed, features
+│   ├── models/artifacts/           # Trained model + metrics
+│   ├── pipelines/                  # DVC, Metaflow, Prefect, Kubeflow
+│   └── experiments/                # Neptune tracking
+├── monitoring/
+│   ├── prometheus_grafana/         # kube-prometheus-stack values
+│   ├── loki/                       # Loki Kustomize overlays
+│   ├── evidently/                  # Drift detection + reports
+│   ├── whylabs/                    # Continuous data profiling
+│   ├── trivy/                      # Security scanning
+│   └── dashboards/                 # Pre-built Grafana dashboard JSONs
+└── platform/
+    ├── cicd/                       # GitHub, GitLab, ArgoCD configs
+    ├── infra/                      # Terraform / OpenTofu / Pulumi
+    ├── lib/                        # Shared shell library (logging, colors)
+    └── mlops/                      # MLOps runner + validator
+```
 
 ---
 
 ## Author
 
-**Hitesh Mondal** — DevOps · Cloud · Cybersecurity
+**Hitesh Mondal** — DevOps · Cloud · MLOps · Cybersecurity
 
 ---
 

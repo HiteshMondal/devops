@@ -1,0 +1,22 @@
+stages:
+  preprocess:
+    cmd: python -c "from app.src.prepare import load_data, preprocess; import pandas as pd; df=preprocess(load_data()); df.to_csv('ml/data/processed/dataset.csv', index=False)"
+    deps:
+      - ml/data/raw/dataset.csv
+      - app/src/prepare.py
+    outs:
+      - ml/data/processed/dataset.csv
+
+  train:
+    cmd: python ml/pipelines/metaflow/training_flow.py run
+    deps:
+      - ml/data/processed/dataset.csv
+      - ml/configs/params.yaml
+    outs:
+      - ml/models/artifacts/model.pkl
+      - ml/models/artifacts/eval_metrics.json
+
+  evaluate:
+    cmd: python -c "import json,print; print(open('ml/models/artifacts/eval_metrics.json').read())"
+    deps:
+      - ml/models/artifacts/eval_metrics.json

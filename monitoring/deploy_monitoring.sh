@@ -456,6 +456,9 @@ deploy_monitoring() {
 
     print_monitoring_access "$PROM_SERVICE" "$namespace" "$PROMETHEUS_PORT" "Prometheus"
 
+    deploy_evidently
+    deploy_whylabs
+    
     # SUMMARY
 
     print_subsection "Monitoring Components Status"

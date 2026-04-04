@@ -1,24 +1,24 @@
 import pandas as pd
-from pathlib import Path
+import pickle, os
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DATA_PATH = os.getenv("DATA_PATH", "ml/data/raw/dataset.csv")
+MODEL_PATH = os.getenv("MODEL_PATH", "ml/models/artifacts/model.pkl")
 
-RAW_DIR = PROJECT_ROOT / "data" / "raw"
-OUT_DIR = PROJECT_ROOT / "data" / "processed"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+def load_data(path: str = DATA_PATH) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    print(f"Loaded {len(df)} rows from {path}")
+    return df
 
-files = list(RAW_DIR.glob("*.csv"))
+def preprocess(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.dropna()
+    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+    return df
 
-if not files:
-    raise FileNotFoundError("No raw dataset found")
+def load_model(path: str = MODEL_PATH):
+    with open(path, "rb") as f:
+        return pickle.load(f)
 
-df = pd.read_csv(files[0]).dropna()
-
-# Example feature logic
-numeric_cols = df.select_dtypes("number").columns.drop("target", errors="ignore")
-df["feature_sum"] = df[numeric_cols].sum(axis=1)
-
-output_path = OUT_DIR / "data.csv"
-df.to_csv(output_path, index=False)
-
-print(f"[prepare] Saved processed dataset → {output_path}")
+if __name__ == "__main__":
+    df = load_data()
+    df = preprocess(df)
+    print(df.head())

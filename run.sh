@@ -528,7 +528,13 @@ deploy_kubernetes() { _run_step "Kubernetes App"       "$PROJECT_ROOT/app/k8s/de
 deploy_monitoring() { _run_step "Prometheus + Grafana" "$PROJECT_ROOT/monitoring/deploy_monitoring.sh"; }
 deploy_loki()       { _run_step "Loki Logging"         "$PROJECT_ROOT/monitoring/loki/deploy_loki.sh"; }
 deploy_trivy()      { _run_step "Trivy Security Scan"  "$PROJECT_ROOT/monitoring/trivy/trivy.sh"; }
-deploy_mlops()      { _run_step "MLOps Pipeline"       "$PROJECT_ROOT/mlops.sh"; }
+deploy_mlops() {
+    print_subsection "MLOps Pipeline"
+    bash "$PROJECT_ROOT/platform/mlops/mlops.sh" train
+    bash "$PROJECT_ROOT/platform/mlops/mlops.sh" drift
+    print_success "MLOps Pipeline complete"
+    print_divider
+}
 
 # ELAPSED TIME TRACKER
 

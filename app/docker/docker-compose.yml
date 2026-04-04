@@ -8,13 +8,13 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NODE_ENV: development
-      PORT: 3000
+      APP_ENV: development
+      APP_PORT: 3000
+      MODEL_NAME: baseline-v1
     volumes:
       - ./app/src:/app/src
-      - /app/node_modules
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/health')"]
       interval: 30s
       timeout: 10s
       retries: 3

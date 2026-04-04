@@ -1,37 +1,10 @@
-# app/requirements.txt
-# Pin majors; let patches float for security updates
-
-# Web framework
-fastapi==0.115.*
-uvicorn[standard]==0.34.*
-
-# Data validation
-pydantic==2.*
-
-# HTTP client (used by health checks / downstream calls)
-httpx==0.28.*
-
-# Environment / config
-python-dotenv==1.*
-
-# Prometheus
-prometheus-client==0.20.*
-
-# ---------------------------------------------------------------------------
-# Uncomment when integrating ML tools (Phase 2)
-# ---------------------------------------------------------------------------
-
-# DVC — data & model pipeline versioning
-# dvc==3.*
-# dvc-s3==3.*           # if using S3 remote
-# dvc-gdrive==2.*       # if using GDrive remote
-
-# Neptune AI — experiment tracking
-# neptune==1.*
-
-# LakeFS Python client — data lake versioning
-# lakefs-sdk==1.*
-
-# Scikit-learn / numpy baseline (replace with your actual ML stack)
-# scikit-learn==1.*
-# numpy==1.*
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+pandas==2.2.2
+scikit-learn==1.4.2
+numpy==1.26.4
+pydantic==2.7.1
+python-dotenv==1.0.1
+httpx==0.27.0
+evidently==0.4.30
+whylogs==1.3.27

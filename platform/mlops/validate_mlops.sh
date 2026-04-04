@@ -33,7 +33,7 @@ else
 fi
 
 # --- Check dvc.yaml ---
-if [[ -f "${PROJECT_ROOT}/dvc.yaml" ]]; then
+if [[ -f "${PROJECT_ROOT}/pipelines/dvc/dvc.yaml" ]]; then
     print_success "dvc.yaml: found"
 else
     print_warning "dvc.yaml not found — DVC pipeline will be skipped"
