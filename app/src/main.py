@@ -10,6 +10,10 @@ START_TIME = time.time()
 def health():
     return {"status": "ok", "uptime": round(time.time() - START_TIME, 2)}
 
+@app.get("/ready")
+def ready():
+    return {"status": "ready"}
+
 @app.get("/")
 def root():
     return {"app": os.getenv("APP_NAME", "devops-aiml-app"), "env": os.getenv("APP_ENV", "production")}

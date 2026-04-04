@@ -384,7 +384,7 @@ deploy_monitoring() {
       -f /tmp/kps-values.yaml \
       --set prometheus.service.type="$service_type" \
       --wait \
-      --timeout 5m
+      --timeout 1m
 
     print_success "Prometheus stack ready"
 

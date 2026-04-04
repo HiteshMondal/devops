@@ -87,14 +87,14 @@ The runner interactively guides you through environment, component, and cloud pr
 
 ## Core Stack
 
-**Application**: FastAPI (Python) — [`app/src/main.py`](./app/src/main.py)
-**Containerization**: Docker / Podman — [`app/docker/docker_documentation.md`](./app/docker/docker_documentation.md)
-**Orchestration**: Kubernetes — [`app/k8s/documentation.md`](./app/k8s/documentation.md)
-**CI/CD** | GitHub Actions · GitLab CI · ArgoCD |
-**Infrastructure**: Terraform / OpenTofu / Pulumi — [`platform/infra/documentation.md`](./platform/infra/documentation.md)
-**Monitoring**: Prometheus + Grafana + Loki — [`monitoring/documentation.md`](./monitoring/documentation.md)
-**ML Pipelines** | Metaflow · Prefect · Kubeflow · DVC |
-**ML Tracking** | Neptune · Evidently · WhyLabs |
+* **Application**: FastAPI (Python) — [`app/src/main.py`](./app/src/main.py)
+* **Containerization**: Docker / Podman — [`app/docker/docker_documentation.md`](./app/docker/docker_documentation.md)
+* **Orchestration**: Kubernetes — [`app/k8s/documentation.md`](./app/k8s/documentation.md)
+* **CI/CD** | GitHub Actions · GitLab CI · ArgoCD |
+* **Infrastructure**: Terraform / OpenTofu / Pulumi — [`platform/infra/documentation.md`](./platform/infra/documentation.md)
+* **Monitoring**: Prometheus + Grafana + Loki — [`monitoring/documentation.md`](./monitoring/documentation.md)
+* **ML Pipelines** | Metaflow · Prefect · Kubeflow · DVC |
+* **ML Tracking** | Neptune · Evidently · WhyLabs |
 
 ---
 
@@ -136,6 +136,7 @@ cd devops
 cp .env.example .env
 nano .env
 ```
+> See [`.env.example`](./.env.example) for all available varia
 
 ### 2. Launch
 
@@ -233,40 +234,6 @@ Managed via Kustomize — `app/k8s/base/` + `app/k8s/overlays/`.
 
 ---
 
-## MLOps Pipeline
-
-```
-ml/
- ├── configs/          # dataset, params, training, deployment YAML configs
- ├── data/             # raw → processed → features (DVC-tracked)
- ├── models/artifacts/ # model.pkl + eval_metrics.json
- ├── pipelines/
- │   ├── dvc/          # preprocess → train → evaluate stages
- │   ├── metaflow/     # training_flow.py (local + cloud)
- │   ├── prefect/      # retraining_flow.py (drift-gated)
- │   └── kubeflow/     # training_pipeline.py (compiled to YAML)
- └── experiments/
-     └── neptune/      # experiment tracking + model artifact logging
-```
-
-Run the MLOps pipeline manually:
-
-```bash
-# Train
-bash platform/mlops/mlops.sh train
-
-# Check drift
-bash platform/mlops/mlops.sh drift
-
-# Trigger retraining
-bash platform/mlops/mlops.sh retrain
-
-# Validate environment
-bash platform/mlops/validate_mlops.sh
-```
-
----
-
 ## Observability Stack
 
 ### Prometheus + Grafana
@@ -308,9 +275,7 @@ WHYLABS_API_KEY=...
 WHYLABS_ORG_ID=...
 WHYLABS_DATASET_ID=...
 ```
-
 ---
-
 
 ## CI/CD Pipelines
 
