@@ -530,8 +530,19 @@ deploy_loki()       { _run_step "Loki Logging"         "$PROJECT_ROOT/monitoring
 deploy_trivy()      { _run_step "Trivy Security Scan"  "$PROJECT_ROOT/monitoring/trivy/trivy.sh"; }
 deploy_mlops() {
     print_subsection "MLOps Pipeline"
-    bash "$PROJECT_ROOT/platform/mlops/mlops.sh" train
-    bash "$PROJECT_ROOT/platform/mlops/mlops.sh" drift
+
+    print_step "Running training pipeline..."
+    python3 "$PROJECT_ROOT/ml/pipelines/metaflow/training_flow.py" run \
+        || { print_warning "Training pipeline had issues — continuing"; }
+
+    print_step "Running retraining flow..."
+    python3 "$PROJECT_ROOT/ml/pipelines/prefect/retraining_flow.py" \
+        || { print_warning "Retraining flow had issues — continuing"; }
+
+    print_step "Running drift detection..."
+    python3 "$PROJECT_ROOT/monitoring/evidently/drift_detection.py" \
+        || { print_warning "Drift detection had issues — continuing"; }
+
     print_success "MLOps Pipeline complete"
     print_divider
 }

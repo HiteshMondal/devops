@@ -1,25 +1,29 @@
+# /monitoring/evidently/drift_detection.py
+
 import pandas as pd
-from evidently.report import Report
-from evidently.metric_preset import DataDriftPreset, DataQualityPreset
+from evidently import Report
+from evidently.presets import DataDriftPreset
 import os, json
 
-REFERENCE_PATH = os.getenv("REFERENCE_DATA", "ml/data/processed/dataset.csv")
-CURRENT_PATH   = os.getenv("CURRENT_DATA",   "ml/data/processed/dataset.csv")
-REPORT_DIR     = "monitoring/evidently/reports"
+_script_dir    = os.path.dirname(os.path.abspath(__file__))
+_project_root  = os.path.abspath(os.path.join(_script_dir, "..", ".."))
+REFERENCE_PATH = os.getenv("REFERENCE_DATA", os.path.join(_project_root, "ml/data/processed/dataset.csv"))
+CURRENT_PATH   = os.getenv("CURRENT_DATA",   os.path.join(_project_root, "ml/data/processed/dataset.csv"))
+REPORT_DIR     = os.path.join(_project_root, "monitoring/evidently/reports")
 
 def run_drift_report(reference: pd.DataFrame, current: pd.DataFrame) -> dict:
-    report = Report(metrics=[DataDriftPreset(), DataQualityPreset()])
-    report.run(reference_data=reference, current_data=current)
+    report = Report([DataDriftPreset()])
+    snapshot = report.run(reference, current)
     os.makedirs(REPORT_DIR, exist_ok=True)
-    report.save_html(f"{REPORT_DIR}/drift_report.html")
-    result = report.as_dict()
-    drift_detected = result["metrics"][0]["result"]["dataset_drift"]
-    print(f"Drift detected: {drift_detected}")
-    with open(f"{REPORT_DIR}/drift_summary.json", "w") as f:
-        json.dump({"drift_detected": drift_detected}, f, indent=2)
-    return {"drift_detected": drift_detected}
+    snapshot.save_html(f"{REPORT_DIR}/drift_report.html")
+    snapshot.save_json(f"{REPORT_DIR}/drift_summary.json")
+    print("Drift report saved")
+    return {}
 
 if __name__ == "__main__":
+    if not os.path.exists(REFERENCE_PATH):
+        print(f"WARNING: No dataset found at {REFERENCE_PATH} — skipping drift detection")
+        exit(0)
     ref = pd.read_csv(REFERENCE_PATH)
     cur = pd.read_csv(CURRENT_PATH)
     run_drift_report(ref, cur)

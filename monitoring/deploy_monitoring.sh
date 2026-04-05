@@ -216,11 +216,13 @@ deploy_evidently() {
 
     if command -v python3 >/dev/null 2>&1; then
         print_step "Installing evidently (if missing)..."
-        python3 -m pip install --quiet evidently pandas pyyaml \
+        rm -rf /tmp/devops-evidently-venv
+        python3 -m venv /tmp/devops-evidently-venv >/dev/null 2>&1
+        /tmp/devops-evidently-venv/bin/pip install --quiet "evidently==0.7.21" pandas pyyaml \
             || print_warning "evidently pip install had issues — continuing"
 
         print_step "Running drift detection..."
-        if python3 "${PROJECT_ROOT}/monitoring/evidently/drift_detection.py"; then
+        if /tmp/devops-evidently-venv/bin/python "${PROJECT_ROOT}/monitoring/evidently/drift_detection.py"; then
             print_success "Evidently drift report generated"
             print_kv "Reports dir" "${PROJECT_ROOT}/monitoring/evidently/reports"
         else
@@ -233,49 +235,46 @@ deploy_evidently() {
     fi
 }
 
-deploy_whylabs() {
-    if [[ "${WHYLABS_ENABLED}" != "true" ]]; then
-        print_info "WhyLabs disabled (WHYLABS_ENABLED=false)"
-        print_info "Set WHYLABS_ENABLED=true and add WHYLABS_API_KEY / WHYLABS_ORG_ID / WHYLABS_DATASET_ID to .env"
+deploy_whylogs() {
+
+    if [[ "${WHYLOGS_ENABLED:-true}" != "true" ]]; then
+        print_info "WhyLogs profiling disabled"
         return 0
     fi
 
-    print_subsection "Deploying WhyLabs (Continuous Profiling)"
-
-    local missing_vars=()
-    for var in WHYLABS_API_KEY WHYLABS_ORG_ID WHYLABS_DATASET_ID; do
-        [[ -z "${!var:-}" ]] && missing_vars+=("$var")
-    done
-
-    if [[ ${#missing_vars[@]} -gt 0 ]]; then
-        print_error "Missing WhyLabs credentials:"
-        for v in "${missing_vars[@]}"; do
-            echo -e "     ${RED}•${RESET} ${BOLD}${v}${RESET}"
-        done
-        print_info "Add the above variables to .env and re-run"
-        return 1
-    fi
+    print_subsection "Running WhyLogs Profiling (Local)"
 
     if command -v python3 >/dev/null 2>&1; then
         print_step "Installing whylogs (if missing)..."
-        python3 -m pip install --quiet "whylogs[whylabs]" pandas pyyaml \
+        local WHYLOGS_PYTHON=""
+        for py in python3.12 python3.11 python3.10; do
+            if command -v "$py" >/dev/null 2>&1; then
+                WHYLOGS_PYTHON="$py"
+                break
+            fi
+        done
+
+        if [[ -z "$WHYLOGS_PYTHON" ]]; then
+            print_warning "whylogs requires Python 3.10–3.12 (not 3.13+) — skipping"
+            return 0
+        fi
+
+        "$WHYLOGS_PYTHON" -m venv /tmp/devops-whylogs-venv >/dev/null 2>&1
+        /tmp/devops-whylogs-venv/bin/pip install --quiet \
+            "whylogs==1.6.4" "numpy<2" pandas pyyaml \
             || print_warning "whylogs pip install had issues — continuing"
 
-        print_step "Running WhyLabs profiling..."
-        if python3 "${PROJECT_ROOT}/monitoring/whylabs/whylabs.py"; then
-            print_success "WhyLabs profile uploaded"
-            print_access_box "WHYLABS" ">" \
-                "URL:WhyLabs Dashboard:https://hub.whylabsapp.com" \
-                "SEP:" \
-                "CRED:Org ID:${WHYLABS_ORG_ID}" \
-                "CRED:Dataset ID:${WHYLABS_DATASET_ID}"
+        print_step "Generating dataset profile..."
+        if /tmp/devops-whylogs-venv/bin/python "${PROJECT_ROOT}/monitoring/whylogs/whylogs.py"; then
+            print_success "WhyLogs profile generated locally"
+            print_kv "Profiles dir" "${PROJECT_ROOT}/monitoring/whylogs/profiles"
         else
-            print_warning "WhyLabs profiling finished with warnings"
+            print_warning "WhyLogs profiling finished with warnings"
         fi
     else
-        print_warning "python3 not found — skipping WhyLabs"
+        print_warning "python3 not found — skipping WhyLogs"
         print_info "Run manually:"
-        print_cmd "" "python3 monitoring/whylabs/whylabs.py"
+        print_cmd "" "python3 monitoring/whylogs/whylogs.py"
     fi
 }
 
@@ -457,7 +456,7 @@ deploy_monitoring() {
     print_monitoring_access "$PROM_SERVICE" "$namespace" "$PROMETHEUS_PORT" "Prometheus"
 
     deploy_evidently
-    deploy_whylabs
+    deploy_whylogs
     
     # SUMMARY
 
