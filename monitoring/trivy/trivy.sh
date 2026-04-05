@@ -209,48 +209,23 @@ deploy_trivy() {
         print_info "Metrics Exporter skipped (TRIVY_METRICS_ENABLED=false)"
     fi
 
-    print_step "Waiting for initial Trivy scan job to complete..."
-    if ! kubectl wait --for=condition=complete \
-        --timeout=600s \
+    print_step "Waiting for initial Trivy scan job to complete (non-blocking)..."
+    if kubectl wait --for=condition=complete \
+        --timeout=120s \
         -n "${TRIVY_NAMESPACE}" \
-        job/trivy-initial-scan; then
-
-        print_warning "Initial scan job did not complete within 10 min"
-        print_info "Job status:"
-        kubectl describe job/trivy-initial-scan -n "${TRIVY_NAMESPACE}" || true
-        print_info "Pod logs:"
-        kubectl logs -n "${TRIVY_NAMESPACE}" \
-            -l "job-name=trivy-initial-scan" --tail=50 || true
-        print_warning "Continuing — Trivy metrics may be empty until the job finishes"
-    else
+        job/trivy-initial-scan 2>/dev/null; then
         print_success "Initial Trivy scan complete"
+    else
+        print_warning "Initial scan still running — check later with:"
+        print_cmd "" "kubectl logs -n ${TRIVY_NAMESPACE} job/trivy-initial-scan -f"
     fi
 
     if [[ "${TRIVY_METRICS_ENABLED}" == "true" ]]; then
         print_step "Waiting for Trivy exporter to become ready..."
-        if kubectl wait --for=condition=ready pod \
-            -l app=trivy-exporter \
-            -n "${TRIVY_NAMESPACE}" \
-            --timeout=120s 2>/dev/null; then
-            print_success "Trivy exporter pod is ready"
-
-            # Use a kubectl exec-based check instead of a standalone curl pod
-            # to avoid issues with image pull limits / permissions
-            if kubectl exec -n "${TRIVY_NAMESPACE}" \
-                "$(kubectl get pod -l app=trivy-exporter -n "${TRIVY_NAMESPACE}" \
-                    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" \
-                -- wget -qO- "http://localhost:${TRIVY_METRICS_PORT}/metrics" 2>/dev/null \
-                | grep -q "trivy_"; then
-                print_success "Metrics endpoint is responding with trivy_ metrics"
-            else
-                print_warning "Metrics endpoint is up but no trivy_ metrics yet"
-                print_info "This is normal on first deploy — reports may still be loading"
-                print_info "Metrics will appear after SCAN_INTERVAL (${SCAN_INTERVAL}s)"
-            fi
-        else
-            print_warning "Trivy exporter pod did not become ready within 120s"
-            print_info "Check pod events: kubectl describe pod -l app=trivy-exporter -n ${TRIVY_NAMESPACE}"
-        fi
+        kubectl rollout status deployment/trivy-exporter \
+            -n "${TRIVY_NAMESPACE}" --timeout=120s 2>/dev/null \
+            && print_success "Trivy exporter is ready" \
+            || print_warning "Trivy exporter still starting — check with: kubectl get pods -n ${TRIVY_NAMESPACE}"
     fi
 }
 
@@ -271,8 +246,8 @@ trivy_main() {
 
     print_divider
     print_subsection "Trivy Resource Status"
-    kubectl get all -n "${TRIVY_NAMESPACE}"
-
+    kubectl get all -n "${TRIVY_NAMESPACE}" 2>/dev/null \
+        || print_warning "Could not reach cluster — run manually: kubectl get all -n ${TRIVY_NAMESPACE}"
     print_divider
 
     PROM_SERVICE="prometheus-kube-prometheus-prometheus"
