@@ -530,13 +530,21 @@ deploy_loki()       { _run_step "Loki Logging"         "$PROJECT_ROOT/monitoring
 deploy_trivy()      { _run_step "Trivy Security Scan"  "$PROJECT_ROOT/monitoring/trivy/trivy.sh"; }
 deploy_mlops() {
     print_subsection "MLOps Pipeline"
-
+    print_step "Running preprocessing..."
+    python3 "$PROJECT_ROOT/app/src/prepare.py" \
+        || { print_warning "Preprocessing had issues — continuing"; }
+    
     print_step "Running training pipeline..."
     python3 "$PROJECT_ROOT/ml/pipelines/metaflow/training_flow.py" run \
         || { print_warning "Training pipeline had issues — continuing"; }
 
     print_step "Running retraining flow..."
-    python3 "$PROJECT_ROOT/ml/pipelines/prefect/retraining_flow.py" \
+    PREFECT_VENV="/tmp/devops-prefect-venv"
+    if [[ ! -d "$PREFECT_VENV" ]]; then
+        python3 -m venv "$PREFECT_VENV"
+        "$PREFECT_VENV/bin/pip" install --quiet prefect
+    fi
+    "$PREFECT_VENV/bin/python" "$PROJECT_ROOT/ml/pipelines/prefect/retraining_flow.py" \
         || { print_warning "Retraining flow had issues — continuing"; }
 
     print_step "Running drift detection..."

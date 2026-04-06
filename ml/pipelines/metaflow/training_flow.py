@@ -48,6 +48,12 @@ class TrainingFlow(FlowSpec):
         Metaflow stores `self.df` in its artifact store so the next step
         can access it even if it runs on a different machine.
         """
+        import os, sys
+        if not os.path.exists(self.data_path):
+            print(f"[start] {self.data_path} not found — running preprocessing first")
+            sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+            from app.src.prepare import load_data, preprocess, save_processed
+            save_processed(preprocess(load_data()))
         self.df = pd.read_csv(self.data_path)
         print(f"[start] Loaded {len(self.df)} rows from {self.data_path}")
         self.next(self.train)

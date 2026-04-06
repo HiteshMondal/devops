@@ -12,7 +12,7 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 *.tfplan
-*tfplan
+tfplan
 .terraformrc
 terraform.rc
 .tofurc
@@ -25,18 +25,10 @@ Pulumi.*.yaml.bak
 *.tmp
 *.bak
 
-# ANSIBLE
-*.retry
-ansible/inventories/*/hosts.yml
-!ansible/inventories/*/hosts.yml.example
-ansible/inventories/*/terraform_outputs.json
-.ansible_facts/
-
 # ENVIRONMENT VARIABLES
 .env
 .env.local
 .env.*.local
-*.env
 
 # IDE / EDITOR
 .vscode/
@@ -65,7 +57,6 @@ pip-delete-this-directory.txt
 *.egg-info/
 dist/
 build/
-builds/
 .eggs/
 .mypy_cache/
 .ruff_cache/
@@ -76,7 +67,6 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-devops-webapp/node_modules
 
 # LOGS
 logs/
@@ -102,24 +92,34 @@ id_rsa*
 *.backup
 *.old
 
-# MONITORING DATA
+# MONITORING DATA (runtime volumes — not config files)
+monitoring/evidently/reports/
+monitoring/whylogs/profiles/
 prometheus-data/
 grafana-data/
 
 # TEMPORARY FILES
 tmp/
 temp/
-/tmp/
 
-# ML — DATA / MODELS  (managed by DVC / LakeFS — never commit directly)
-# Raw and processed datasets
-data/raw/
-data/processed/
-data/interim/
-data/external/
+# ML — DATA & MODEL ARTIFACTS
+# Managed by DVC / LakeFS — commit only the pointer files, not the data
 
-# Trained model weights & artifacts
-models/
+# Raw and processed datasets (DVC tracks these via *.dvc pointer files)
+ml/data/raw/
+ml/data/processed/
+ml/data/interim/
+ml/data/external/
+ml/data/features/
+
+# Keep DVC pointer files and config
+!ml/data/raw.dvc
+!ml/data/**/*.dvc
+
+# Trained model artifacts (large binaries — no value in git)
+ml/models/artifacts/
+
+# Common ML model file extensions (belt-and-suspenders)
 *.pt
 *.pth
 *.h5
@@ -132,42 +132,35 @@ models/
 *.bin
 *.safetensors
 
-# DVC internal cache & tmp files
+# DVC
 .dvc/cache/
 .dvc/tmp/
 .dvc/plots/
+.dvc/config.local
+# NOTE: dvc.lock IS intentionally tracked — do not add it here
 
-# DVC lock + pipeline outputs (keep dvc.yaml and *.dvc pointers, not the data)
-# dvc.lock is intentionally tracked — do NOT add it here
+# METAFLOW
+.metaflow/
 
-# NEPTUNE AI
+# EXPERIMENT TRACKING
 .neptune/
+mlruns/
+mlflow-artifacts/
+
+# FEATURE STORE
+ml/feature_store/feast/online_store.db
+ml/feature_store/feast/registry.db
+ml/feature_store/tecton/feature_repo/
 
 # LAKEFS
 .lakectl/
+ml/lakefs/hooks/
+ml/lakefs/repositories/
 
-# GIT LFS  (pointers are tracked; actual large files live in LFS storage)
-# Nothing to ignore — LFS handles this via .gitattributes
-
-# CICD / RUNNERS
+# CI/CD
 **/.gitlab-runner/
+platform/cicd/argo/generated/
 
-# ARGOCD
-#*generated/
-
-# MISC / GENERATED
-config-demo
-
-# DVC internals — never commit these
-.dvc/cache/
-.dvc/tmp/
-.dvc/config.local
-
-# Metaflow local run database — no value in git
-.metaflow/
-
-# Generated data and model artifacts
-data/raw/
-data/processed/
-data/features/
-models/artifacts/
+# ANSIBLE (retained for completeness if added later)
+*.retry
+.ansible_facts/
