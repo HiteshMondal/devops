@@ -1,0 +1,115 @@
+# ml/pipelines/airflow/docker-compose.yaml
+#
+# Apache Airflow — Local Development Stack
+# -----------------------------------------
+# Starts a minimal Airflow environment using the LocalExecutor
+# (no separate Celery workers needed — good for local dev).
+#
+# Services:
+#   postgres   — Airflow's metadata database (stores DAG runs, task states)
+#   airflow-init — one-time DB migration + admin user creation
+#   webserver  — Airflow UI at http://localhost:8080
+#   scheduler  — watches DAGs and triggers tasks when their schedule fires
+#
+# Usage:
+#   bash ml/pipelines/airflow/deploy_airflow.sh
+#   # or manually:
+#   docker compose -f ml/pipelines/airflow/docker-compose.yaml up -d
+#
+# Default credentials: admin / admin  (change AIRFLOW_ADMIN_PASSWORD in .env)
+
+version: "3.8"
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.9.1-python3.11
+  environment:
+    # Use LocalExecutor — tasks run in the same process as the scheduler.
+    # Swap for CeleryExecutor in production for parallel task execution.
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ""       # set a real key in prod: fernet_key generate
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"   # new DAGs start paused
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"                 # hide the built-in example DAGs
+    # Mount project root so DAGs can import from ml/ and app/src/
+    PYTHONPATH: /opt/airflow/project
+    # Pass through MLOps env vars so DAG tasks can read thresholds etc.
+    PROJECT_ROOT: /opt/airflow/project
+    MLOPS_MIN_ACCURACY: "${MLOPS_MIN_ACCURACY:-0.70}"
+    MLOPS_MIN_F1: "${MLOPS_MIN_F1:-0.65}"
+    MLFLOW_TRACKING_URI: "${MLFLOW_TRACKING_URI:-http://mlflow-service.mlflow.svc.cluster.local:5000}"
+    OPENLINEAGE_URL: "${OPENLINEAGE_URL:-http://localhost:5000}"
+    OPENLINEAGE_NAMESPACE: "${OPENLINEAGE_NAMESPACE:-devops-aiml}"
+  volumes:
+    # DAGs folder — Airflow auto-discovers any .py files here
+    - ./dags:/opt/airflow/dags
+    # Mount the whole project so DAG tasks can call training_flow.py etc.
+    - ../../../:/opt/airflow/project
+    # Persist Airflow logs between restarts
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+
+  #  PostgreSQL — Airflow metadata store 
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+
+  #  One-time init: migrate DB and create admin user 
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin \
+          --password "${AIRFLOW_ADMIN_PASSWORD:-admin}" \
+          --firstname Airflow \
+          --lastname Admin \
+          --role Admin \
+          --email admin@example.com
+    restart: "no"     # run once, then stop
+
+  #  Airflow Scheduler — triggers tasks when schedule fires 
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname \"$${HOSTNAME}\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  #  Airflow Web UI — http://localhost:8080 
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"    # open http://localhost:8080 to see the DAG graph
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  airflow-logs:

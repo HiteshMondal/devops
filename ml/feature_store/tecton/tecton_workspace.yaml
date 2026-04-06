@@ -1,0 +1,71 @@
+# ml/feature_store/tecton/tecton_workspace.yaml
+#
+# Tecton — Feature Platform Workspace Configuration
+# --------------------------------------------------
+# Tecton is an enterprise-grade managed feature platform.
+# Where Feast is self-hosted and file-based, Tecton connects directly to your
+# cloud data warehouse (Snowflake, BigQuery, Databricks) and manages
+# feature pipelines as production jobs.
+#
+# Key Tecton concepts used in this project:
+#
+#   Workspace  — isolated environment (like a Git branch) for feature definitions
+#   DataSource — connector to raw data (S3, Snowflake table, etc.)
+#   Entity     — the "key" that ties features to predictions (row_id here)
+#   Feature View — a named, versioned set of features with a transformation
+#   Materialization — Tecton's managed job that keeps features fresh
+#
+# This file is read by apply_features.sh when TECTON_ENABLED=true.
+
+workspace:
+  # Name of the Tecton workspace — create with: tecton workspace create devops-aiml
+  name: "devops-aiml"
+
+  # "development" workspaces are for testing; "production" for live serving
+  type: "development"
+
+# The Tecton cluster URL — provided when you sign up at app.tecton.ai
+cluster_url: "https://your-org.tecton.ai"
+
+# Feature store settings
+feature_store:
+  # Entity that uniquely identifies a prediction request in our dataset
+  entity:
+    name: row_id
+    join_key: row_id          # column name in the raw data table
+    description: "Unique row identifier"
+
+  # Which data source Tecton reads raw features from
+  data_source:
+    name: dataset_raw
+    # In production, point this at your Snowflake/BigQuery table
+    # For local dev, Tecton can also read from S3 CSV/Parquet files
+    type: file                          # swap to "snowflake" / "bigquery" in prod
+    path: "ml/data/raw/dataset.csv"
+
+  # The feature view — maps raw columns to named, typed features
+  feature_view:
+    name: dataset_features
+    entity: row_id
+    features:
+      - name: feature_1
+        type: Float64
+        description: "First numeric input feature"
+      - name: feature_2
+        type: Float64
+        description: "Second numeric input feature"
+      - name: feature_3
+        type: Float64
+        description: "Third numeric input feature"
+
+    # How often Tecton re-materializes features (keeps the online store fresh)
+    materialization:
+      online: true             # serve features at low latency via Tecton API
+      offline: true            # also keep historical data for training
+      schedule: "1h"           # refresh every hour
+
+# Tags used to organise features in the Tecton UI
+tags:
+  model: "baseline-v1"
+  team: "mlops"
+  environment: "development"

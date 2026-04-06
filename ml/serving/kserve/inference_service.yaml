@@ -1,0 +1,76 @@
+# ml/serving/kserve/inference_service.yaml
+#
+# KServe — InferenceService Definition
+# ---------------------------------------
+# KServe is a Kubernetes-native model serving platform built on top of Knative.
+# It handles:
+#   - Auto-scaling (including scale-to-zero when there's no traffic)
+#   - Canary deployments (gradually shift traffic to a new model version)
+#   - A/B testing
+#   - Pre/post-processing via Transformers (see transformers.yaml)
+#
+# How it fits in this project:
+#   training_flow.py → saves model.pkl → deploy_kserve.sh uploads it → this spec serves it
+#   app/src/main.py /predict → can either call KServe directly OR load the pkl itself
+#
+# Apply with:
+#   kubectl apply -f ml/serving/kserve/inference_service.yaml
+#
+# Test with:
+#   curl -X POST http://<ingress-host>/v1/models/baseline-v1:predict \
+#        -H "Content-Type: application/json" \
+#        -d '{"instances": [[0.5, -0.3, 7.2]]}'
+
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: baseline-v1                  # matches MODEL_NAME in .env
+  namespace: kserve-inference        # created by deploy_kserve.sh
+  labels:
+    app: mlops-model
+    version: v1
+  annotations:
+    # Autoscaler target — scale up when avg concurrency per pod > 1
+    autoscaling.knative.dev/target: "1"
+    # Scale to zero after 60s of no traffic (saves resources in dev)
+    autoscaling.knative.dev/scaleToZeroPodRetentionPeriod: "1m"
+spec:
+  predictor:
+    #  sklearn predictor 
+    # KServe's built-in sklearn runtime loads model.pkl automatically.
+    # No custom Docker image needed — KServe handles all of this.
+    sklearn:
+      # Protocol version — v2 uses the Open Inference Protocol (REST + gRPC)
+      protocolVersion: v2
+
+      # Where the model.pkl is stored.
+      # In production: use an S3/GCS/Azure URI.
+      # For local dev: use a PVC mount (configured in predictors.yaml).
+      storageUri: "pvc://model-store-pvc/artifacts"
+
+      # Resource requests keep the pod schedulable on small clusters
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "256Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+
+    # Minimum replicas — 0 = scale to zero; set to 1 if you need always-on
+    minReplicas: 0
+    maxReplicas: 3
+
+  #  Transformer (optional pre/post-processing) 
+  # Uncomment this block and apply transformers.yaml to enable the Transformer.
+  # The Transformer runs BEFORE the predictor:
+  #   raw request → Transformer → predictor → Transformer → response
+  #
+  # transformer:
+  #   containers:
+  #     - name: kserve-container
+  #       image: your-registry/mlops-transformer:latest
+  #       resources:
+  #         requests:
+  #           cpu: "100m"
+  #           memory: "128Mi"

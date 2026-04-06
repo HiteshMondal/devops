@@ -1,0 +1,50 @@
+# ml/experiments/mlflow/registry.yaml
+#
+# MLflow Model Registry — Promotion Workflow
+# -------------------------------------------
+# The Model Registry is where you move a logged model through stages:
+#
+#   Staging → (manual review / automated tests pass) → Production
+#
+# This file documents the registry structure and promotion rules used
+# by deploy_mlflow.sh and the FastAPI /predict endpoint.
+#
+# Registered model name (must match what training_flow logs under)
+model_name: "baseline-v1"
+
+# Stage definitions
+# -----------------
+# none     — model was just logged; not yet reviewed
+# staging  — candidate for production; being tested
+# production — the live model served by the FastAPI app
+# archived — old production model kept for audit / rollback
+stages:
+  none:
+    description: "Freshly logged experiment run — not yet promoted"
+  staging:
+    description: "Candidate model — runs automated quality checks"
+    # Model must meet both thresholds to advance to production
+    quality_gates:
+      min_accuracy: 0.75
+      min_f1: 0.70
+  production:
+    description: "Live model — served by app/src/main.py /predict endpoint"
+  archived:
+    description: "Previous production models — kept for audit and rollback"
+
+# How training_flow.py registers a model
+# ----------------------------------------
+# After training, the Metaflow/Kubeflow flow calls:
+#
+#   mlflow.sklearn.log_model(model, artifact_path="model",
+#                            registered_model_name="baseline-v1")
+#
+# That creates a new version in "none" stage.
+# deploy_mlflow.sh then checks eval_metrics.json and, if thresholds pass,
+# transitions the version to "staging" then "production".
+
+# Alias used by the FastAPI app to load the current production model
+production_alias: "champion"
+
+# MLflow tracking server URI — override with MLFLOW_TRACKING_URI env var
+tracking_uri: "http://mlflow-service.mlflow.svc.cluster.local:5000"

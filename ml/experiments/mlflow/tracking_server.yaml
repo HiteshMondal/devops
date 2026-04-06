@@ -1,0 +1,131 @@
+# ml/experiments/mlflow/tracking_server.yaml
+#
+# MLflow Tracking Server — Kubernetes Deployment
+# ------------------------------------------------
+# MLflow is a self-hosted experiment tracker.
+# This manifest deploys the MLflow UI + tracking server inside your cluster
+# so training runs can log metrics without an external SaaS account.
+#
+# How it fits in this project:
+#   training_flow.py  →  calls mlflow.log_param / log_metric / log_artifact
+#   This server        →  stores all that data and serves the web UI
+#   registry.yaml      →  promotes a logged model to "staging" or "production"
+#
+# Apply with:
+#   kubectl apply -f ml/experiments/mlflow/tracking_server.yaml
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mlflow
+  labels:
+    app: mlflow
+
+---
+# ConfigMap holds non-secret configuration for the MLflow server pod.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlflow-config
+  namespace: mlflow
+data:
+  # Where MLflow stores run data inside the container.
+  # In production swap this for an S3/GCS/Azure Blob URI.
+  MLFLOW_BACKEND_STORE_URI: "sqlite:///mlflow/mlflow.db"
+
+  # Where model artifacts (pkl files) are stored.
+  MLFLOW_DEFAULT_ARTIFACT_ROOT: "/mlflow/artifacts"
+
+  # The port the tracking server listens on
+  MLFLOW_PORT: "5000"
+
+---
+# Persistent volume so experiment data survives pod restarts.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-pvc
+  namespace: mlflow
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi   # increase for production
+
+---
+# The MLflow server deployment — one replica is enough for dev/staging.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow-server
+  namespace: mlflow
+  labels:
+    app: mlflow-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow-server
+  template:
+    metadata:
+      labels:
+        app: mlflow-server
+    spec:
+      containers:
+        - name: mlflow
+          image: ghcr.io/mlflow/mlflow:v2.13.0
+          ports:
+            - containerPort: 5000
+          envFrom:
+            - configMapRef:
+                name: mlflow-config
+          command:
+            - mlflow
+            - server
+            - --host=0.0.0.0
+            - --port=5000
+            # SQLite backend — replace with --backend-store-uri postgresql://... in prod
+            - --backend-store-uri=sqlite:///mlflow/mlflow.db
+            - --default-artifact-root=/mlflow/artifacts
+          volumeMounts:
+            - name: mlflow-storage
+              mountPath: /mlflow
+          # Basic liveness check — restarts the pod if the UI stops responding
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: mlflow-storage
+          persistentVolumeClaim:
+            claimName: mlflow-pvc
+
+---
+# Service exposes MLflow inside the cluster on port 5000.
+# Change type to LoadBalancer for cloud clusters (EKS / GKE / AKS).
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow-service
+  namespace: mlflow
+  labels:
+    app: mlflow-server
+spec:
+  type: NodePort      # use LoadBalancer in cloud environments
+  selector:
+    app: mlflow-server
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
+      nodePort: 30500  # access via http://<node-ip>:30500

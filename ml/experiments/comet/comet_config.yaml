@@ -1,0 +1,35 @@
+# ml/experiments/comet/comet_config.yaml
+#
+# Comet ML — Project Configuration
+# ----------------------------------
+# These values are read by comet_tracking.py at runtime.
+# Secrets (COMET_API_KEY) must come from your .env file — never hard-code them here.
+#
+# To get your API key:
+#   1. Sign up at https://www.comet.ml
+#   2. Go to Settings → API Key
+#   3. Add COMET_API_KEY=<your-key> to your .env file
+
+comet:
+  # Comet project name — experiments are grouped under this in the dashboard
+  project: "devops-aiml"
+
+  # Your Comet username or team/organisation name
+  workspace: "default"
+
+  # Tags applied to every experiment for easy filtering in the UI
+  tags:
+    - "random-forest"
+    - "binary-classification"
+    - "mlops-demo"
+
+  # Which metrics to display in the experiment comparison table
+  tracked_metrics:
+    - accuracy
+    - f1
+
+  # Which hyper-parameters to display in the comparison table
+  tracked_params:
+    - n_estimators
+    - max_depth
+    - random_state

@@ -1,0 +1,107 @@
+# ml/serving/kserve/transformers.yaml
+#
+# KServe — Transformer Configuration
+# ------------------------------------
+# A Transformer sits in front of the Predictor and handles:
+#   PRE-PROCESSING  — validate / normalise raw request data before prediction
+#   POST-PROCESSING — format the raw model output into a user-friendly response
+#
+# Without a Transformer the client must send perfectly formatted feature arrays.
+# With a Transformer the client can send raw JSON like:
+#   {"feature_1": 0.5, "feature_2": -0.3, "feature_3": 7.2}
+# and the Transformer turns it into the array the model expects.
+#
+# Architecture:
+#   Client → Transformer (pre) → Predictor (model.pkl) → Transformer (post) → Client
+#
+# This file defines a Kubernetes Deployment for a custom Transformer container.
+# The container runs transformer.py (a KServe kfserving.Model subclass).
+#
+# Note: You need to build and push the Transformer Docker image before applying this.
+# See the build commands at the bottom of this file.
+#
+# Apply with:
+#   kubectl apply -f ml/serving/kserve/transformers.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: transformer-config
+  namespace: kserve-inference
+data:
+  # Feature column order — must match what training_flow.py used for X
+  FEATURE_COLUMNS: "feature_1,feature_2,feature_3"
+
+  # KServe predictor endpoint (cluster-internal URL)
+  PREDICTOR_HOST: "baseline-v1-predictor.kserve-inference.svc.cluster.local"
+
+---
+# Transformer Deployment — a standard Kubernetes Deployment running our
+# custom transformer.py script as a KServe-compatible HTTP server.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: baseline-v1-transformer
+  namespace: kserve-inference
+  labels:
+    app: baseline-v1-transformer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: baseline-v1-transformer
+  template:
+    metadata:
+      labels:
+        app: baseline-v1-transformer
+    spec:
+      containers:
+        - name: transformer
+          # Build this image with the commands at the bottom of this file.
+          # Replace "your-registry" with your DockerHub username or registry URL.
+          image: your-registry/mlops-transformer:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080    # KServe transformer default port
+          envFrom:
+            - configMapRef:
+                name: transformer-config
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
+
+---
+# Service exposes the Transformer inside the cluster
+apiVersion: v1
+kind: Service
+metadata:
+  name: baseline-v1-transformer
+  namespace: kserve-inference
+spec:
+  selector:
+    app: baseline-v1-transformer
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+
+#  Transformer Python code 
+# The container runs this script. It implements two methods:
+#
+#   preprocess(inputs)  — converts {"feature_1": ..., ...} → [[f1, f2, f3]]
+#   postprocess(outputs) — converts [[0]] → {"prediction": 0, "label": "class-0"}
+#
+# To build the image:
+#   docker build -t your-registry/mlops-transformer:latest \
+#     -f - ml/serving/kserve <<'DOCKERFILE'
+#   FROM python:3.11-slim
+#   RUN pip install kserve
+#   COPY transformer.py /transformer.py
+#   CMD ["python", "/transformer.py"]
+#   DOCKERFILE
+#
+#   docker push your-registry/mlops-transformer:latest

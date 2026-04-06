@@ -1,0 +1,91 @@
+# ml/serving/kserve/predictors.yaml
+#
+# KServe — Predictor Storage Configuration
+# -----------------------------------------
+# The InferenceService needs access to model.pkl.
+# This file sets up a PersistentVolumeClaim (PVC) that stores the model file
+# so KServe's predictor pod can mount and load it.
+#
+# In production you would use:
+#   storageUri: "s3://your-bucket/models/baseline-v1/model.pkl"
+# and configure an S3 ServiceAccount instead of a PVC.
+#
+# Apply with:
+#   kubectl apply -f ml/serving/kserve/predictors.yaml
+# Then copy the model:
+#   kubectl cp ml/models/artifacts/model.pkl \
+#     kserve-inference/<model-copy-pod>:/mnt/models/artifacts/model.pkl
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kserve-inference
+  labels:
+    app: mlops
+
+---
+# PersistentVolumeClaim — a storage volume that survives pod restarts.
+# The predictor pod mounts this at /mnt/pvc and reads model.pkl from it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-store-pvc
+  namespace: kserve-inference
+spec:
+  accessModes:
+    - ReadWriteOnce         # one pod can read/write at a time (fine for serving)
+  resources:
+    requests:
+      storage: 1Gi          # adjust up if your model file is large
+
+---
+# One-shot Job: copies model.pkl from the local filesystem into the PVC.
+# This runs once after `kubectl apply` and then completes.
+# In production: your CI/CD pipeline uploads the model to S3 instead.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: model-copy-job
+  namespace: kserve-inference
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      volumes:
+        - name: model-store
+          persistentVolumeClaim:
+            claimName: model-store-pvc
+      initContainers:
+        # initContainer creates the target directory inside the PVC
+        - name: mkdir
+          image: busybox:1.36
+          command: ["mkdir", "-p", "/mnt/models/artifacts"]
+          volumeMounts:
+            - name: model-store
+              mountPath: /mnt/models
+      containers:
+        - name: model-copier
+          image: busybox:1.36
+          # In CI/CD: replace this with a real copy from S3/GCS
+          # For local dev: use `kubectl cp` after the job pod starts
+          command:
+            - sh
+            - -c
+            - |
+              echo "Model PVC ready. Use kubectl cp to copy model.pkl:"
+              echo "kubectl cp ml/models/artifacts/model.pkl \\"
+              echo "  kserve-inference/$(hostname):/mnt/models/artifacts/model.pkl"
+              sleep 30
+          volumeMounts:
+            - name: model-store
+              mountPath: /mnt/models
+
+---
+# ServiceAccount used by the InferenceService predictor pod.
+# In production: annotate this with an IAM role (AWS) or Workload Identity (GKE)
+# so KServe can pull model files from S3/GCS without storing credentials.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kserve-sa
+  namespace: kserve-inference

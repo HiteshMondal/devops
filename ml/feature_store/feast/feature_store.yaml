@@ -1,0 +1,38 @@
+# ml/feature_store/feast/feature_store.yaml
+#
+# Feast — Feature Store Configuration
+# -------------------------------------
+# A Feature Store is a central place to define, compute, store, and serve
+# features so that:
+#   - Training uses the same feature logic as serving (no training-serving skew)
+#   - Features can be reused across multiple models
+#
+# Feast splits storage into two:
+#   offline store — historical data used for training (here: a local file)
+#   online store  — low-latency store queried at prediction time (here: SQLite)
+#
+# In production you would swap these for BigQuery / S3 (offline) and
+# Redis / DynamoDB (online).
+#
+# Apply with:
+#   cd ml/feature_store/feast && feast apply
+
+project: devops-aiml          # logical name for this feature store
+provider: local               # "local" works on any machine; use "gcp"/"aws" in prod
+
+# Offline store — where historical feature data lives
+# "file" means Feast reads from local Parquet files (great for development)
+offline_store:
+  type: file
+
+# Online store — low-latency store used at prediction time
+# SQLite is fine for local dev; swap for Redis in production
+online_store:
+  type: sqlite
+  path: ml/feature_store/feast/online_store.db   # created automatically on feast materialize
+
+# Registry — tracks feature definitions (like a schema catalogue)
+registry: ml/feature_store/feast/registry.db     # local file; use GCS/S3 path in prod
+
+# Entity key serialization — how Feast encodes composite keys internally
+entity_key_serialization_version: 2
