@@ -205,10 +205,6 @@ process_tpl_files() {
 }
 
 deploy_evidently() {
-    if [[ "${EVIDENTLY_ENABLED}" != "true" ]]; then
-        print_info "Evidently disabled (EVIDENTLY_ENABLED=false)"
-        return 0
-    fi
 
     print_subsection "Deploying Evidently (Drift Detection)"
 
@@ -236,45 +232,59 @@ deploy_evidently() {
 }
 
 deploy_whylogs() {
+    print_subsection "Running WhyLogs Profiling (Local)"
 
-    if [[ "${WHYLOGS_ENABLED:-true}" != "true" ]]; then
-        print_info "WhyLogs profiling disabled"
+    if ! command -v python3 >/dev/null 2>&1; then
+        print_warning "python3 not found — skipping WhyLogs"
+        print_info "Install Python 3 and re-run, or run manually:"
+        print_cmd "" "python3 monitoring/whylogs/whylogs.py"
         return 0
     fi
 
-    print_subsection "Running WhyLogs Profiling (Local)"
+    # whylogs supports Python 3.8–3.12; find the best available version
+    local WHYLOGS_PYTHON=""
+    local SYSTEM_PY_VER
+    SYSTEM_PY_VER=$(python3 -c 'import sys; print(sys.version_info[:2])' 2>/dev/null || echo "(0, 0)")
 
-    if command -v python3 >/dev/null 2>&1; then
-        print_step "Installing whylogs (if missing)..."
-        local WHYLOGS_PYTHON=""
-        for py in python3.12 python3.11 python3.10; do
-            if command -v "$py" >/dev/null 2>&1; then
-                WHYLOGS_PYTHON="$py"
-                break
-            fi
-        done
-
-        if [[ -z "$WHYLOGS_PYTHON" ]]; then
-            print_warning "whylogs requires Python 3.10–3.12 (not 3.13+) — skipping"
-            return 0
+    # Try versioned binaries first (most reliable on systems with multiple Pythons)
+    for py in python3.12 python3.11 python3.10 python3.9 python3.8; do
+        if command -v "$py" >/dev/null 2>&1; then
+            WHYLOGS_PYTHON="$py"
+            break
         fi
+    done
 
-        "$WHYLOGS_PYTHON" -m venv /tmp/devops-whylogs-venv >/dev/null 2>&1
-        /tmp/devops-whylogs-venv/bin/pip install --quiet \
-            "whylogs==1.6.4" "numpy<2" pandas pyyaml \
-            || print_warning "whylogs pip install had issues — continuing"
-
-        print_step "Generating dataset profile..."
-        if /tmp/devops-whylogs-venv/bin/python "${PROJECT_ROOT}/monitoring/whylogs/whylogs.py"; then
-            print_success "WhyLogs profile generated locally"
-            print_kv "Profiles dir" "${PROJECT_ROOT}/monitoring/whylogs/profiles"
-        else
-            print_warning "WhyLogs profiling finished with warnings"
+    # Fall back to system python3 if it is in the supported range (< 3.13)
+    if [[ -z "$WHYLOGS_PYTHON" ]]; then
+        local major minor
+        major=$(python3 -c 'import sys; print(sys.version_info.major)' 2>/dev/null || echo 0)
+        minor=$(python3 -c 'import sys; print(sys.version_info.minor)' 2>/dev/null || echo 0)
+        if [[ "$major" -eq 3 && "$minor" -le 12 ]]; then
+            WHYLOGS_PYTHON="python3"
         fi
+    fi
+
+    if [[ -z "$WHYLOGS_PYTHON" ]]; then
+        print_warning "whylogs requires Python 3.8–3.12; detected version is not compatible"
+        print_info "Install a supported Python version or run manually with a compatible interpreter:"
+        print_cmd "" "python3.12 monitoring/whylogs/whylogs.py"
+        return 0
+    fi
+
+    print_step "Using $($WHYLOGS_PYTHON --version 2>&1) for WhyLogs..."
+    print_step "Installing whylogs (if missing)..."
+
+    "$WHYLOGS_PYTHON" -m venv /tmp/devops-whylogs-venv >/dev/null 2>&1
+    /tmp/devops-whylogs-venv/bin/pip install --quiet \
+        "whylogs==1.6.4" "numpy<2" pandas pyyaml \
+        || { print_warning "whylogs pip install had issues — skipping"; return 0; }
+
+    print_step "Generating dataset profile..."
+    if /tmp/devops-whylogs-venv/bin/python "${PROJECT_ROOT}/monitoring/whylogs/whylogs.py"; then
+        print_success "WhyLogs profile generated"
+        print_kv "Profiles dir" "${PROJECT_ROOT}/monitoring/whylogs/profiles"
     else
-        print_warning "python3 not found — skipping WhyLogs"
-        print_info "Run manually:"
-        print_cmd "" "python3 monitoring/whylogs/whylogs.py"
+        print_warning "WhyLogs profiling finished with warnings (no data yet?)"
     fi
 }
 

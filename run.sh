@@ -52,7 +52,7 @@ _menu() {
     local n=${#options[@]}
 
     echo ""
-    echo -e "  ${BOLD}${BRIGHT_CYAN}┌─  ${title}${RESET}"
+    echo -e "  ${BOLD}${BRIGHT_CYAN}┌  ${title}${RESET}"
 
     local i=1
     for opt in "${options[@]}"; do
@@ -530,27 +530,99 @@ deploy_loki()       { _run_step "Loki Logging"         "$PROJECT_ROOT/monitoring
 deploy_trivy()      { _run_step "Trivy Security Scan"  "$PROJECT_ROOT/monitoring/trivy/trivy.sh"; }
 deploy_mlops() {
     print_subsection "MLOps Pipeline"
-    print_step "Running preprocessing..."
-    python3 "$PROJECT_ROOT/app/src/prepare.py" \
-        || { print_warning "Preprocessing had issues — continuing"; }
-    
-    print_step "Running training pipeline..."
-    python3 "$PROJECT_ROOT/ml/pipelines/metaflow/training_flow.py" run \
-        || { print_warning "Training pipeline had issues — continuing"; }
 
-    print_step "Running retraining flow..."
-    PREFECT_VENV="/tmp/devops-prefect-venv"
-    if [[ ! -d "$PREFECT_VENV" ]]; then
-        python3 -m venv "$PREFECT_VENV"
-        "$PREFECT_VENV/bin/pip" install --quiet prefect
+    #  helper: pretty step header 
+    _mlops_step() {
+        local icon="$1" label="$2"
+        echo ""
+        echo -e "  ${BOLD}${BRIGHT_CYAN}┌ ${icon}  ${label}${RESET}"
+    }
+    _mlops_ok()   { echo -e "  ${BOLD}${BRIGHT_CYAN}└${RESET} ${BOLD}${GREEN}✓${RESET}  $*"; }
+    _mlops_warn() { echo -e "  ${BOLD}${BRIGHT_CYAN}└${RESET} ${BOLD}${YELLOW}⚠${RESET}  $*"; }
+
+    #  1. Preprocess 
+    _mlops_step "📦" "Preprocessing data"
+    if python3 "$PROJECT_ROOT/app/src/prepare.py"; then
+        _mlops_ok "Data preprocessed → ml/data/processed/dataset.csv"
+    else
+        _mlops_warn "Preprocessing had issues — continuing with existing data"
     fi
-    "$PREFECT_VENV/bin/python" "$PROJECT_ROOT/ml/pipelines/prefect/retraining_flow.py" \
-        || { print_warning "Retraining flow had issues — continuing"; }
 
-    print_step "Running drift detection..."
-    python3 "$PROJECT_ROOT/monitoring/evidently/drift_detection.py" \
-        || { print_warning "Drift detection had issues — continuing"; }
+    #  2. Training 
+    _mlops_step "🤖" "Training model  (Metaflow)"
+    if python3 "$PROJECT_ROOT/ml/pipelines/metaflow/training_flow.py" run; then
+        # Read metrics from the written JSON for a human-friendly summary
+        local metrics_file="$PROJECT_ROOT/ml/models/artifacts/eval_metrics.json"
+        if [[ -f "$metrics_file" ]]; then
+            local acc f1
+            acc=$(python3 -c "import json; d=json.load(open('$metrics_file')); print(d.get('accuracy','n/a'))" 2>/dev/null || echo "n/a")
+            f1=$( python3 -c "import json; d=json.load(open('$metrics_file')); print(d.get('f1','n/a'))"       2>/dev/null || echo "n/a")
+            _mlops_ok "Training complete  accuracy=${BOLD}${acc}${RESET}  f1=${BOLD}${f1}${RESET}"
 
+            # Quality gate feedback
+            local min_acc="${MLOPS_MIN_ACCURACY:-0.0}"
+            local min_f1="${MLOPS_MIN_F1:-0.0}"
+            local gate_pass=true
+            python3 -c "
+acc, f1 = float('${acc}' if '${acc}' != 'n/a' else 0), float('${f1}' if '${f1}' != 'n/a' else 0)
+min_acc, min_f1 = float('${min_acc}'), float('${min_f1}')
+if acc < min_acc or f1 < min_f1:
+    print('FAIL')
+" 2>/dev/null | grep -q FAIL && gate_pass=false
+
+            if [[ "$gate_pass" == true ]]; then
+                echo -e "  ${BOLD}${BRIGHT_CYAN}│${RESET}  ${GREEN}Quality gates passed${RESET}  (min_accuracy=${min_acc}  min_f1=${min_f1})"
+            else
+                echo -e "  ${BOLD}${BRIGHT_CYAN}│${RESET}  ${YELLOW}Quality gates NOT met${RESET}  (min_accuracy=${min_acc}  min_f1=${min_f1})"
+                echo -e "  ${BOLD}${BRIGHT_CYAN}│${RESET}  ${DIM}Model saved but will not be promoted to production${RESET}"
+            fi
+        else
+            _mlops_ok "Training complete (no metrics file found)"
+        fi
+    else
+        _mlops_warn "Training pipeline had issues — model may not have been updated"
+    fi
+
+    #  3. Drift detection 
+    _mlops_step "📊" "Drift detection  (Evidently)"
+    local evidently_venv="/tmp/devops-evidently-venv"
+    if [[ ! -d "$evidently_venv" ]]; then
+        python3 -m venv "$evidently_venv" >/dev/null 2>&1
+        "$evidently_venv/bin/pip" install --quiet "evidently==0.7.21" pandas pyyaml
+    fi
+    if "$evidently_venv/bin/python" "$PROJECT_ROOT/monitoring/evidently/drift_detection.py"; then
+        local drift_share
+        drift_share=$(python3 -c "
+import json, os
+p = '${PROJECT_ROOT}/monitoring/evidently/reports/drift_summary.json'
+if os.path.exists(p):
+    d = json.load(open(p))
+    v = d.get('metrics',[{}])[0].get('result',{}).get('share_of_drifted_columns', 0.0)
+    print(f'{v:.1%}')
+else:
+    print('unknown')
+" 2>/dev/null || echo "unknown")
+        local threshold="${DRIFT_THRESHOLD:-0.1}"
+        _mlops_ok "Drift share: ${BOLD}${drift_share}${RESET}  (threshold: $(python3 -c "print(f'{float(\"${threshold}\"):.0%}')" 2>/dev/null || echo "${threshold}"))"
+        print_kv "  Report" "${PROJECT_ROOT}/monitoring/evidently/reports/drift_report.html"
+    else
+        _mlops_warn "Drift detection had issues (no reference data yet?)"
+    fi
+
+    #  4. Retraining flow 
+    _mlops_step "🔄" "Automated retraining check  (Prefect)"
+    local prefect_venv="/tmp/devops-prefect-venv"
+    if [[ ! -d "$prefect_venv" ]]; then
+        python3 -m venv "$prefect_venv" >/dev/null 2>&1
+        "$prefect_venv/bin/pip" install --quiet prefect
+    fi
+    if "$prefect_venv/bin/python" "$PROJECT_ROOT/ml/pipelines/prefect/retraining_flow.py"; then
+        _mlops_ok "Retraining flow complete"
+    else
+        _mlops_warn "Retraining flow had issues"
+    fi
+
+    echo ""
     print_success "MLOps Pipeline complete"
     print_divider
 }
