@@ -92,11 +92,18 @@ id_rsa*
 *.backup
 *.old
 
-# MONITORING DATA (runtime volumes — not config files)
-monitoring/evidently/reports/
-monitoring/whylogs/profiles/
+# MONITORING DATA (runtime-generated artifacts — never commit)
+monitoring/**/reports/
+monitoring/**/profiles/
+monitoring/**/data/
+monitoring/**/storage/
+
+# Prometheus / Grafana persistent volumes
 prometheus-data/
 grafana-data/
+
+# Evidently HTML/JSON reports fallback rule
+**/evidently/**/reports/
 
 # TEMPORARY FILES
 tmp/
