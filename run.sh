@@ -540,47 +540,12 @@ deploy_mlops() {
     _mlops_ok()   { echo -e "  ${BOLD}${BRIGHT_CYAN}└${RESET} ${BOLD}${GREEN}✓${RESET}  $*"; }
     _mlops_warn() { echo -e "  ${BOLD}${BRIGHT_CYAN}└${RESET} ${BOLD}${YELLOW}⚠${RESET}  $*"; }
 
-    #  1. Preprocess 
-    _mlops_step "📦" "Preprocessing data"
-    if python3 "$PROJECT_ROOT/app/src/prepare.py"; then
-        _mlops_ok "Data preprocessed → ml/data/processed/dataset.csv"
+    _mlops_step "⚙️" "Running DVC pipeline"
+
+    if bash "$PROJECT_ROOT/ml/pipelines/dvc/run_dvc.sh"; then
+        _mlops_ok "DVC lifecycle completed successfully"
     else
-        _mlops_warn "Preprocessing had issues — continuing with existing data"
-    fi
-
-    #  2. Training 
-    _mlops_step "🤖" "Training model  (Metaflow)"
-    if python3 "$PROJECT_ROOT/ml/pipelines/metaflow/training_flow.py" run; then
-        # Read metrics from the written JSON for a human-friendly summary
-        local metrics_file="$PROJECT_ROOT/ml/models/artifacts/eval_metrics.json"
-        if [[ -f "$metrics_file" ]]; then
-            local acc f1
-            acc=$(python3 -c "import json; d=json.load(open('$metrics_file')); print(d.get('accuracy','n/a'))" 2>/dev/null || echo "n/a")
-            f1=$( python3 -c "import json; d=json.load(open('$metrics_file')); print(d.get('f1','n/a'))"       2>/dev/null || echo "n/a")
-            _mlops_ok "Training complete  accuracy=${BOLD}${acc}${RESET}  f1=${BOLD}${f1}${RESET}"
-
-            # Quality gate feedback
-            local min_acc="${MLOPS_MIN_ACCURACY:-0.0}"
-            local min_f1="${MLOPS_MIN_F1:-0.0}"
-            local gate_pass=true
-            python3 -c "
-acc, f1 = float('${acc}' if '${acc}' != 'n/a' else 0), float('${f1}' if '${f1}' != 'n/a' else 0)
-min_acc, min_f1 = float('${min_acc}'), float('${min_f1}')
-if acc < min_acc or f1 < min_f1:
-    print('FAIL')
-" 2>/dev/null | grep -q FAIL && gate_pass=false
-
-            if [[ "$gate_pass" == true ]]; then
-                echo -e "  ${BOLD}${BRIGHT_CYAN}│${RESET}  ${GREEN}Quality gates passed${RESET}  (min_accuracy=${min_acc}  min_f1=${min_f1})"
-            else
-                echo -e "  ${BOLD}${BRIGHT_CYAN}│${RESET}  ${YELLOW}Quality gates NOT met${RESET}  (min_accuracy=${min_acc}  min_f1=${min_f1})"
-                echo -e "  ${BOLD}${BRIGHT_CYAN}│${RESET}  ${DIM}Model saved but will not be promoted to production${RESET}"
-            fi
-        else
-            _mlops_ok "Training complete (no metrics file found)"
-        fi
-    else
-        _mlops_warn "Training pipeline had issues — model may not have been updated"
+        _mlops_warn "DVC pipeline execution failed"
     fi
 
     #  3. Drift detection 

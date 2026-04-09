@@ -1,6 +1,0 @@
-training:
-  experiment_name: baseline
-  metrics: [accuracy, f1, roc_auc]
-  save_model: true
-  model_output: ml/models/artifacts/model.pkl
-  metrics_output: ml/models/artifacts/eval_metrics.json

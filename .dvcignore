@@ -1,35 +1,18 @@
-# .dvcignore — patterns DVC will not track (same syntax as .gitignore)
-
-# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
-.venv/
-venv/
-dist/
-build/
 
-# Notebooks
 .ipynb_checkpoints/
-*.ipynb
 
-# Logs and temp
 *.log
 *.tmp
 *.swp
-tmp/
-logs/
 
-# IDE
 .vscode/
 .idea/
 
-# OS
 .DS_Store
 Thumbs.db
 
-# Experiment outputs that are tracked elsewhere (Neptune / MLflow)
 experiments/
-
-# LakeFS local cache
 .lakefs/

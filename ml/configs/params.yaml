@@ -1,9 +1,46 @@
+dataset:
+  raw_path: ml/data/raw/dataset.csv
+  processed_path: ml/data/processed/dataset.csv
+  features_path: ml/data/features/features.csv
+  train_path: ml/data/features/train.csv
+  test_path: ml/data/features/test.csv
+
+  target_column: target
+  test_size: 0.2
+  random_state: 42
+
+
+features:
+  numeric: []
+  categorical: []
+  encoding: onehot
+  scaling: standard
+
+
 model:
   type: RandomForestClassifier
   n_estimators: 100
   max_depth: 5
   random_state: 42
 
-features:
-  numeric: []   # populated at runtime
-  categorical: []
+
+training:
+  experiment_name: baseline
+  metrics:
+    - accuracy
+    - f1
+    - roc_auc
+
+  save_model: true
+  model_output: ml/models/artifacts/model.pkl
+  metrics_output: ml/models/artifacts/eval_metrics.json
+
+
+deployment:
+  model_name: baseline-v1
+  replicas: 2
+  serving_port: 3000
+
+  drift:
+    threshold: 0.1
+    retraining_trigger: true

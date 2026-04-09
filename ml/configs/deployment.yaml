@@ -1,7 +1,0 @@
-deployment:
-  model_name: baseline-v1
-  model_path: ml/models/artifacts/model.pkl
-  serving_port: 3000
-  replicas: 2
-  drift_threshold: 0.1
-  retraining_trigger: drift

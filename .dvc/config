@@ -1,2 +1,5 @@
 [core]
     no_scm = True
+    remote = localremote
+['remote "localremote"']
+    url = /tmp/dvc-storage

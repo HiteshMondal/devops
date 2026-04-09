@@ -1,7 +1,0 @@
-dataset:
-  raw_path: ml/data/raw/dataset.csv
-  processed_path: ml/data/processed/dataset.csv
-  features_path: ml/data/features/features.csv
-  target_column: target
-  test_size: 0.2
-  random_state: 42

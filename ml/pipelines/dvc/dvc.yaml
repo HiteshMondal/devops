@@ -1,22 +1,62 @@
+vars:
+  - ../../configs/params.yaml
+
 stages:
-  preprocess:
-    cmd: python -c "from app.src.prepare import load_data, preprocess; import pandas as pd; df=preprocess(load_data()); df.to_csv('ml/data/processed/dataset.csv', index=False)"
+
+  prepare:
+    cmd: python ../../../app/src/prepare.py
     deps:
-      - ml/data/raw/dataset.csv
-      - app/src/prepare.py
+      - ../../../app/src/prepare.py
+      - ${dataset.raw_path}
+    params:
+      - dataset.raw_path
+      - dataset.processed_path
     outs:
-      - ml/data/processed/dataset.csv
+      - ${dataset.processed_path}
+
+
+  feature_engineering:
+    cmd: python ../../../app/src/features.py
+    deps:
+      - ../../../app/src/features.py
+      - ${dataset.processed_path}
+    params:
+      - features
+    outs:
+      - ${dataset.features_path}
+
+
+  split:
+    cmd: python ../../../app/src/split.py
+    deps:
+      - ../../../app/src/split.py
+      - ${dataset.features_path}
+    params:
+      - dataset.test_size
+      - dataset.random_state
+    outs:
+      - ${dataset.train_path}
+      - ${dataset.test_path}
+
 
   train:
-    cmd: python ml/pipelines/metaflow/training_flow.py run
+    cmd: python ../../metaflow/training_flow.py run
     deps:
-      - ml/data/processed/dataset.csv
-      - ml/configs/params.yaml
+      - ../../metaflow/training_flow.py
+      - ${dataset.train_path}
+      - ../../configs/params.yaml
+    params:
+      - model
+      - training
     outs:
-      - ml/models/artifacts/model.pkl
-      - ml/models/artifacts/eval_metrics.json
+      - ${training.model_output}
+
 
   evaluate:
-    cmd: python -c "import json,print; print(open('ml/models/artifacts/eval_metrics.json').read())"
+    cmd: python ../../../app/src/evaluate.py
     deps:
-      - ml/models/artifacts/eval_metrics.json
+      - ../../../app/src/evaluate.py
+      - ${training.model_output}
+      - ${dataset.test_path}
+    metrics:
+      - ${training.metrics_output}
