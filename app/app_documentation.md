@@ -43,15 +43,43 @@ The guiding principle is **reproducibility**: every data transformation, trainin
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         CLIENT / KUBERNETES                         │
-│         (HTTP requests, liveness probes, readiness probes)          │
+│                                                                     │
+│  External systems interact with the application through HTTP.       │
+│                                                                     │
+│  Examples:                                                          │
+│  • Kubernetes Ingress / Service routing requests to the API         │
+│  • Load balancers or API gateways                                   │
+│  • Monitoring probes (liveness and readiness)                       │
+│  • CLI tools, curl, or frontend applications                        │
+│                                                                     │
+│  Kubernetes periodically calls:                                     │
+│  • /health → liveness probe                                         │
+│  • /ready  → readiness probe                                        │
+│                                                                     │
 └─────────────────────────────┬───────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                   FastAPI Application  (main.py)                    │
 │                                                                     │
-│  /predict   /metrics   /drift   /retrain   /model/info   /features  │
-│  /health    /ready     /lineage /tools/status    /                  │
+│  The FastAPI application acts as the central MLOps control plane.   │
+│                                                                     │
+│  It provides APIs for:                                              │
+│                                                                     │
+│  /predict         → Run real-time model inference                   │
+│  /metrics/summary → Training metrics + request statistics           │
+│  /drift/summary   → Evidently data drift reports                    │
+│  /retrain         → Trigger Prefect retraining workflow             │
+│  /model/info      → Query MLflow Model Registry                     │
+│  /features/{id}   → Retrieve features from Feast                    │
+│  /lineage/summary → View OpenLineage event history                  │
+│  /tools/status    → Health status of all MLOps tools                │
+│  /health          → Kubernetes liveness probe                       │
+│  /ready           → Kubernetes readiness probe                      │
+│  /                → Application metadata                            │
+│                                                                     │
+│  The API loads the trained model at startup and keeps it in memory  │
+│  to serve low-latency predictions.                                  │
 └──────┬──────────┬──────────┬────────────┬────────────┬──────────────┘
        │          │          │            │            │
        ▼          ▼          ▼            ▼            ▼
@@ -82,7 +110,53 @@ The application sits at the intersection of **serving** (predictions, feature lo
 
 ---
 
-## 3. Pipeline Stages
+## 3. Data Flow — End to End
+
+This section traces a single piece of data from its raw form to a live prediction.
+
+```
+1. Raw CSV (ml/data/raw/dataset.csv)
+        │
+        ▼
+2. prepare.py
+   - Drop nulls
+   - Normalise column names
+        │
+        ▼
+3. features.py
+   - StandardScaler on numeric columns
+   - OneHotEncoder on categorical columns
+        │
+        ▼
+4. split.py
+   - 80% → train.csv
+   - 20% → test.csv  (never seen during training)
+        │
+        ▼
+5. training_flow.py (Metaflow)
+   - Trains RandomForest on train.csv
+   - Saves model.pkl
+        │
+        ▼
+6. evaluate.py
+   - Loads model.pkl
+   - Runs predictions on test.csv
+   - Writes eval_metrics.json
+        │
+        ▼
+7. deploy_mlflow.sh
+   - Reads eval_metrics.json
+   - If accuracy ≥ 0.75 AND f1 ≥ 0.70 → promote to Production
+        │
+        ▼
+8. FastAPI /predict endpoint
+   - Loads model.pkl at startup
+   - Accepts feature_1, feature_2, feature_3
+   - Returns prediction + probabilities
+```
+---
+
+## 4. Pipeline Stages
 
 The pipeline is a four-step DVC workflow. Each stage takes the output of the previous one and passes it to the next. DVC hashes every input and output so that only stages affected by a change are re-run.
 
@@ -199,7 +273,7 @@ Thresholds are read from environment variables (`MLOPS_MIN_ACCURACY`, `MLOPS_MIN
 
 ---
 
-## 4. FastAPI Application (`main.py`)
+## 5. FastAPI Application (`main.py`)
 
 `main.py` is the entry point of the serving layer. It loads the trained model at startup and exposes all functionality over HTTP.
 
@@ -336,7 +410,7 @@ Re-probes every MLOps tool at request time (not cached) and returns a detailed s
 
 ---
 
-## 5. Integrated MLOps Tools
+## 6. Integrated MLOps Tools
 
 | Tool | Role | How It's Used |
 |---|---|---|
@@ -353,7 +427,7 @@ Each tool is probed at startup by `_probe_tools()`. Tools that are unreachable o
 
 ---
 
-## 6. Configuration
+## 7. Configuration
 
 All pipeline parameters are centralised in `ml/configs/params.yaml`. This file is versioned by DVC, meaning any change is tracked alongside the data.
 
@@ -381,7 +455,7 @@ Environment variables can override quality gate thresholds:
 
 ---
 
-## 7. Dependencies
+## 8. Dependencies
 
 The application dependencies are declared in both `app/requirements.txt` and `app/pyproject.toml`.
 
@@ -402,53 +476,6 @@ Optional tools (installed separately): `mlflow`, `feast`, `prefect`, `joblib`.
 
 ---
 
-## 8. Data Flow — End to End
-
-This section traces a single piece of data from its raw form to a live prediction.
-
-```
-1. Raw CSV (ml/data/raw/dataset.csv)
-        │
-        ▼
-2. prepare.py
-   - Drop nulls
-   - Normalise column names
-        │
-        ▼
-3. features.py
-   - StandardScaler on numeric columns
-   - OneHotEncoder on categorical columns
-        │
-        ▼
-4. split.py
-   - 80% → train.csv
-   - 20% → test.csv  (never seen during training)
-        │
-        ▼
-5. training_flow.py (Metaflow)
-   - Trains RandomForest on train.csv
-   - Saves model.pkl
-        │
-        ▼
-6. evaluate.py
-   - Loads model.pkl
-   - Runs predictions on test.csv
-   - Writes eval_metrics.json
-        │
-        ▼
-7. deploy_mlflow.sh
-   - Reads eval_metrics.json
-   - If accuracy ≥ 0.75 AND f1 ≥ 0.70 → promote to Production
-        │
-        ▼
-8. FastAPI /predict endpoint
-   - Loads model.pkl at startup
-   - Accepts feature_1, feature_2, feature_3
-   - Returns prediction + probabilities
-```
-
----
-
 ## 9. Quality Gates
 
 Quality gates are the automated checkpoints that decide whether a newly trained model is good enough to serve production traffic.
@@ -465,75 +492,6 @@ evaluate.py writes eval_metrics.json
 ```
 
 The thresholds are intentionally externalised to environment variables (`MLOPS_MIN_ACCURACY`, `MLOPS_MIN_F1`) so they can be adjusted per environment (e.g., stricter in production, looser in a staging experiment) without changing code.
-
----
-
-## 10. Running the Application
-
-### Prerequisites
-
-- Python 3.11 or later
-- A trained model at `ml/models/artifacts/model.pkl`
-- The processed dataset at the path configured in `ml/configs/params.yaml`
-
-### Install dependencies
-
-```bash
-cd app
-pip install -r requirements.txt
-```
-
-### Run the full pipeline (DVC)
-
-This runs all four pipeline stages in order and trains the model:
-
-```bash
-bash ml/pipelines/dvc/run_dvc.sh
-```
-
-### Start the API server
-
-```bash
-uvicorn app.src.main:app --host 0.0.0.0 --port 3000 --reload
-```
-
-### Verify the app is running
-
-```bash
-# Liveness
-curl http://localhost:3000/health
-
-# Readiness (503 if model not loaded)
-curl http://localhost:3000/ready
-
-# Make a prediction
-curl -X POST http://localhost:3000/predict \
-     -H "Content-Type: application/json" \
-     -d '{"feature_1": 0.5, "feature_2": -0.3, "feature_3": 7.2}'
-
-# Check all tool statuses
-curl http://localhost:3000/tools/status
-
-# Interactive API docs
-open http://localhost:3000/docs
-```
-
-### Trigger retraining manually
-
-```bash
-curl -X POST http://localhost:3000/retrain
-# Wait ~30 seconds, then check:
-curl http://localhost:3000/metrics/summary
-```
-
-### Run individual pipeline stages
-
-```bash
-python app/src/prepare.py
-python app/src/features.py
-python app/src/split.py
-python app/src/evaluate.py
-```
 
 ---
 
