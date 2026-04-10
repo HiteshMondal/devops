@@ -549,47 +549,12 @@ deploy_mlops() {
     fi
 
     #  3. Drift detection 
-    _mlops_step "📊" "Drift detection  (Evidently)"
-    local evidently_venv="/tmp/devops-evidently-venv"
-    if [[ ! -d "$evidently_venv" ]]; then
-        python3 -m venv "$evidently_venv" >/dev/null 2>&1
-        "$evidently_venv/bin/pip" install --quiet "evidently==0.7.21" pandas pyyaml
-    fi
-    if "$evidently_venv/bin/python" "$PROJECT_ROOT/monitoring/evidently/drift_detection.py"; then
-        local drift_share
-        drift_share=$(python3 -c "
-import json, os
-p = '${PROJECT_ROOT}/monitoring/evidently/reports/drift_summary.json'
-if os.path.exists(p):
-    d = json.load(open(p))
-    v = d.get('metrics',[{}])[0].get('result',{}).get('share_of_drifted_columns', 0.0)
-    print(f'{v:.1%}')
-else:
-    print('unknown')
-" 2>/dev/null || echo "unknown")
-        local threshold="${DRIFT_THRESHOLD:-0.1}"
-        _mlops_ok "Drift share: ${BOLD}${drift_share}${RESET}  (threshold: $(python3 -c "print(f'{float(\"${threshold}\"):.0%}')" 2>/dev/null || echo "${threshold}"))"
-        print_kv "  Report" "${PROJECT_ROOT}/monitoring/evidently/reports/drift_report.html"
-    else
-        _mlops_warn "Drift detection had issues (no reference data yet?)"
-    fi
+    _mlops_step "📊" "Drift detection (Evidently)"
+    bash "$PROJECT_ROOT/monitoring/evidently/deploy_evidently.sh"
 
     #  4. Retraining flow 
-    _mlops_step "🔄" "Automated retraining check  (Prefect)"
-    local prefect_venv="/tmp/devops-prefect-venv"
-    if [[ ! -d "$prefect_venv" ]]; then
-        python3 -m venv "$prefect_venv" >/dev/null 2>&1
-        "$prefect_venv/bin/pip" install --quiet \
-            prefect \
-            fakeredis==2.23.2 \
-            redis==5.0.4
-    fi
-    if "$prefect_venv/bin/python" "$PROJECT_ROOT/ml/pipelines/prefect/retraining_flow.py"; then
-        _mlops_ok "Retraining flow complete"
-    else
-        _mlops_warn "Retraining flow had issues"
-    fi
-
+    _mlops_step "🔄" "Automated retraining check (Prefect)"
+    bash "$PROJECT_ROOT/ml/pipelines/prefect/deploy_prefect.sh"
     echo ""
     print_success "MLOps Pipeline complete"
     print_divider
