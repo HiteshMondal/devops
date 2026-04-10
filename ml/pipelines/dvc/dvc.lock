@@ -20,3 +20,97 @@ stages:
       hash: md5
       md5: 51038663b75a5393efafce9489633dd3
       size: 29431
+  feature_engineering:
+    cmd: python app/src/features.py
+    deps:
+    - path: app/src/features.py
+      hash: md5
+      md5: b0d445fa6ddf1b8e6db04ec9e67351a7
+      size: 1284
+    - path: ml/data/processed/dataset.csv
+      hash: md5
+      md5: 51038663b75a5393efafce9489633dd3
+      size: 29431
+    params:
+      params.yaml:
+        dataset.features_path: ml/data/features/features.csv
+        features:
+          numeric: []
+          categorical: []
+          encoding: onehot
+          scaling: standard
+    outs:
+    - path: ml/data/features/features.csv
+      hash: md5
+      md5: ee276d76c0bcd0abc50329a4c9814604
+      size: 29428
+  split:
+    cmd: python app/src/split.py
+    deps:
+    - path: app/src/split.py
+      hash: md5
+      md5: ae27a954a982f5a636cfd31d2580316e
+      size: 820
+    - path: ml/data/features/features.csv
+      hash: md5
+      md5: ee276d76c0bcd0abc50329a4c9814604
+      size: 29428
+    params:
+      params.yaml:
+        dataset.random_state: 42
+        dataset.test_path: ml/data/features/test.csv
+        dataset.test_size: 0.2
+        dataset.train_path: ml/data/features/train.csv
+    outs:
+    - path: ml/data/features/test.csv
+      hash: md5
+      md5: 7addc6e6ae47d8c35e5e95899dbe8c30
+      size: 5909
+    - path: ml/data/features/train.csv
+      hash: md5
+      md5: 0f2dd72394db98d8bff82618b55c7594
+      size: 23556
+  train:
+    cmd: python ml/pipelines/metaflow/training_flow.py run
+    deps:
+    - path: ml/data/features/train.csv
+      hash: md5
+      md5: 0f2dd72394db98d8bff82618b55c7594
+      size: 23556
+    - path: ml/pipelines/metaflow/training_flow.py
+      hash: md5
+      md5: 0f95d566f00ebb2263b4552a1946a617
+      size: 9403
+    params:
+      params.yaml:
+        model:
+          type: RandomForestClassifier
+          n_estimators: 100
+          max_depth: 5
+          random_state: 42
+        training.model_output: ml/models/artifacts/model.pkl
+    outs:
+    - path: ml/models/artifacts/model.pkl
+      hash: md5
+      md5: 082aebb29a5bb5abdb895f5898578285
+      size: 317958
+  evaluate:
+    cmd: python app/src/evaluate.py
+    deps:
+    - path: app/src/evaluate.py
+      hash: md5
+      md5: 2f34bac3526e6cb6bc5ecba5695d1be2
+      size: 906
+    - path: ml/data/features/test.csv
+      hash: md5
+      md5: 7addc6e6ae47d8c35e5e95899dbe8c30
+      size: 5909
+    - path: ml/models/artifacts/model.pkl
+      hash: md5
+      md5: 082aebb29a5bb5abdb895f5898578285
+      size: 317958
+    outs:
+    - path: ml/models/artifacts/eval_metrics.json
+      hash: md5
+      md5: a491096e8661360da466dabd825bee4c
+      size: 22

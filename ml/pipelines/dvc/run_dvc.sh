@@ -29,7 +29,14 @@ if ! command -v dvc &> /dev/null; then
     fi
 
     source .venv/bin/activate
-    pip install --quiet "dvc[s3]"  # add s3/gdrive/azure if needed
+
+    pip install --quiet \
+        "dvc[all]" \
+        metaflow \
+        scikit-learn \
+        pandas \
+        pyyaml \
+        joblib
 
     ok "DVC installed in .venv"
 else
@@ -90,8 +97,8 @@ dvc metrics show || warn "No metrics found"
 # 8. Run Experiment (optional)
 step "Running experiment"
 
-if dvc exp run --queue; then
-    ok "Experiment queued"
+if dvc exp save --name "auto-$(date +%s)"; then
+    ok "Experiment saved"
     dvc exp show
 else
     warn "Experiment run skipped"

@@ -146,10 +146,15 @@ def emit_lineage(**context):
     """
     import sys
     sys.path.insert(0, PROJECT_ROOT)
-    from ml.lineage.openlineage.lineage_emitter import (
-        emit_preprocessing_lineage,
-        emit_training_lineage,
+    import importlib.util, os
+    spec = importlib.util.spec_from_file_location(
+        "lineage_emitter",
+        os.path.join(PROJECT_ROOT, "ml/lineage/openlineage/lineage_emitter.py")
     )
+    _mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(_mod)
+    emit_preprocessing_lineage = _mod.emit_preprocessing_lineage
+    emit_training_lineage = _mod.emit_training_lineage
 
     metrics_path = os.path.join(PROJECT_ROOT, "ml/models/artifacts/eval_metrics.json")
     metrics = {}

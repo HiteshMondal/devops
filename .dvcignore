@@ -14,5 +14,7 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-experiments/
-.lakefs/
+.metaflow/
+
+.dvc/cache/
+.dvc/tmp/

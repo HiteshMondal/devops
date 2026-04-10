@@ -364,6 +364,8 @@ def retrain(background_tasks: BackgroundTasks):
             )
             print("[retrain] Prefect retraining flow completed")
             # Reload the model in memory after retraining finishes
+            import sys, os
+            sys.path.insert(0, PROJECT_ROOT)
             from app.src.prepare import load_model
             model_path = os.getenv("MODEL_PATH", "ml/models/artifacts/model.pkl")
             app_state["model"] = load_model(model_path)

@@ -72,8 +72,8 @@ from mlflow.tracking import MlflowClient
 tracking_uri = "${MLFLOW_TRACKING_URI}"
 metrics_file = "${METRICS_FILE}"
 model_name   = "${MODEL_NAME}"
-min_acc      = float("${MIN_ACCURACY}")
-min_f1       = float("${MIN_F1}")
+min_acc      = float("${MIN_ACCURACY:-0.75}")
+min_f1       = float("${MIN_F1:-0.70}")
 
 # Load the metrics produced by training_flow.py
 with open(metrics_file) as f:

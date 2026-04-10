@@ -75,9 +75,9 @@ cat > "${FEATURE_REPO}/features.py" <<'PYEOF'
 # similar but the classes come from the `tecton` package.
 
 import tecton
+from datetime import datetime, timedelta
 from tecton import Entity, FileSource, FeatureView, Field
 from tecton.types import Float64
-from datetime import timedelta
 
 # Entity — the join key shared between features and prediction requests
 row_entity = tecton.Entity(

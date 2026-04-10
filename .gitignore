@@ -109,24 +109,27 @@ grafana-data/
 tmp/
 temp/
 
-# ML — DATA & MODEL ARTIFACTS
-# Managed by DVC / LakeFS — commit only the pointer files, not the data
+# ML DATA — managed by DVC / LakeFS
 
-# Raw and processed datasets (DVC tracks these via *.dvc pointer files)
-ml/data/raw/
-ml/data/processed/
-ml/data/interim/
-ml/data/external/
-ml/data/features/
+# Ignore datasets
+ml/data/raw/**
+ml/data/processed/**
+ml/data/interim/**
+ml/data/external/**
+ml/data/features/**
 
-# Keep DVC pointer files and config
-!ml/data/raw.dvc
+# Allow DVC pointer files
 !ml/data/**/*.dvc
 
-# Trained model artifacts (large binaries — no value in git)
-ml/models/artifacts/
+# MODEL ARTIFACTS
 
-# Common ML model file extensions (belt-and-suspenders)
+ml/models/artifacts/**
+
+# Allow lightweight metrics tracking (optional but recommended)
+!ml/models/artifacts/eval_metrics.json
+
+
+# COMMON MODEL FILE TYPES
 *.pt
 *.pth
 *.h5
@@ -139,35 +142,9 @@ ml/models/artifacts/
 *.bin
 *.safetensors
 
+
 # DVC
 .dvc/cache/
 .dvc/tmp/
 .dvc/plots/
 .dvc/config.local
-# NOTE: dvc.lock IS intentionally tracked — do not add it here
-
-# METAFLOW
-.metaflow/
-
-# EXPERIMENT TRACKING
-.neptune/
-mlruns/
-mlflow-artifacts/
-
-# FEATURE STORE
-ml/feature_store/feast/online_store.db
-ml/feature_store/feast/registry.db
-ml/feature_store/tecton/feature_repo/
-
-# LAKEFS
-.lakectl/
-ml/lakefs/hooks/
-ml/lakefs/repositories/
-
-# CI/CD
-**/.gitlab-runner/
-platform/cicd/argo/generated/
-
-# ANSIBLE (retained for completeness if added later)
-*.retry
-.ansible_facts/

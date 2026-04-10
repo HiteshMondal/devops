@@ -153,6 +153,10 @@ deploy_inference_service() {
 
 #  Main 
 main() {
+    if ! command -v helm >/dev/null 2>&1; then
+        print_error "helm is required but not found"
+        exit 1
+    fi
     install_kserve
     setup_storage
     copy_model

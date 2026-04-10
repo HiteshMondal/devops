@@ -125,7 +125,7 @@ def retraining_flow():
     """
     drift_detected = check_drift()
 
-    if drift_detected:
+    if drift_detected.result() if hasattr(drift_detected, 'result') else drift_detected:
         retrain()
     else:
         print("[retraining_flow] No drift — skipping retraining")
