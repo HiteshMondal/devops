@@ -1,1 +1,0 @@
-{"flow_id": "TrainingFlow", "run_number": "1775145746571073", "step_name": "featurize", "task_id": "3", "field_name": "ds-root", "type": "ds-root", "value": "/home/hitesh/Documents/Projects/devops/.metaflow", "tags": ["attempt_id:0"], "user_name": "hitesh", "ts_epoch": 1775145749618}

@@ -1,1 +1,0 @@
-{"flow_id": "TrainingFlow", "run_number": "1775557600176528", "step_name": "train", "task_id": "2", "field_name": "metaflow_version", "type": "metaflow_version", "value": "2.19.22", "tags": ["attempt_id:0"], "user_name": "hitesh", "ts_epoch": 1775557601729}
