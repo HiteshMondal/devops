@@ -87,7 +87,7 @@ The runner interactively guides you through environment, component, and cloud pr
 
 ## Core Stack
 
-* **Application**: FastAPI (Python) — [`app/src/main.py`](./app/src/main.py)
+* **Application**: FastAPI (Python) — [`app/app_documentation.md`](./app/app_documentation.md)
 * **Containerization**: Docker / Podman — [`app/docker/docker_documentation.md`](./app/docker/docker_documentation.md)
 * **Orchestration**: Kubernetes — [`app/k8s/documentation.md`](./app/k8s/documentation.md)
 * **CI/CD** | GitHub Actions · GitLab CI · ArgoCD |
