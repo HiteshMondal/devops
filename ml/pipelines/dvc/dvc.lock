@@ -1,0 +1,22 @@
+schema: '2.0'
+stages:
+  prepare:
+    cmd: python app/src/prepare.py
+    deps:
+    - path: app/src/prepare.py
+      hash: md5
+      md5: 62f971da9dad6d87937dc061bc7e5e14
+      size: 4346
+    - path: ml/data/raw/dataset.csv
+      hash: md5
+      md5: bbdf63b126e5f7c55bdd9be7d9d61379
+      size: 29820
+    params:
+      params.yaml:
+        dataset.processed_path: ml/data/processed/dataset.csv
+        dataset.raw_path: ml/data/raw/dataset.csv
+    outs:
+    - path: ml/data/processed/dataset.csv
+      hash: md5
+      md5: 51038663b75a5393efafce9489633dd3
+      size: 29431

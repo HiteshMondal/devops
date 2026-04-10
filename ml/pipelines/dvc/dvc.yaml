@@ -1,62 +1,85 @@
-vars:
-  - ../../configs/params.yaml
-
 stages:
 
   prepare:
-    cmd: python ../../../app/src/prepare.py
+    desc: Clean raw dataset and generate processed dataset
+    wdir: ../../../
+    cmd: python app/src/prepare.py
+
     deps:
-      - ../../../app/src/prepare.py
-      - ${dataset.raw_path}
+      - app/src/prepare.py
+      - ml/data/raw/dataset.csv
+
     params:
       - dataset.raw_path
       - dataset.processed_path
+
     outs:
-      - ${dataset.processed_path}
+      - ml/data/processed/dataset.csv
 
 
   feature_engineering:
-    cmd: python ../../../app/src/features.py
+    desc: Generate feature matrix from processed dataset
+    wdir: ../../../
+    cmd: python app/src/features.py
+
     deps:
-      - ../../../app/src/features.py
-      - ${dataset.processed_path}
+      - app/src/features.py
+      - ml/data/processed/dataset.csv
+
     params:
       - features
+      - dataset.features_path
+
     outs:
-      - ${dataset.features_path}
+      - ml/data/features/features.csv
 
 
   split:
-    cmd: python ../../../app/src/split.py
+    desc: Split dataset into train/test sets
+    wdir: ../../../
+    cmd: python app/src/split.py
+
     deps:
-      - ../../../app/src/split.py
-      - ${dataset.features_path}
+      - app/src/split.py
+      - ml/data/features/features.csv
+
     params:
       - dataset.test_size
       - dataset.random_state
+      - dataset.train_path
+      - dataset.test_path
+
     outs:
-      - ${dataset.train_path}
-      - ${dataset.test_path}
+      - ml/data/features/train.csv
+      - ml/data/features/test.csv
 
 
   train:
-    cmd: python ../../metaflow/training_flow.py run
+    desc: Train model using Metaflow training pipeline
+    wdir: ../../../
+    cmd: python ml/pipelines/metaflow/training_flow.py run
+
     deps:
-      - ../../metaflow/training_flow.py
-      - ${dataset.train_path}
-      - ../../configs/params.yaml
+      - ml/pipelines/metaflow/training_flow.py
+      - ml/data/features/train.csv
+
     params:
       - model
-      - training
+      - training.model_output
+
     outs:
-      - ${training.model_output}
+      - ml/models/artifacts/model.pkl
 
 
   evaluate:
-    cmd: python ../../../app/src/evaluate.py
+    desc: Evaluate trained model and compute metrics
+    wdir: ../../../
+    cmd: python app/src/evaluate.py
+
     deps:
-      - ../../../app/src/evaluate.py
-      - ${training.model_output}
-      - ${dataset.test_path}
+      - app/src/evaluate.py
+      - ml/models/artifacts/model.pkl
+      - ml/data/features/test.csv
+
     metrics:
-      - ${training.metrics_output}
+      - ml/models/artifacts/eval_metrics.json

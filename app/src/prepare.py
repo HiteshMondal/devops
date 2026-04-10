@@ -17,9 +17,18 @@
 import pandas as pd
 import pickle
 import os
+import yaml
 
-DATA_PATH  = os.getenv("DATA_PATH",  "ml/data/raw/dataset.csv")
-MODEL_PATH = os.getenv("MODEL_PATH", "ml/models/artifacts/model.pkl")
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+
+PARAMS_PATH = os.path.join(PROJECT_ROOT, "ml/configs/params.yaml")
+
+with open(PARAMS_PATH) as f:
+    params = yaml.safe_load(f)
+
+DATA_PATH = params["dataset"]["raw_path"]
+PROCESSED_PATH = params["dataset"]["processed_path"]
+MODEL_PATH = params["training"]["model_output"]
 
 
 def load_data(path: str = DATA_PATH) -> pd.DataFrame:
@@ -63,7 +72,7 @@ def preprocess(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def save_processed(df: pd.DataFrame, path: str = "ml/data/processed/dataset.csv"):
+def save_processed(df: pd.DataFrame, path: str = PROCESSED_PATH):
     """
     Save the cleaned DataFrame to the processed data directory.
 

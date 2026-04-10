@@ -579,7 +579,10 @@ else:
     local prefect_venv="/tmp/devops-prefect-venv"
     if [[ ! -d "$prefect_venv" ]]; then
         python3 -m venv "$prefect_venv" >/dev/null 2>&1
-        "$prefect_venv/bin/pip" install --quiet prefect
+        "$prefect_venv/bin/pip" install --quiet \
+            prefect \
+            fakeredis==2.23.2 \
+            redis==5.0.4
     fi
     if "$prefect_venv/bin/python" "$PROJECT_ROOT/ml/pipelines/prefect/retraining_flow.py"; then
         _mlops_ok "Retraining flow complete"

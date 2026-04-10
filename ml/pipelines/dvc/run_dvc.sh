@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Production DVC Runner (Full Lifecycle)
+# /ml/pipelines/dvc/run_dvc.sh
 # =============================================================================
 
 set -euo pipefail
@@ -60,7 +61,7 @@ fi
 # 4. Pull Existing Data
 step "Pulling data from remote"
 
-if dvc pull; then
+if dvc pull --force || warn "No remote data yet"; then
     ok "Data pulled"
 else
     warn "No remote data yet"
@@ -69,7 +70,7 @@ fi
 # 5. Validate Pipeline
 step "Validating pipeline"
 
-dvc dag "$DVC_FILE" || warn "DAG visualization failed"
+dvc dag "$DVC_FILE" --dot > ml/pipelines/dvc/pipeline_dag.dot || true
 
 # 6. Run Pipeline
 step "Running pipeline"

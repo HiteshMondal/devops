@@ -1,0 +1,15 @@
+strict digraph {
+"ml/pipelines/dvc/dvc.yaml:prepare";
+"ml/pipelines/dvc/dvc.yaml:feature_engineering";
+"ml/pipelines/dvc/dvc.yaml:split";
+"ml/pipelines/dvc/dvc.yaml:train";
+"ml/pipelines/dvc/dvc.yaml:evaluate";
+"ml/data/raw/dataset.csv.dvc";
+"ml/pipelines/dvc/dvc.yaml:prepare" -> "ml/pipelines/dvc/dvc.yaml:feature_engineering";
+"ml/pipelines/dvc/dvc.yaml:feature_engineering" -> "ml/pipelines/dvc/dvc.yaml:split";
+"ml/pipelines/dvc/dvc.yaml:split" -> "ml/pipelines/dvc/dvc.yaml:train";
+"ml/pipelines/dvc/dvc.yaml:split" -> "ml/pipelines/dvc/dvc.yaml:evaluate";
+"ml/pipelines/dvc/dvc.yaml:train" -> "ml/pipelines/dvc/dvc.yaml:evaluate";
+"ml/data/raw/dataset.csv.dvc" -> "ml/pipelines/dvc/dvc.yaml:prepare";
+}
+
