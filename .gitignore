@@ -147,6 +147,7 @@ ml/models/artifacts/**
 .dvc/cache/
 .dvc/tmp/
 .dvc/plots/
+.dvc/state
 .dvc/config.local
 
 # METAFLOW
