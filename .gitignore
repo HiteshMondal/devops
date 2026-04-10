@@ -148,3 +148,24 @@ ml/models/artifacts/**
 .dvc/tmp/
 .dvc/plots/
 .dvc/config.local
+
+# METAFLOW
+.metaflow/
+
+# LOCAL PLATFORM RUNTIME STATE
+.platform/
+
+# LAKEFS LOCAL STATE
+.lakefs/
+
+# FEAST LOCAL REGISTRY CACHE
+.feast/
+
+# KUBEFLOW LOCAL CACHE (sometimes generated)
+.kubeflow/
+
+# AIRFLOW LOCAL DB
+airflow.db
+
+# PREFECT LOCAL STATE
+.prefect/
