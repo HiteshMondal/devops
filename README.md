@@ -93,7 +93,7 @@ The runner interactively guides you through environment, component, and cloud pr
 * **CI/CD** | GitHub Actions · GitLab CI · ArgoCD |
 * **Infrastructure**: Terraform / OpenTofu / Pulumi — [`platform/infra/documentation.md`](./platform/infra/documentation.md)
 * **Monitoring**: Prometheus + Grafana + Loki — [`monitoring/documentation.md`](./monitoring/documentation.md)
-* **ML Pipelines** | Metaflow · Prefect · Kubeflow · DVC |
+* **ML Pipelines** | Metaflow · Prefect · Lakefs · Kubeflow · DVC |
 * **ML Tracking** | Neptune · Evidently · WhyLabs |
 
 ---
