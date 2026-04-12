@@ -67,7 +67,11 @@ install_kserve() {
     print_step "Installing KServe..."
 
     if ! helm repo list 2>/dev/null | grep -q "kserve"; then
-        helm repo add kserve https://kserve.github.io/helm-charts
+        if ! helm repo add kserve https://kserve.github.io/kserve/helm-charts 2>/dev/null; then
+            print_warning "KServe Helm repo unavailable — applying manifests directly"
+            kubectl apply -f "${SCRIPT_DIR}/inference_service.yaml" || true
+            return
+        fi
         helm repo update >/dev/null
     fi
 

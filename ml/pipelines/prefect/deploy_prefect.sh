@@ -21,6 +21,8 @@ PREFECT_VENV="$PROJECT_ROOT/.platform/venvs/prefect"
 PREFECT_HOME="$PROJECT_ROOT/.platform/prefect"
 
 FLOW_FILE="$PROJECT_ROOT/ml/pipelines/prefect/retraining_flow.py"
+export FLOW_FILE
+export PROJECT_ROOT
 
 echo
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -43,9 +45,10 @@ echo "[prefect] Preparing runtime metadata directory..."
 mkdir -p "$PREFECT_HOME"
 
 export PREFECT_HOME="$PREFECT_HOME"
-export PREFECT_API_MODE="ephemeral"
 export PREFECT_SERVER_ALLOW_EPHEMERAL_MODE="true"
-
+export PREFECT_API_SERVICES_LATE_RUNS_ENABLED="false"
+export PREFECT_RUNNER_PROCESS_LIMIT=1
+export PREFECT_EPHEMERAL_STARTUP_TIMEOUT_SECONDS=120
 
 # Create isolated Prefect virtual environment
 
@@ -82,7 +85,16 @@ mkdir -p "$PREFECT_HOME"
 
 echo "[prefect] Executing retraining flow..."
 
-if "$PREFECT_VENV/bin/python" "$FLOW_FILE"; then
+if "$PREFECT_VENV/bin/python" - <<'PYEOF'
+import sys, os
+sys.path.insert(0, os.environ.get("PROJECT_ROOT", "."))
+import importlib.util
+spec = importlib.util.spec_from_file_location("retraining_flow", os.environ["FLOW_FILE"])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+mod.retraining_flow.fn()
+PYEOF
+then
 
     echo
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

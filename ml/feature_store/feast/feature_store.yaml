@@ -17,7 +17,7 @@
 # Apply with:
 #   cd ml/feature_store/feast && feast apply
 
-project: devops-aiml          # logical name for this feature store
+project: devops_aiml          # logical name for this feature store
 provider: local               # "local" works on any machine; use "gcp"/"aws" in prod
 
 # Offline store — where historical feature data lives
@@ -29,10 +29,9 @@ offline_store:
 # SQLite is fine for local dev; swap for Redis in production
 online_store:
   type: sqlite
-  path: ml/feature_store/feast/online_store.db   # created automatically on feast materialize
+  path: online_store.db
 
-# Registry — tracks feature definitions (like a schema catalogue)
-registry: ml/feature_store/feast/registry.db     # local file; use GCS/S3 path in prod
+registry: registry.db     # local file; use GCS/S3 path in prod
 
 # Entity key serialization — how Feast encodes composite keys internally
 entity_key_serialization_version: 2

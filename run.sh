@@ -531,7 +531,6 @@ deploy_trivy()      { _run_step "Trivy Security Scan"  "$PROJECT_ROOT/monitoring
 deploy_mlops() {
     print_subsection "MLOps Pipeline"
 
-    #  helper: pretty step header 
     _mlops_step() {
         local icon="$1" label="$2"
         echo ""
@@ -540,21 +539,114 @@ deploy_mlops() {
     _mlops_ok()   { echo -e "  ${BOLD}${BRIGHT_CYAN}└${RESET} ${BOLD}${GREEN}✓${RESET}  $*"; }
     _mlops_warn() { echo -e "  ${BOLD}${BRIGHT_CYAN}└${RESET} ${BOLD}${YELLOW}⚠${RESET}  $*"; }
 
+    # 1. DVC pipeline (prepare → feature_engineering → split → train → evaluate)
     _mlops_step "⚙️" "Running DVC pipeline"
-
     if bash "$PROJECT_ROOT/ml/pipelines/dvc/run_dvc.sh"; then
         _mlops_ok "DVC lifecycle completed successfully"
     else
         _mlops_warn "DVC pipeline execution failed"
     fi
 
-    #  3. Drift detection 
-    _mlops_step "📊" "Drift detection (Evidently)"
-    bash "$PROJECT_ROOT/monitoring/evidently/deploy_evidently.sh"
+    # 2. Metaflow — explicit training run (logs to MLflow/Neptune/Comet)
+    _mlops_step "🏃" "Metaflow training pipeline"
+    if python3 "$PROJECT_ROOT/ml/pipelines/metaflow/training_flow.py" run; then
+        _mlops_ok "Metaflow training complete"
+    else
+        _mlops_warn "Metaflow training failed (model.pkl from DVC will be used)"
+    fi
 
-    #  4. Retraining flow 
+    # 3. MLflow — deploy tracking server + promote model if quality gates pass
+    _mlops_step "📈" "MLflow tracking server + model promotion"
+    if bash "$PROJECT_ROOT/ml/experiments/mlflow/deploy_mlflow.sh"; then
+        _mlops_ok "MLflow deployed and model promotion attempted"
+    else
+        _mlops_warn "MLflow deployment failed (experiment tracking unavailable)"
+    fi
+
+    # 3a. Comet ML — experiment tracking smoke-test
+    _mlops_step "☄️" "Comet ML experiment tracking"
+    if [[ -n "${COMET_API_KEY:-}" ]]; then
+        if python3 "$PROJECT_ROOT/ml/experiments/comet/comet_tracking.py"; then
+            _mlops_ok "Comet experiment logged"
+        else
+            _mlops_warn "Comet tracking failed"
+        fi
+    else
+        _mlops_warn "Comet skipped (set COMET_API_KEY in .env to enable)"
+    fi
+
+    # 3b. Neptune AI — experiment tracking smoke-test
+    _mlops_step "🔱" "Neptune AI experiment tracking"
+    if [[ -n "${NEPTUNE_API_TOKEN:-}" ]]; then
+        if python3 "$PROJECT_ROOT/ml/experiments/neptune/neptune_tracking.py"; then
+            _mlops_ok "Neptune run logged"
+        else
+            _mlops_warn "Neptune tracking failed"
+        fi
+    else
+        _mlops_warn "Neptune skipped (set NEPTUNE_API_TOKEN in .env to enable)"
+    fi
+
+    # 4. LakeFS — data lake versioning
+    _mlops_step "🗄️" "LakeFS data versioning"
+    if bash "$PROJECT_ROOT/ml/lakefs/setup.sh"; then
+        _mlops_ok "LakeFS setup complete"
+    else
+        _mlops_warn "LakeFS setup failed (data versioning unavailable)"
+    fi
+
+    # 5. Feast — feature store apply + materialize
+    _mlops_step "🍽️" "Feast feature store"
+    if bash "$PROJECT_ROOT/ml/feature_store/feast/apply_features.sh"; then
+        _mlops_ok "Feast features applied and materialized"
+    else
+        _mlops_warn "Feast setup failed (feature store unavailable)"
+    fi
+
+    # 6. Tecton — skips gracefully if TECTON_API_KEY not set
+    _mlops_step "⚡" "Tecton feature platform"
+    if bash "$PROJECT_ROOT/ml/feature_store/tecton/apply_features.sh"; then
+        _mlops_ok "Tecton features applied"
+    else
+        _mlops_warn "Tecton skipped (set TECTON_API_KEY in .env to enable)"
+    fi
+
+    # 7. Airflow — local scheduler for the daily MLOps DAG
+    _mlops_step "🌊" "Airflow pipeline scheduler"
+    if bash "$PROJECT_ROOT/ml/pipelines/airflow/deploy_airflow.sh"; then
+        _mlops_ok "Airflow running — DAG available at http://localhost:8080"
+    else
+        _mlops_warn "Airflow deployment failed (scheduled retraining unavailable)"
+    fi
+
+    # 8. Drift detection (Evidently)
+    _mlops_step "📊" "Drift detection (Evidently)"
+    if bash "$PROJECT_ROOT/monitoring/evidently/deploy_evidently.sh"; then
+        _mlops_ok "Drift detection complete"
+    else
+        _mlops_warn "Drift detection failed"
+    fi
+
+    # 9. Prefect — automated retraining check based on drift report
     _mlops_step "🔄" "Automated retraining check (Prefect)"
-    bash "$PROJECT_ROOT/ml/pipelines/prefect/deploy_prefect.sh"
+    if bash "$PROJECT_ROOT/ml/pipelines/prefect/deploy_prefect.sh"; then
+        _mlops_ok "Prefect retraining flow complete"
+    else
+        _mlops_warn "Prefect flow failed"
+    fi
+
+    # 10. KServe — model serving on Kubernetes (skips if kubectl unavailable)
+    _mlops_step "🚀" "KServe model serving"
+    if kubectl cluster-info >/dev/null 2>&1; then
+        if bash "$PROJECT_ROOT/ml/serving/kserve/deploy_kserve.sh"; then
+            _mlops_ok "KServe InferenceService deployed"
+        else
+            _mlops_warn "KServe deployment failed"
+        fi
+    else
+        _mlops_warn "KServe skipped (no Kubernetes cluster connected)"
+    fi
+
     echo ""
     print_success "MLOps Pipeline complete"
     print_divider

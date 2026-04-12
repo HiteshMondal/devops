@@ -87,14 +87,19 @@ promote_model() {
 
     if [[ ! -f "$METRICS_FILE" ]]; then
         print_warning "No eval_metrics.json found at ${METRICS_FILE}"
-        print_info    "  This file is written by training_flow.py after each training run."
-        print_info    "  Train first: python ml/pipelines/metaflow/training_flow.py run"
+        print_info    "Train first: python ml/pipelines/metaflow/training_flow.py run"
         return
     fi
 
-    print_info "  Metrics file: ${METRICS_FILE}"
+    # Start port-forward in background so Python can reach MLflow locally
+    print_step "Opening port-forward to MLflow pod (localhost:5000)..."
+    kubectl port-forward svc/mlflow-service 5000:5000 -n mlflow &
+    PF_PID=$!
+    sleep 5  # give port-forward time to establish
 
-    # Install mlflow into a throwaway venv to avoid polluting system Python
+    # Override tracking URI to local for the promotion script
+    LOCAL_MLFLOW_URI="http://localhost:5000"
+
     python3 -m venv /tmp/mlflow-promote-venv >/dev/null 2>&1
     /tmp/mlflow-promote-venv/bin/pip install --quiet mlflow
 
@@ -103,7 +108,7 @@ import json, sys, os
 import mlflow
 from mlflow.tracking import MlflowClient
 
-tracking_uri = "${MLFLOW_TRACKING_URI}"
+tracking_uri = "${LOCAL_MLFLOW_URI}"
 metrics_file = "${METRICS_FILE}"
 model_name   = "${MODEL_NAME}"
 min_acc      = float("${MIN_ACCURACY:-0.75}")
@@ -120,60 +125,47 @@ f1       = metrics.get("f1", 0.0)
 print(f"  [MLFLOW] Accuracy : {accuracy:.4f}  (required: ≥ {min_acc})")
 print(f"  [MLFLOW] F1 Score : {f1:.4f}  (required: ≥ {min_f1})")
 
-passed_acc = accuracy >= min_acc
-passed_f1  = f1 >= min_f1
-passed     = passed_acc and passed_f1
+passed = accuracy >= min_acc and f1 >= min_f1
 
-print("")
-print(f"  [GATE] Accuracy gate : {'✔ PASS' if passed_acc else '✖ FAIL'}")
-print(f"  [GATE] F1 gate       : {'✔ PASS' if passed_f1  else '✖ FAIL'}")
-print(f"  [GATE] Overall       : {'✔ PASSED — model will be promoted to Production' if passed else '✖ FAILED — model stays in Staging'}")
+print(f"  [GATE] Overall : {'✔ PASSED' if passed else '✖ FAILED'}")
 
 if not passed:
-    print("")
-    print("  [INFO] To improve the model:")
-    print("  [INFO]   1. Edit ml/configs/params.yaml (increase n_estimators, adjust max_depth)")
-    print("  [INFO]   2. Add more training data to ml/data/raw/dataset.csv")
-    print("  [INFO]   3. Re-run: python ml/pipelines/metaflow/training_flow.py run")
     sys.exit(0)
 
-# Connect to the MLflow server
-print("")
 print(f"  [MLFLOW] Connecting to registry at {tracking_uri}…")
 mlflow.set_tracking_uri(tracking_uri)
 client = MlflowClient()
 
 try:
-    versions = client.get_latest_versions(model_name, stages=["Staging", "None"])
+    # Use search instead of deprecated get_latest_versions
+    versions = client.search_model_versions(f"name='{model_name}'")
+    versions = [v for v in versions if v.current_stage in ("None", "Staging")]
 except Exception as e:
-    print(f"  [MLFLOW] Could not fetch model versions: {e}")
-    print( "  [MLFLOW] Has training_flow.py registered a model yet?")
-    print( "  [MLFLOW] Check: the training flow must have MLFLOW_TRACKING_URI set")
+    print(f"  [MLFLOW] No registered model yet: {e}")
+    print( "  [MLFLOW] Run Metaflow with MLFLOW_TRACKING_URI set to register a model")
     sys.exit(0)
 
 if not versions:
-    print(f"  [MLFLOW] No model versions found for '{model_name}' in Staging/None")
-    print( "  [MLFLOW] Run training_flow.py first to register a version")
+    print(f"  [MLFLOW] No model versions found for '{model_name}' — nothing to promote")
     sys.exit(0)
 
-latest = versions[0]
+latest = sorted(versions, key=lambda v: int(v.version))[-1]
 print(f"  [MLFLOW] Found version {latest.version} in stage '{latest.current_stage}'")
 
-# Archive any existing Production version first
-# (keeps the registry clean — only one Production version at a time)
-prod_versions = client.get_latest_versions(model_name, stages=["Production"])
+prod_versions = client.search_model_versions(f"name='{model_name}'")
 for v in prod_versions:
-    print(f"  [MLFLOW] Archiving old Production version {v.version}…")
-    client.transition_model_version_stage(model_name, v.version, "Archived")
-    print(f"  [MLFLOW] Version {v.version} → Archived (kept for audit/rollback)")
+    if v.current_stage == "Production":
+        print(f"  [MLFLOW] Archiving old Production version {v.version}…")
+        client.transition_model_version_stage(model_name, v.version, "Archived")
 
-# Promote the new version
-print(f"  [MLFLOW] Promoting version {latest.version}: {latest.current_stage} → Production…")
+print(f"  [MLFLOW] Promoting version {latest.version} → Production…")
 client.transition_model_version_stage(model_name, latest.version, "Production")
 print(f"  [MLFLOW] ✔ Version {latest.version} is now Production")
-print( "  [MLFLOW]   The FastAPI /model/info endpoint will now return this version")
-print( "  [MLFLOW]   GET /model/info to verify the promotion")
 PYEOF
+
+    # Kill the port-forward
+    kill $PF_PID 2>/dev/null || true
+    wait $PF_PID 2>/dev/null || true
 }
 
 #  Main 
