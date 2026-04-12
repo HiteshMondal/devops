@@ -152,21 +152,27 @@ ml/models/artifacts/**
 
 # METAFLOW
 .metaflow/
+ml/experiments/mlflow/mlruns/
 
 # LOCAL PLATFORM RUNTIME STATE
 .platform/
 
 # LAKEFS LOCAL STATE
 .lakefs/
+ml/lakefs/repositories/**
 
 # FEAST LOCAL REGISTRY CACHE
 .feast/
+ml/feature_store/feast/*.db
 
 # KUBEFLOW LOCAL CACHE (sometimes generated)
 .kubeflow/
 
 # AIRFLOW LOCAL DB
 airflow.db
+ml/pipelines/airflow/logs/
+ml/pipelines/airflow/*.db
 
 # PREFECT LOCAL STATE
 .prefect/
+ml/pipelines/prefect/.prefect/
