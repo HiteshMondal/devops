@@ -248,6 +248,10 @@ class TrainingFlow(FlowSpec):
         """
         _log("NEPTUNE", "Logging to Neptune AI…", "blue")
         try:
+            if not os.getenv("NEPTUNE_API_TOKEN"):
+                _log("NEPTUNE", "✖ Skipped: NEPTUNE_API_TOKEN not set", "yellow")
+                _log("NEPTUNE", "  Set NEPTUNE_API_TOKEN + NEPTUNE_PROJECT in .env to enable", "gray")
+                return
             import neptune
             run = neptune.init_run(
                 project=os.getenv("NEPTUNE_PROJECT", "workspace/devops-aiml"),
@@ -349,9 +353,13 @@ class TrainingFlow(FlowSpec):
         try:
             import sys
             sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
-            from ml.lineage.openlineage.lineage_emitter import emit_training_lineage
+            from ml.lineage.openlineage.lineage_emitter import emit_training_lineage, _last_emit_succeeded
             emit_training_lineage(metrics=self.metrics)
-            _log("LINEAGE", "✔ Lineage events emitted", "green")
+            if _last_emit_succeeded:
+                _log("LINEAGE", "✔ Lineage events emitted to Marquez", "green")
+            else:
+                _log("LINEAGE", "✖ Marquez unreachable — lineage skipped (non-fatal)", "yellow")
+                _log("LINEAGE", "  Start Marquez: docker run -p 5000:5000 marquezproject/marquez", "gray")
         except Exception as exc:
             _log("LINEAGE", f"✖ Skipped: {exc}", "yellow")
             _log("LINEAGE", "  Start Marquez to capture events: docker run -p 5000:5000 marquezproject/marquez", "gray")

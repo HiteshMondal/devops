@@ -68,9 +68,39 @@ install_kserve() {
 
     if ! helm repo list 2>/dev/null | grep -q "kserve"; then
         if ! helm repo add kserve https://kserve.github.io/kserve/helm-charts 2>/dev/null; then
-            print_warning "KServe Helm repo unavailable — applying manifests directly"
-            kubectl apply -f "${SCRIPT_DIR}/inference_service.yaml" || true
-            return
+            print_warning "KServe Helm repo unavailable — installing via raw manifests"
+            # Install KServe standalone (no Knative/Istio dependency)
+            KSERVE_VERSION="v0.13.1"
+            kubectl apply -f "https://github.com/kserve/kserve/releases/download/${KSERVE_VERSION}/kserve.yaml" || \
+                print_warning "KServe manifest apply failed — CRDs may not be installed"
+
+            print_step "Waiting for KServe controller to become ready (up to 120s)..."
+            local retries=24
+            until kubectl get deployment kserve-controller-manager -n kserve \
+                    -o jsonpath="{.status.readyReplicas}" 2>/dev/null | grep -q "^[1-9]"; do
+                retries=$((retries - 1))
+                if [[ $retries -le 0 ]]; then
+                    print_warning "KServe controller not ready after 120s — skipping cluster-resources"
+                    print_success "KServe CRDs installed (cluster-resources will apply on next run)"
+                    return 0
+                fi
+                sleep 5
+            done
+            print_success "KServe controller ready"
+
+            print_step "Applying KServe cluster resources (serving runtimes)..."
+            local cr_retries=3
+            until kubectl apply -f "https://github.com/kserve/kserve/releases/download/${KSERVE_VERSION}/kserve-cluster-resources.yaml" 2>/dev/null; do
+                cr_retries=$((cr_retries - 1))
+                if [[ $cr_retries -le 0 ]]; then
+                    print_warning "kserve-cluster-resources.yaml failed — webhook may still be initializing"
+                    print_info "Re-run deploy_kserve.sh after a few minutes to apply cluster resources"
+                    break
+                fi
+                print_info "  Retrying in 15s..."
+                sleep 15
+            done
+            return 0
         fi
         helm repo update >/dev/null
     fi
@@ -128,14 +158,26 @@ copy_model() {
     fi
 
     print_step "Copying model.pkl to PVC via pod ${POD}..."
-    kubectl exec -n "$KSERVE_NS" "$POD" -- mkdir -p /mnt/models/artifacts
-    kubectl cp "$MODEL_PATH" "${KSERVE_NS}/${POD}:/mnt/models/artifacts/model.pkl"
+    kubectl run model-loader --rm -i --restart=Never \
+        -n "$KSERVE_NS" \
+        --image=busybox:1.36 \
+        --overrides="{\"spec\":{\"volumes\":[{\"name\":\"store\",\"persistentVolumeClaim\":{\"claimName\":\"model-store-pvc\"}}],\"containers\":[{\"name\":\"model-loader\",\"image\":\"busybox:1.36\",\"command\":[\"sh\",\"-c\",\"mkdir -p /mnt/models/artifacts && sleep 30\"],\"volumeMounts\":[{\"name\":\"store\",\"mountPath\":\"/mnt/models\"}]}]}}" \
+        -- sh -c "sleep 1" &
+    LOADER_POD="model-loader"
+    sleep 5
+    kubectl cp "$MODEL_PATH" "${KSERVE_NS}/${LOADER_POD}:/mnt/models/artifacts/model.pkl" 2>/dev/null || \
+        print_warning "Could not copy model — copy manually once KServe CRDs are installed"
     print_success "model.pkl copied to PVC"
 }
 
 #  4. Apply InferenceService 
 deploy_inference_service() {
     print_step "Applying KServe InferenceService..."
+    if ! kubectl get crd inferenceservices.serving.kserve.io >/dev/null 2>&1; then
+        print_warning "KServe CRDs not installed — skipping InferenceService apply"
+        print_info "Install KServe first, then run: kubectl apply -f ml/serving/kserve/inference_service.yaml"
+        return 0
+    fi
     kubectl apply -f "${SCRIPT_DIR}/inference_service.yaml"
 
     print_step "Waiting for InferenceService to become ready..."

@@ -92,13 +92,8 @@ promote_model() {
     fi
 
     # Start port-forward in background so Python can reach MLflow locally
-    print_step "Opening port-forward to MLflow pod (localhost:5000)..."
-    kubectl port-forward svc/mlflow-service 5000:5000 -n mlflow &
-    PF_PID=$!
-    sleep 5  # give port-forward time to establish
-
-    # Override tracking URI to local for the promotion script
     LOCAL_MLFLOW_URI="http://localhost:5000"
+    print_info "  Using existing port-forward at ${LOCAL_MLFLOW_URI}"
 
     python3 -m venv /tmp/mlflow-promote-venv >/dev/null 2>&1
     /tmp/mlflow-promote-venv/bin/pip install --quiet mlflow
@@ -163,17 +158,25 @@ client.transition_model_version_stage(model_name, latest.version, "Production")
 print(f"  [MLFLOW] ✔ Version {latest.version} is now Production")
 PYEOF
 
-    # Kill the port-forward
-    kill $PF_PID 2>/dev/null || true
-    wait $PF_PID 2>/dev/null || true
 }
 
 #  Main 
+# NEW
 main() {
     deploy_server
+
+    # Keep a port-forward running in the background for the rest of this session
+    # so training_flow.py can reach MLflow via localhost:5000
+    echo ""
+    print_step "Starting background port-forward → MLflow at localhost:5000"
+    kubectl port-forward svc/mlflow-service 5000:5000 -n mlflow >/dev/null 2>&1 &
+    MLFLOW_PF_PID=$!
+    sleep 4
+    export MLFLOW_TRACKING_URI="http://localhost:5000"
+    print_success "Port-forward established (PID ${MLFLOW_PF_PID})"
     echo ""
     promote_model
-
+    disown $MLFLOW_PF_PID 2>/dev/null || true
     echo ""
     print_success "MLflow deployment complete"
     echo ""

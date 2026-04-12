@@ -76,12 +76,19 @@ if ! command -v dvc &> /dev/null; then
         scikit-learn \
         pandas \
         pyyaml \
-        joblib
+        joblib \
+        "mlflow>=2.13.0"
 
     ok "DVC installed in .venv"
+# NEW
 else
     ok "DVC already installed: $(dvc --version)"
+    # Activate venv if it exists so mlflow and other deps are available
+    if [[ -f ".venv/bin/activate" ]]; then
+        source .venv/bin/activate
+    fi
 fi
+export MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-http://localhost:5000}"
 
 #  2. Initialise DVC 
 step "Step 2/9 — Initialising DVC"

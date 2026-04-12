@@ -539,7 +539,7 @@ deploy_mlops() {
     _mlops_ok()   { echo -e "  ${BOLD}${BRIGHT_CYAN}└${RESET} ${BOLD}${GREEN}✓${RESET}  $*"; }
     _mlops_warn() { echo -e "  ${BOLD}${BRIGHT_CYAN}└${RESET} ${BOLD}${YELLOW}⚠${RESET}  $*"; }
 
-    # 1. DVC pipeline (prepare → feature_engineering → split → train → evaluate)
+    # 1. DVC pipeline
     _mlops_step "⚙️" "Running DVC pipeline"
     if bash "$PROJECT_ROOT/ml/pipelines/dvc/run_dvc.sh"; then
         _mlops_ok "DVC lifecycle completed successfully"
@@ -547,20 +547,20 @@ deploy_mlops() {
         _mlops_warn "DVC pipeline execution failed"
     fi
 
-    # 2. Metaflow — explicit training run (logs to MLflow/Neptune/Comet)
-    _mlops_step "🏃" "Metaflow training pipeline"
-    if python3 "$PROJECT_ROOT/ml/pipelines/metaflow/training_flow.py" run; then
-        _mlops_ok "Metaflow training complete"
-    else
-        _mlops_warn "Metaflow training failed (model.pkl from DVC will be used)"
-    fi
-
-    # 3. MLflow — deploy tracking server + promote model if quality gates pass
+    # 2. MLflow — deploy BEFORE Metaflow so the tracking server is ready
     _mlops_step "📈" "MLflow tracking server + model promotion"
     if bash "$PROJECT_ROOT/ml/experiments/mlflow/deploy_mlflow.sh"; then
         _mlops_ok "MLflow deployed and model promotion attempted"
     else
         _mlops_warn "MLflow deployment failed (experiment tracking unavailable)"
+    fi
+
+    # 3. Metaflow — now MLFLOW_TRACKING_URI=http://localhost:5000 is exported
+    _mlops_step "🏃" "Metaflow training pipeline"
+    if python3 "$PROJECT_ROOT/ml/pipelines/metaflow/training_flow.py" run; then
+        _mlops_ok "Metaflow training complete"
+    else
+        _mlops_warn "Metaflow training failed (model.pkl from DVC will be used)"
     fi
 
     # 3a. Comet ML — experiment tracking smoke-test

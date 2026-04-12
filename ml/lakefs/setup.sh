@@ -74,6 +74,7 @@ install_lakectl() {
     esac
 
     print_step "Resolving latest lakectl release..."
+    LAKECTL_VERSION="${LAKECTL_VERSION:-1.47.0}"
 
     # Prefer jq if available (most reliable)
     if command -v jq >/dev/null 2>&1; then
@@ -84,7 +85,6 @@ install_lakectl() {
             | head -n 1
         )"
     else
-        # fallback parser (no jq)
         DOWNLOAD_URL="$(
             curl -fsSL https://api.github.com/repos/treeverse/lakeFS/releases/latest \
             | grep browser_download_url \
@@ -94,23 +94,12 @@ install_lakectl() {
         )"
     fi
 
+    # Fallback to pinned version if API lookup failed
     if [[ -z "${DOWNLOAD_URL}" ]]; then
-        print_warning "GitHub API lookup failed — trying fallback installer..."
-
-        if command -v brew >/dev/null 2>&1; then
-            print_step "Installing via Homebrew..."
-            brew install lakefs
-            return
-        fi
-
-        if command -v apt-get >/dev/null 2>&1; then
-            print_error "APT install for lakectl not available"
-        fi
-
-        print_error "Could not determine lakectl download URL"
-        print_error "Check internet access or install manually:"
-        print_error "https://github.com/treeverse/lakeFS/releases"
-        return 1
+        LAKECTL_VERSION="${LAKECTL_VERSION:-1.47.0}"
+        # lakeFS uses underscore-separated version in filename
+        DOWNLOAD_URL="https://github.com/treeverse/lakeFS/releases/download/v${LAKECTL_VERSION}/lakectl_${LAKECTL_VERSION}_${OS}_${ARCH}.tar.gz"
+        print_warning "GitHub API lookup failed — using pinned version v${LAKECTL_VERSION}"
     fi
 
     print_step "Downloading lakectl..."

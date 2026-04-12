@@ -33,7 +33,7 @@ import urllib.error
 # Where to send lineage events (Marquez, DataHub, etc.)
 OPENLINEAGE_URL       = os.getenv("OPENLINEAGE_URL", "http://localhost:5000")
 OPENLINEAGE_NAMESPACE = os.getenv("OPENLINEAGE_NAMESPACE", "devops-aiml")
-
+_last_emit_succeeded = False
 
 # Internal helper — send one OpenLineage event via HTTP POST
 def _emit(event: dict):
@@ -53,11 +53,13 @@ def _emit(event: dict):
         method="POST",
     )
 
+    global _last_emit_succeeded
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
             print(f"[OpenLineage] Event sent → {resp.status} {event['eventType']}")
+            _last_emit_succeeded = True
     except urllib.error.URLError as exc:
-        # Non-fatal: lineage backend might not be running in dev
+        _last_emit_succeeded = False
         print(f"[OpenLineage] Could not reach {url}: {exc} — lineage skipped")
 
 
@@ -184,7 +186,10 @@ def emit_training_lineage(metrics: dict = None, run_id: str = None):
         "schemaURL": "https://openlineage.io/spec/1-0-5/OpenLineage.json",
     })
 
-    print(f"[OpenLineage] Training lineage emitted (run_id={run_id})")
+    if _last_emit_succeeded:
+        print(f"[OpenLineage] Training lineage emitted (run_id={run_id})")
+    else:
+        print(f"[OpenLineage] Training lineage skipped — Marquez unreachable (run_id={run_id})")
 
 
 # Manual smoke-test
