@@ -70,15 +70,14 @@ if ! command -v dvc &> /dev/null; then
     source .venv/bin/activate
 
     info "Installing: dvc, metaflow, scikit-learn, pandas, pyyaml, joblib"
-    pip install --quiet \
-        "dvc[all]" \
+    pip install --quiet setuptools wheel
+    pip install --quiet "dvc" "dvc-data" \
         metaflow \
         scikit-learn \
         pandas \
         pyyaml \
         joblib \
         mlflow \
-        neptune \
         prefect
 
     ok "DVC installed in .venv"

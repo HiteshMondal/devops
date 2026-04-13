@@ -36,7 +36,7 @@ if [[ ! -d "$VENV_PATH" ]]; then
 fi
 
 echo "[STEP] Installing feast..."
-"$VENV_PATH/bin/pip" install --quiet "feast[local]==0.40.0" pandas pyarrow
+"$VENV_PATH/bin/pip" install --quiet "feast==0.40.0" pandas pyarrow
 
 #  2. Generate feature definitions from our dataset columns 
 # We write this file here (not hard-coded) so it always reflects the actual
@@ -133,7 +133,11 @@ PYEOF
 #  4. Run feast apply (register definitions) 
 echo "[STEP] Running feast apply..."
 cd "${FEAST_DIR}"
-"$VENV_PATH/bin/feast" apply
+FEAST_BIN="$VENV_PATH/bin/feast"
+if [[ ! -f "$FEAST_BIN" ]]; then
+    FEAST_BIN=$(python3 -m site --user-base 2>/dev/null)/bin/feast
+fi
+"$FEAST_BIN" apply
 
 #  5. Materialize features into the online store 
 # `feast materialize-incremental` pushes new/changed feature rows from the

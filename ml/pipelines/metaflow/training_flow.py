@@ -10,7 +10,7 @@
 # What each step does:
 #   start  — loads the processed CSV (runs prepare.py if needed)
 #   train  — trains RandomForest, evaluates, saves model.pkl and eval_metrics.json,
-#             then logs to Neptune / Comet / MLflow and emits OpenLineage events
+#             then logs to Comet / MLflow and emits OpenLineage events
 #   end    — prints a final summary
 #
 # Run locally:
@@ -110,7 +110,7 @@ class TrainingFlow(FlowSpec):
         After training this step:
           1. Saves model.pkl — the FastAPI app loads this at startup
           2. Saves eval_metrics.json — deploy_mlflow.sh reads this for quality gates
-          3. Logs params + metrics to Neptune, Comet, and MLflow
+          3. Logs params + metrics to Comet and MLflow
           4. Emits OpenLineage events for data lineage tracking
         """
         from sklearn.ensemble import RandomForestClassifier
@@ -187,7 +187,6 @@ class TrainingFlow(FlowSpec):
         _section("Logging to experiment trackers")
         _log("INFO", "Each tracker stores params + metrics so you can compare runs later.", "cyan")
 
-        self._log_to_neptune()
         self._log_to_comet()
         self._log_to_mlflow(model)
 
@@ -234,48 +233,10 @@ class TrainingFlow(FlowSpec):
 
     #  Private helpers 
 
-    def _log_to_neptune(self):
-        """
-        Neptune AI — Experiment Tracking
-
-        Neptune stores every run in a web dashboard at app.neptune.ai.
-        You can sort runs by accuracy, download the model from any run,
-        and compare hyperparameters side-by-side.
-
-        Required env vars (set in .env):
-          NEPTUNE_API_TOKEN
-          NEPTUNE_PROJECT
-        """
-        _log("NEPTUNE", "Logging to Neptune AI…", "blue")
-        try:
-            if not os.getenv("NEPTUNE_API_TOKEN"):
-                _log("NEPTUNE", "✖ Skipped: NEPTUNE_API_TOKEN not set", "yellow")
-                _log("NEPTUNE", "  Set NEPTUNE_API_TOKEN + NEPTUNE_PROJECT in .env to enable", "gray")
-                return
-            import neptune
-            run = neptune.init_run(
-                project=os.getenv("NEPTUNE_PROJECT", "workspace/devops-aiml"),
-                api_token=os.getenv("NEPTUNE_API_TOKEN"),
-                name="training-flow",
-            )
-            for k, v in self.params.items():
-                run[f"params/{k}"] = v
-            for k, v in self.metrics.items():
-                run[f"metrics/{k}"] = v
-            run["model/artifact"].upload(self.model_path)
-            run.stop()
-            _log("NEPTUNE", "✔ Run logged — view at app.neptune.ai", "green")
-        except Exception as exc:
-            _log("NEPTUNE", f"✖ Skipped: {exc}", "yellow")
-            _log("NEPTUNE", "  Set NEPTUNE_API_TOKEN + NEPTUNE_PROJECT in .env to enable", "gray")
-
     def _log_to_comet(self):
         """
         Comet ML — Experiment Tracking
-
         Comet records params, metrics, and model files in its dashboard.
-        Similar to Neptune but with different visualisation features.
-
         Required env vars (set in .env):
           COMET_API_KEY
           COMET_PROJECT

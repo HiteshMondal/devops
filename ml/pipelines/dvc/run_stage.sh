@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ml/pipelines/dvc/run_stage.sh
 # Called by dvc.yaml stages to ensure the .venv is active before running
-# any Python script — so mlflow, neptune, whylogs etc. are all available.
+# any Python script — so mlflow, whylogs etc. are all available.
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../" && pwd)"

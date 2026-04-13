@@ -619,7 +619,9 @@ deploy_mlops() {
     _mlops_step "📋" "WhyLogs profiling setup"
     WHYLOGS_PIP="${PROJECT_ROOT}/.venv/bin/pip"
     if [[ ! -f "$WHYLOGS_PIP" ]]; then
-        WHYLOGS_PIP="pip3"
+        python3 -m venv "${PROJECT_ROOT}/.venv"
+        WHYLOGS_PIP="${PROJECT_ROOT}/.venv/bin/pip"
+        "$WHYLOGS_PIP" install --quiet setuptools wheel
     fi
     if "$WHYLOGS_PIP" install --quiet whylogs 2>/dev/null; then
         _mlops_ok "WhyLogs installed"
@@ -631,8 +633,11 @@ deploy_mlops() {
     _mlops_step "🏃" "Metaflow training pipeline"
     METAFLOW_PYTHON="${PROJECT_ROOT}/.venv/bin/python"
     if [[ ! -f "$METAFLOW_PYTHON" ]]; then
-        METAFLOW_PYTHON="python3"
+        python3 -m venv "${PROJECT_ROOT}/.venv"
+        METAFLOW_PYTHON="${PROJECT_ROOT}/.venv/bin/python"
     fi
+    # Ensure metaflow is installed in the venv
+    "${PROJECT_ROOT}/.venv/bin/pip" install --quiet setuptools wheel metaflow scikit-learn pandas 2>/dev/null || true
     export MLFLOW_TRACKING_URI="http://localhost:5000"
     export OPENLINEAGE_URL="http://localhost:5001"
     if "$METAFLOW_PYTHON" "$PROJECT_ROOT/ml/pipelines/metaflow/training_flow.py" run; then

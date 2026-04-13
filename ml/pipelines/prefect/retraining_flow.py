@@ -121,7 +121,7 @@ def retrain():
     What Metaflow does (training_flow.py):
       start → loads the processed CSV
       train → fits RandomForest, evaluates, saves model.pkl + eval_metrics.json,
-               logs to Neptune/Comet/MLflow, emits OpenLineage lineage events
+               logs to Comet/MLflow, emits OpenLineage lineage events
       end   → prints final summary
 
     Prefect retries this task once if the subprocess fails.
@@ -137,7 +137,7 @@ def retrain():
     _log("TRAIN", "Starting Metaflow training pipeline…", "cyan")
     _log("TRAIN", f"  Script: {flow_path}", "gray")
     _log("TRAIN",  "  Steps : start → train → end", "gray")
-    _log("TRAIN",  "  This will train a new RandomForest and log to MLflow/Neptune/Comet", "gray")
+    _log("TRAIN",  "  This will train a new RandomForest and log to MLflow/Comet", "gray")
     print()
 
     t_start = time.time()

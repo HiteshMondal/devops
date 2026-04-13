@@ -94,6 +94,7 @@ promote_model() {
     local LOCAL_MLFLOW_URI="http://localhost:5000"
     
     python3 -m venv /tmp/mlflow-promote-venv >/dev/null 2>&1
+    /tmp/mlflow-promote-venv/bin/pip install --quiet setuptools wheel
     /tmp/mlflow-promote-venv/bin/pip install --quiet mlflow
 
     /tmp/mlflow-promote-venv/bin/python - <<PYEOF
@@ -163,13 +164,22 @@ PYEOF
 main() {
     deploy_server
 
-    # Open port-forward and keep it alive for both promotion + Metaflow logging
+    # Open port-forward and wait until MLflow actually responds
     print_step "Opening persistent port-forward → MLflow at localhost:5000..."
     kubectl port-forward svc/mlflow-service 5000:5000 -n mlflow &
     PF_PID=$!
-    sleep 5
     export MLFLOW_TRACKING_URI="http://localhost:5000"
-    print_success "Port-forward open (PID ${PF_PID})"
+    local pf_retries=24
+    until curl -sf http://localhost:5000/health >/dev/null 2>&1; do
+        pf_retries=$((pf_retries - 1))
+        if [[ $pf_retries -le 0 ]]; then
+            print_warning "MLflow not responding after 120s — promotion skipped"
+            kill $PF_PID 2>/dev/null || true
+            return
+        fi
+        sleep 5
+    done
+    print_success "Port-forward open and MLflow responding (PID ${PF_PID})"
 
     echo ""
     promote_model

@@ -223,7 +223,7 @@ This handles the Evidently JSON structure where the drift share is nested inside
 def retrain():
 ```
 
-**What it does:** Calls `ml/pipelines/metaflow/training_flow.py run` as a subprocess. This triggers the full Metaflow training pipeline: load data → train RandomForest → evaluate → save model.pkl → log to MLflow/Neptune/Comet → emit OpenLineage events.
+**What it does:** Calls `ml/pipelines/metaflow/training_flow.py run` as a subprocess. This triggers the full Metaflow training pipeline: load data → train RandomForest → evaluate → save model.pkl → log to MLflow/Comet → emit OpenLineage events.
 
 **Why subprocess?** Using `subprocess.run` keeps Prefect isolated from Metaflow's dependencies. If Metaflow, scikit-learn, or MLflow have version conflicts with Prefect's dependencies, running them in a subprocess avoids the conflict entirely. Prefect simply starts the process and waits for it to exit.
 

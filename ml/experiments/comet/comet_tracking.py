@@ -7,7 +7,6 @@
 #
 # How it fits in this project:
 #   training_flow.py  →  calls log_params / log_metrics / log_model here
-#   Neptune           →  alternative tracker (same interface, different backend)
 #   MLflow            →  another alternative (self-hosted option)
 #
 # Env vars required (set in .env):
