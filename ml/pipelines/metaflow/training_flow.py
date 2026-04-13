@@ -316,7 +316,7 @@ class TrainingFlow(FlowSpec):
 
             tracking_uri = os.getenv(
                 "MLFLOW_TRACKING_URI",
-                "http://mlflow-service.mlflow.svc.cluster.local:5000",
+                "http://localhost:5000",
             )
             mlflow.set_tracking_uri(tracking_uri)
             mlflow.set_experiment("baseline")
@@ -348,21 +348,30 @@ class TrainingFlow(FlowSpec):
         a graph of your data pipeline — useful for debugging and auditing.
 
         Required env var:
-          OPENLINEAGE_URL  (default: http://localhost:5000)
+          OPENLINEAGE_URL  (default: http://localhost:5001)
+
+        Note: we import the module object (not just the function) so we can
+        read _last_emit_succeeded after the call — importing a bool value
+        directly would snapshot it as False at import time and never update.
         """
         try:
             import sys
             sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
-            from ml.lineage.openlineage.lineage_emitter import emit_training_lineage, _last_emit_succeeded
-            emit_training_lineage(metrics=self.metrics)
-            if _last_emit_succeeded:
+
+            # Import the module, not just the function — this gives us a live
+            # reference to _last_emit_succeeded instead of a frozen copy
+            import ml.lineage.openlineage.lineage_emitter as _lineage_mod
+
+            _lineage_mod.emit_training_lineage(metrics=self.metrics)
+
+            if _lineage_mod._last_emit_succeeded:
                 _log("LINEAGE", "✔ Lineage events emitted to Marquez", "green")
             else:
                 _log("LINEAGE", "✖ Marquez unreachable — lineage skipped (non-fatal)", "yellow")
-                _log("LINEAGE", "  Start Marquez: docker run -p 5000:5000 marquezproject/marquez", "gray")
+                _log("LINEAGE", "  Start Marquez: bash monitoring/marquez/deploy_marquez.sh", "gray")
         except Exception as exc:
             _log("LINEAGE", f"✖ Skipped: {exc}", "yellow")
-            _log("LINEAGE", "  Start Marquez to capture events: docker run -p 5000:5000 marquezproject/marquez", "gray")
+            _log("LINEAGE", "  Start Marquez: bash monitoring/marquez/deploy_marquez.sh", "gray")
 
 
 if __name__ == "__main__":

@@ -73,36 +73,11 @@ install_lakectl() {
             ;;
     esac
 
-    print_step "Resolving latest lakectl release..."
-    LAKECTL_VERSION="${LAKECTL_VERSION:-1.47.0}"
+    # Pinned version — avoids GitHub API rate limits and network flakiness
+    local LAKECTL_VERSION="1.47.0"
+    DOWNLOAD_URL="https://github.com/treeverse/lakeFS/releases/download/v${LAKECTL_VERSION}/lakectl_${LAKECTL_VERSION}_${OS}_${ARCH}.tar.gz"
 
-    # Prefer jq if available (most reliable)
-    if command -v jq >/dev/null 2>&1; then
-        DOWNLOAD_URL="$(
-            curl -fsSL https://api.github.com/repos/treeverse/lakeFS/releases/latest \
-            | jq -r ".assets[].browser_download_url" \
-            | grep "lakectl_${OS}_${ARCH}\.tar\.gz$" \
-            | head -n 1
-        )"
-    else
-        DOWNLOAD_URL="$(
-            curl -fsSL https://api.github.com/repos/treeverse/lakeFS/releases/latest \
-            | grep browser_download_url \
-            | grep "lakectl_${OS}_${ARCH}\.tar\.gz" \
-            | cut -d '"' -f 4 \
-            | head -n 1
-        )"
-    fi
-
-    # Fallback to pinned version if API lookup failed
-    if [[ -z "${DOWNLOAD_URL}" ]]; then
-        LAKECTL_VERSION="${LAKECTL_VERSION:-1.47.0}"
-        # lakeFS uses underscore-separated version in filename
-        DOWNLOAD_URL="https://github.com/treeverse/lakeFS/releases/download/v${LAKECTL_VERSION}/lakectl_${LAKECTL_VERSION}_${OS}_${ARCH}.tar.gz"
-        print_warning "GitHub API lookup failed — using pinned version v${LAKECTL_VERSION}"
-    fi
-
-    print_step "Downloading lakectl..."
+    print_step "Downloading lakectl v${LAKECTL_VERSION}..."
 
     TMP_DIR="$(mktemp -d)"
 

@@ -77,7 +77,9 @@ if ! command -v dvc &> /dev/null; then
         pandas \
         pyyaml \
         joblib \
-        "mlflow>=2.13.0"
+        mlflow \
+        neptune \
+        prefect
 
     ok "DVC installed in .venv"
 # NEW

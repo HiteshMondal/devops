@@ -57,29 +57,25 @@ stages:
   train:
     desc: Train model using Metaflow training pipeline
     wdir: ../../../
-    cmd: python ml/pipelines/metaflow/training_flow.py run
-
+    cmd: bash ml/pipelines/dvc/run_stage.sh train
     deps:
       - ml/pipelines/metaflow/training_flow.py
+      - ml/pipelines/dvc/run_stage.sh
       - ml/data/features/train.csv
-
     params:
       - model
       - training.model_output
-
     outs:
       - ml/models/artifacts/model.pkl
-
 
   evaluate:
     desc: Evaluate trained model and compute metrics
     wdir: ../../../
-    cmd: python app/src/evaluate.py
-
+    cmd: bash ml/pipelines/dvc/run_stage.sh evaluate
     deps:
       - app/src/evaluate.py
+      - ml/pipelines/dvc/run_stage.sh
       - ml/models/artifacts/model.pkl
       - ml/data/features/test.csv
-
     metrics:
       - ml/models/artifacts/eval_metrics.json

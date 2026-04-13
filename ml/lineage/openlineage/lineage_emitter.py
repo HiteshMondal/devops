@@ -31,7 +31,7 @@ import urllib.request
 import urllib.error
 
 # Where to send lineage events (Marquez, DataHub, etc.)
-OPENLINEAGE_URL       = os.getenv("OPENLINEAGE_URL", "http://localhost:5000")
+OPENLINEAGE_URL       = os.getenv("OPENLINEAGE_URL", "http://localhost:5001")
 OPENLINEAGE_NAMESPACE = os.getenv("OPENLINEAGE_NAMESPACE", "devops-aiml")
 _last_emit_succeeded = False
 

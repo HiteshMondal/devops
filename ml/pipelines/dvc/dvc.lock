@@ -71,16 +71,20 @@ stages:
       md5: 0f2dd72394db98d8bff82618b55c7594
       size: 23556
   train:
-    cmd: python ml/pipelines/metaflow/training_flow.py run
+    cmd: bash ml/pipelines/dvc/run_stage.sh train
     deps:
     - path: ml/data/features/train.csv
       hash: md5
       md5: 0f2dd72394db98d8bff82618b55c7594
       size: 23556
+    - path: ml/pipelines/dvc/run_stage.sh
+      hash: md5
+      md5: ad2dac015536ef577880364f9c30e88c
+      size: 817
     - path: ml/pipelines/metaflow/training_flow.py
       hash: md5
-      md5: cd42885ffbc47e720ce68c585f679f77
-      size: 15286
+      md5: 15e2ad5026380b1f85be5f131d663457
+      size: 15607
     params:
       params.yaml:
         model:
@@ -95,7 +99,7 @@ stages:
       md5: 082aebb29a5bb5abdb895f5898578285
       size: 317958
   evaluate:
-    cmd: python app/src/evaluate.py
+    cmd: bash ml/pipelines/dvc/run_stage.sh evaluate
     deps:
     - path: app/src/evaluate.py
       hash: md5
@@ -109,6 +113,10 @@ stages:
       hash: md5
       md5: 082aebb29a5bb5abdb895f5898578285
       size: 317958
+    - path: ml/pipelines/dvc/run_stage.sh
+      hash: md5
+      md5: ad2dac015536ef577880364f9c30e88c
+      size: 817
     outs:
     - path: ml/models/artifacts/eval_metrics.json
       hash: md5

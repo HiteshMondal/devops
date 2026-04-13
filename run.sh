@@ -555,9 +555,33 @@ deploy_mlops() {
         _mlops_warn "MLflow deployment failed (experiment tracking unavailable)"
     fi
 
+    _mlops_step "📡" "Marquez OpenLineage backend"
+    if bash "$PROJECT_ROOT/monitoring/marquez/deploy_marquez.sh"; then
+        _mlops_ok "Marquez running at http://localhost:${MARQUEZ_PORT:-5001}"
+    else
+        _mlops_warn "Marquez deployment failed (lineage events will be skipped)"
+    fi
+
+    _mlops_step "📋" "WhyLogs profiling setup"
+    WHYLOGS_PIP="${PROJECT_ROOT}/.venv/bin/pip"
+    if [[ ! -f "$WHYLOGS_PIP" ]]; then
+        WHYLOGS_PIP="pip3"
+    fi
+    if "$WHYLOGS_PIP" install --quiet whylogs 2>/dev/null; then
+        _mlops_ok "WhyLogs installed"
+    else
+        _mlops_warn "WhyLogs install failed"
+    fi
+    
     # 3. Metaflow — now MLFLOW_TRACKING_URI=http://localhost:5000 is exported
     _mlops_step "🏃" "Metaflow training pipeline"
-    if python3 "$PROJECT_ROOT/ml/pipelines/metaflow/training_flow.py" run; then
+    METAFLOW_PYTHON="${PROJECT_ROOT}/.venv/bin/python"
+    if [[ ! -f "$METAFLOW_PYTHON" ]]; then
+        METAFLOW_PYTHON="python3"
+    fi
+    export MLFLOW_TRACKING_URI="http://localhost:5000"
+    export OPENLINEAGE_URL="http://localhost:5001"
+    if "$METAFLOW_PYTHON" "$PROJECT_ROOT/ml/pipelines/metaflow/training_flow.py" run; then
         _mlops_ok "Metaflow training complete"
     else
         _mlops_warn "Metaflow training failed (model.pkl from DVC will be used)"

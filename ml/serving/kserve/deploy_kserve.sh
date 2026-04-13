@@ -146,8 +146,10 @@ copy_model() {
     print_step "Finding a pod with the model-store PVC mounted..."
 
     # The model-copy-job pod mounts the PVC — use it to copy our file in
+    sleep 5
     POD=$(kubectl get pods -n "$KSERVE_NS" \
         --selector=job-name=model-copy-job \
+        --field-selector=status.phase=Running \
         -o jsonpath="{.items[0].metadata.name}" 2>/dev/null || true)
 
     if [[ -z "$POD" ]]; then
@@ -158,42 +160,55 @@ copy_model() {
     fi
 
     print_step "Copying model.pkl to PVC via pod ${POD}..."
-    kubectl run model-loader --rm -i --restart=Never \
-        -n "$KSERVE_NS" \
-        --image=busybox:1.36 \
-        --overrides="{\"spec\":{\"volumes\":[{\"name\":\"store\",\"persistentVolumeClaim\":{\"claimName\":\"model-store-pvc\"}}],\"containers\":[{\"name\":\"model-loader\",\"image\":\"busybox:1.36\",\"command\":[\"sh\",\"-c\",\"mkdir -p /mnt/models/artifacts && sleep 30\"],\"volumeMounts\":[{\"name\":\"store\",\"mountPath\":\"/mnt/models\"}]}]}}" \
-        -- sh -c "sleep 1" &
-    LOADER_POD="model-loader"
-    sleep 5
-    kubectl cp "$MODEL_PATH" "${KSERVE_NS}/${LOADER_POD}:/mnt/models/artifacts/model.pkl" 2>/dev/null || \
-        print_warning "Could not copy model — copy manually once KServe CRDs are installed"
+    # Wait for the job pod to be running before attempting cp
+    local cp_retries=12
+    until kubectl get pod "$POD" -n "$KSERVE_NS" \
+            -o jsonpath="{.status.phase}" 2>/dev/null | grep -qE "Running|Succeeded"; do
+        cp_retries=$((cp_retries - 1))
+        if [[ $cp_retries -le 0 ]]; then
+            print_warning "Job pod not ready for cp — skipping"
+            return 0
+        fi
+        sleep 5
+    done
+    kubectl exec -n "$KSERVE_NS" "$POD" -- mkdir -p /mnt/models/artifacts
+    kubectl cp "$MODEL_PATH" "${KSERVE_NS}/${POD}:/mnt/models/artifacts/model.pkl"
     print_success "model.pkl copied to PVC"
 }
 
 #  4. Apply InferenceService 
 deploy_inference_service() {
-    print_step "Applying KServe InferenceService..."
-    if ! kubectl get crd inferenceservices.serving.kserve.io >/dev/null 2>&1; then
-        print_warning "KServe CRDs not installed — skipping InferenceService apply"
-        print_info "Install KServe first, then run: kubectl apply -f ml/serving/kserve/inference_service.yaml"
-        return 0
-    fi
-    kubectl apply -f "${SCRIPT_DIR}/inference_service.yaml"
+    print_step "Waiting for KServe webhook to be ready before applying InferenceService..."
 
-    print_step "Waiting for InferenceService to become ready..."
-    RETRIES=24   # 2 minutes (KServe can take a moment to pull the sklearn image)
-    until kubectl get inferenceservice "$MODEL_NAME" -n "$KSERVE_NS" \
-            -o jsonpath="{.status.conditions[?(@.type=='Ready')].status}" \
-            2>/dev/null | grep -q "True"; do
-        RETRIES=$((RETRIES - 1))
-        if [[ $RETRIES -le 0 ]]; then
-            print_warning "InferenceService not ready after 2m — check logs:"
-            print_info    "  kubectl describe inferenceservice ${MODEL_NAME} -n ${KSERVE_NS}"
-            break
+    local retries=30
+    until kubectl get endpoints kserve-webhook-server-service -n kserve \
+            -o jsonpath="{.subsets[0].addresses[0].ip}" 2>/dev/null | grep -qE '[0-9]'; do
+        retries=$((retries - 1))
+        if [[ $retries -le 0 ]]; then
+            print_warning "KServe webhook not ready after 150s — InferenceService will be applied on next run"
+            print_info    "Check: kubectl get pods -n kserve"
+            return 0
         fi
         sleep 5
     done
+    print_success "KServe webhook is ready"
 
+    print_step "Applying KServe InferenceService..."
+    kubectl apply -f "${SCRIPT_DIR}/inference_service.yaml"
+
+    print_step "Waiting for InferenceService to become ready (up to 2m)..."
+    local wait_retries=24
+    until kubectl get inferenceservice "$MODEL_NAME" -n "$KSERVE_NS" \
+            -o jsonpath="{.status.conditions[?(@.type=='Ready')].status}" \
+            2>/dev/null | grep -q "True"; do
+        wait_retries=$((wait_retries - 1))
+        if [[ $wait_retries -le 0 ]]; then
+            print_warning "InferenceService not ready after 2m — check logs:"
+            print_info    "  kubectl describe inferenceservice ${MODEL_NAME} -n ${KSERVE_NS}"
+            return 0
+        fi
+        sleep 5
+    done
     print_success "InferenceService '${MODEL_NAME}' deployed"
 }
 
