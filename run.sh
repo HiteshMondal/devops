@@ -28,8 +28,13 @@ fi
 source "$PROJECT_ROOT/platform/lib/colors.sh"
 source "$PROJECT_ROOT/platform/lib/logging.sh"
 
-# ENV FILE VALIDATION
+[[ -f "$PROJECT_ROOT/scripts/install.sh" ]] || \
+    print_warning "Installer script missing"
 
+[[ -f "$PROJECT_ROOT/scripts/reset.sh" ]] || \
+    print_warning "Reset script missing"
+
+# ENV FILE VALIDATION
 ENV_FILE="$PROJECT_ROOT/.env"
 
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -133,6 +138,55 @@ ENABLE_MONITORING=false
 ENABLE_LOKI=false
 ENABLE_TRIVY=false
 ENABLE_MLOPS=false
+
+##########################################################
+# BOOTSTRAP MENU
+##########################################################
+
+bootstrap_menu() {
+
+    while true; do
+
+        clear
+
+        print_section "DevOps Platform Launcher"
+
+        _menu "Select Action" \
+            "Install Workstation Dependencies|Docker kubectl Terraform AWS CLI etc" \
+            "Reset / Cleanup Environment|Selective destructive cleanup menu" \
+            "Run Platform Deployment|Normal deployment workflow" \
+            "Exit"
+
+        _prompt_choice 3 4
+
+        case "$REPLY" in
+
+        1)
+            print_subsection "Running installer"
+            bash "$PROJECT_ROOT/scripts/install.sh"
+            exit 0
+            ;;
+
+        2)
+            print_subsection "Running cleanup/reset"
+            bash "$PROJECT_ROOT/scripts/reset.sh"
+            exit 0
+            ;;
+
+        3)
+            print_success "Launching deployment workflow"
+            break
+            ;;
+
+        4)
+            print_info "Exit requested"
+            exit 0
+            ;;
+
+        esac
+
+    done
+}
 
 # STEP 1 — ENVIRONMENT SELECTION
 
@@ -539,7 +593,7 @@ deploy_mlops() {
     _mlops_ok()   { echo -e "  ${BOLD}${BRIGHT_CYAN}└${RESET} ${BOLD}${GREEN}✓${RESET}  $*"; }
     _mlops_warn() { echo -e "  ${BOLD}${BRIGHT_CYAN}└${RESET} ${BOLD}${YELLOW}⚠${RESET}  $*"; }
 
-    # 1. DVC pipeline
+    # DVC pipeline
     _mlops_step "⚙️" "Running DVC pipeline"
     if bash "$PROJECT_ROOT/ml/pipelines/dvc/run_dvc.sh"; then
         _mlops_ok "DVC lifecycle completed successfully"
@@ -547,7 +601,7 @@ deploy_mlops() {
         _mlops_warn "DVC pipeline execution failed"
     fi
 
-    # 2. MLflow — deploy BEFORE Metaflow so the tracking server is ready
+    # MLflow — deploy BEFORE Metaflow so the tracking server is ready
     _mlops_step "📈" "MLflow tracking server + model promotion"
     if bash "$PROJECT_ROOT/ml/experiments/mlflow/deploy_mlflow.sh"; then
         _mlops_ok "MLflow deployed and model promotion attempted"
@@ -573,7 +627,7 @@ deploy_mlops() {
         _mlops_warn "WhyLogs install failed"
     fi
     
-    # 3. Metaflow — now MLFLOW_TRACKING_URI=http://localhost:5000 is exported
+    # Metaflow — now MLFLOW_TRACKING_URI=http://localhost:5000 is exported
     _mlops_step "🏃" "Metaflow training pipeline"
     METAFLOW_PYTHON="${PROJECT_ROOT}/.venv/bin/python"
     if [[ ! -f "$METAFLOW_PYTHON" ]]; then
@@ -587,7 +641,7 @@ deploy_mlops() {
         _mlops_warn "Metaflow training failed (model.pkl from DVC will be used)"
     fi
 
-    # 3a. Comet ML — experiment tracking smoke-test
+    # Comet ML — experiment tracking smoke-test
     _mlops_step "☄️" "Comet ML experiment tracking"
     if [[ -n "${COMET_API_KEY:-}" ]]; then
         if python3 "$PROJECT_ROOT/ml/experiments/comet/comet_tracking.py"; then
@@ -599,19 +653,7 @@ deploy_mlops() {
         _mlops_warn "Comet skipped (set COMET_API_KEY in .env to enable)"
     fi
 
-    # 3b. Neptune AI — experiment tracking smoke-test
-    _mlops_step "🔱" "Neptune AI experiment tracking"
-    if [[ -n "${NEPTUNE_API_TOKEN:-}" ]]; then
-        if python3 "$PROJECT_ROOT/ml/experiments/neptune/neptune_tracking.py"; then
-            _mlops_ok "Neptune run logged"
-        else
-            _mlops_warn "Neptune tracking failed"
-        fi
-    else
-        _mlops_warn "Neptune skipped (set NEPTUNE_API_TOKEN in .env to enable)"
-    fi
-
-    # 4. LakeFS — data lake versioning
+    # LakeFS — data lake versioning
     _mlops_step "🗄️" "LakeFS data versioning"
     if bash "$PROJECT_ROOT/ml/lakefs/setup.sh"; then
         _mlops_ok "LakeFS setup complete"
@@ -619,7 +661,7 @@ deploy_mlops() {
         _mlops_warn "LakeFS setup failed (data versioning unavailable)"
     fi
 
-    # 5. Feast — feature store apply + materialize
+    # Feast — feature store apply + materialize
     _mlops_step "🍽️" "Feast feature store"
     if bash "$PROJECT_ROOT/ml/feature_store/feast/apply_features.sh"; then
         _mlops_ok "Feast features applied and materialized"
@@ -627,7 +669,7 @@ deploy_mlops() {
         _mlops_warn "Feast setup failed (feature store unavailable)"
     fi
 
-    # 6. Tecton — skips gracefully if TECTON_API_KEY not set
+    # Tecton — skips gracefully if TECTON_API_KEY not set
     _mlops_step "⚡" "Tecton feature platform"
     if bash "$PROJECT_ROOT/ml/feature_store/tecton/apply_features.sh"; then
         _mlops_ok "Tecton features applied"
@@ -635,7 +677,7 @@ deploy_mlops() {
         _mlops_warn "Tecton skipped (set TECTON_API_KEY in .env to enable)"
     fi
 
-    # 7. Airflow — local scheduler for the daily MLOps DAG
+    # Airflow — local scheduler for the daily MLOps DAG
     _mlops_step "🌊" "Airflow pipeline scheduler"
     if bash "$PROJECT_ROOT/ml/pipelines/airflow/deploy_airflow.sh"; then
         _mlops_ok "Airflow running — DAG available at http://localhost:8080"
@@ -643,7 +685,7 @@ deploy_mlops() {
         _mlops_warn "Airflow deployment failed (scheduled retraining unavailable)"
     fi
 
-    # 8. Drift detection (Evidently)
+    # Drift detection (Evidently)
     _mlops_step "📊" "Drift detection (Evidently)"
     if bash "$PROJECT_ROOT/monitoring/evidently/deploy_evidently.sh"; then
         _mlops_ok "Drift detection complete"
@@ -651,7 +693,7 @@ deploy_mlops() {
         _mlops_warn "Drift detection failed"
     fi
 
-    # 9. Prefect — automated retraining check based on drift report
+    # Prefect — automated retraining check based on drift report
     _mlops_step "🔄" "Automated retraining check (Prefect)"
     if bash "$PROJECT_ROOT/ml/pipelines/prefect/deploy_prefect.sh"; then
         _mlops_ok "Prefect retraining flow complete"
@@ -659,7 +701,7 @@ deploy_mlops() {
         _mlops_warn "Prefect flow failed"
     fi
 
-    # 10. KServe — model serving on Kubernetes (skips if kubectl unavailable)
+    # KServe — model serving on Kubernetes (skips if kubectl unavailable)
     _mlops_step "🚀" "KServe model serving"
     if kubectl cluster-info >/dev/null 2>&1; then
         if bash "$PROJECT_ROOT/ml/serving/kserve/deploy_kserve.sh"; then
@@ -677,22 +719,16 @@ deploy_mlops() {
 }
 
 # ELAPSED TIME TRACKER
-
 _START_TIME=$SECONDS
-
 _elapsed() {
     local secs=$(( SECONDS - _START_TIME ))
     printf "%dm %02ds" $(( secs / 60 )) $(( secs % 60 ))
 }
 
 # MAIN EXECUTION FLOW
-
-# environment
+bootstrap_menu
 select_environment
-
 select_components
-
-# Resolve implicit dependencies early
 _enforce_dependencies
 
 # Infra questions only if still valid

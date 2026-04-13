@@ -369,7 +369,7 @@ Triggers the full retraining pipeline in a background task. The HTTP response is
 **What runs in the background:**
 1. **Prefect** (`retraining_flow.py`) orchestrates the workflow, checks drift status, and decides whether retraining is needed.
 2. **Metaflow** (`training_flow.py`) trains a new RandomForest model, saves `model.pkl` and `eval_metrics.json`.
-3. Experiment trackers (MLflow, Neptune, Comet) log the run with params, metrics, and the model artifact.
+3. Experiment trackers (MLflow, Comet) log the run with params, metrics, and the model artifact.
 4. **OpenLineage** records the data lineage graph for the new run.
 5. The app reloads the newly trained model into memory automatically.
 

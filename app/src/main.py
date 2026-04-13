@@ -621,7 +621,7 @@ def retrain(background_tasks: BackgroundTasks):
        - Trains a new RandomForest model
        - Saves model.pkl and eval_metrics.json
 
-    3. **Experiment trackers** (MLflow / Neptune / Comet) log the run
+    3. **Experiment trackers** (MLflow / Comet) log the run
        with params, metrics, and the model artifact
 
     4. **OpenLineage** records the data lineage graph for this run
@@ -678,7 +678,7 @@ def retrain(background_tasks: BackgroundTasks):
         "pipeline": {
             "orchestrator":  "Prefect  (ml/pipelines/prefect/retraining_flow.py)",
             "trainer":       "Metaflow (ml/pipelines/metaflow/training_flow.py)",
-            "trackers":      "MLflow / Neptune / Comet",
+            "trackers":      "MLflow / Comet",
             "lineage":       "OpenLineage → Marquez",
         },
     }

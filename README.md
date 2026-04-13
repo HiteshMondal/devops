@@ -1,28 +1,21 @@
 ```
-                ██████╗ ███████╗██╗   ██╗ ██████╗ ██████╗ ███████╗
-                ██╔══██╗██╔════╝██║   ██║██╔═══██╗██╔══██╗██╔════╝
-                ██║  ██║█████╗  ██║   ██║██║   ██║██████╔╝███████╗
-                ██║  ██║██╔══╝  ╚██╗ ██╔╝██║   ██║██╔═══╝ ╚════██║
-                ██████╔╝███████╗ ╚████╔╝ ╚██████╔╝██║     ███████║
-                ╚═════╝ ╚══════╝  ╚═══╝   ╚═════╝ ╚═╝     ╚══════╝
+            ██████╗ ███████╗██╗   ██╗ ██████╗ ██████╗ ███████╗
+            ██╔══██╗██╔════╝██║   ██║██╔═══██╗██╔══██╗██╔════╝
+            ██║  ██║█████╗  ██║   ██║██║   ██║██████╔╝███████╗
+            ██║  ██║██╔══╝  ╚██╗ ██╔╝██║   ██║██╔═══╝ ╚════██║
+            ██████╔╝███████╗ ╚████╔╝ ╚██████╔╝██║     ███████║
+            ╚═════╝ ╚══════╝  ╚═══╝   ╚═════╝ ╚═╝     ╚══════╝
 ```
 
 ## End-to-End DevOps + MLOps Platform
 
-A **production-grade DevOps and MLOps project** demonstrating the complete lifecycle of a cloud-native AI/ML application — from containerization and CI/CD to infrastructure provisioning, Kubernetes orchestration, ML pipelines, monitoring, drift detection, and security scanning.
-
-Designed to reflect **real-world platform engineering and MLOps practices**, not just tutorials.
+A **production-grade DevOps and MLOps project** demonstrating the full lifecycle of an AI/ML application:
 
 ---
 
 ## Overview
 
-This project provides a **single-command deployment system** that works across:
-
-- Local Kubernetes (Minikube, Kind, K3s, MicroK8s)
-- Cloud Kubernetes (AWS EKS, GKE, AKS, Oracle OKE)
-
-Everything is orchestrated via:
+This repository provides a single-command interactive deployment runner:
 
 ```bash
 ./run.sh
@@ -78,7 +71,6 @@ The runner interactively guides you through environment, component, and cloud pr
 | **Observability** | Prometheus, Grafana, Loki, Promtail, Node Exporter, kube-state-metrics |
 | **Security** | Trivy image scanning with Prometheus metrics export |
 | **ML Pipelines** | Metaflow, Prefect, Kubeflow, DVC — all wired together |
-| **Experiment Tracking** | Neptune.ai integration |
 | **Drift Detection** | Evidently — HTML + JSON reports auto-generated |
 | **Data Profiling** | WhyLabs continuous profiling via whylogs |
 | **Cluster Detection** | Auto-detects Minikube, Kind, K3s, MicroK8s, EKS, GKE, AKS and adapts |
@@ -94,7 +86,7 @@ The runner interactively guides you through environment, component, and cloud pr
 * **Infrastructure**: Terraform / OpenTofu / Pulumi — [`platform/infra/documentation.md`](./platform/infra/documentation.md)
 * **Monitoring**: Prometheus + Grafana + Loki — [`monitoring/documentation.md`](./monitoring/documentation.md)
 * **ML Pipelines** | Metaflow · Prefect · Lakefs · Kubeflow · DVC |
-* **ML Tracking** | Neptune · Evidently · WhyLabs |
+* **ML Tracking** | Evidently · WhyLabs |
 
 ---
 
@@ -109,20 +101,12 @@ Ensure the following tools are installed:
 - AWS CLI / Azure CLI / OCI CLI (for respective cloud targets)
 - A running Kubernetes cluster
 
-Run the automated installer (Ubuntu / Debian / WSL):
-
-```bash
-chmod +x install.sh
-./install.sh
-```
-
 Docker without sudo:
 
 ```bash
 sudo usermod -aG docker $USER
 newgrp docker
 ```
-
 ---
 
 ## Quick Start
@@ -136,7 +120,7 @@ cd devops
 cp .env.example .env
 nano .env
 ```
-> See [`.env.example`](./.env.example) for all available varia
+> See [`.env.example`](./.env.example) for all available variables
 
 ### 2. Launch
 
@@ -298,9 +282,8 @@ Same stages, configured via **Settings → CI/CD → Variables**.
 ## Cleanup
 
 ```bash
-./reset.sh
+./scripts/reset.sh
 ```
-
 Deletes containers, local Kubernetes cluster state, and networks.
 
 ---
@@ -310,8 +293,9 @@ Deletes containers, local Kubernetes cluster state, and networks.
 ```
 .
 ├── run.sh                          # Main orchestrator
-├── install.sh                      # Dependency installer
-├── reset.sh                        # Cleanup script
+├── scripts/
+|   ├── install.sh                  # Dependency installer
+|   ├── reset.sh                    # Cleanup script
 ├── app/
 │   ├── src/                        # FastAPI application
 │   ├── k8s/                        # Kubernetes manifests (Kustomize)
@@ -321,7 +305,7 @@ Deletes containers, local Kubernetes cluster state, and networks.
 │   ├── data/                       # Raw, processed, features
 │   ├── models/artifacts/           # Trained model + metrics
 │   ├── pipelines/                  # DVC, Metaflow, Prefect, Kubeflow
-│   └── experiments/                # Neptune tracking
+│   └── experiments/                # Comet, MLflow
 ├── monitoring/
 │   ├── prometheus_grafana/         # kube-prometheus-stack values
 │   ├── loki/                       # Loki Kustomize overlays
