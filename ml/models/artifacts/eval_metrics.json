@@ -1,4 +1,7 @@
 {
   "accuracy": 0.41,
-  "f1": 0.3612
+  "f1": 0.3612,
+  "passed_gates": true,
+  "min_accuracy": 0.0,
+  "min_f1": 0.0
 }

@@ -614,17 +614,33 @@ deploy_mlops() {
     fi
 
     _mlops_step "📋" "WhyLogs profiling setup"
-    if [[ ! -d "${PROJECT_ROOT}/.venv" ]]; then
-        python3 -m venv "${PROJECT_ROOT}/.venv"
-        "${PROJECT_ROOT}/.venv/bin/pip" install --quiet setuptools wheel
-    fi
-    WHYLOGS_PIP="${PROJECT_ROOT}/.venv/bin/pip"
-    if "$WHYLOGS_PIP" install --quiet "whylogs" 2>&1 | grep -v "WARNING"; then
-        _mlops_ok "WhyLogs installed"
+    VENV_PATH="${PROJECT_ROOT}/.venv-mlops"
+    PYTHON_BIN=""
+    for py in python3.12 python3.11 python3.10; do
+        if command -v "$py" >/dev/null 2>&1; then
+            PYTHON_BIN="$py"
+            break
+        fi
+    done
+
+    if [[ -z "$PYTHON_BIN" ]]; then
+        _mlops_warn "Compatible Python (3.10–3.12) not found — skipping WhyLogs setup"
     else
-        # whylogs has strict deps — try the last known compatible version
-        if "$WHYLOGS_PIP" install --quiet "whylogs==1.3.27" 2>/dev/null; then
-            _mlops_ok "WhyLogs 1.3.27 installed"
+        if [[ -d "$VENV_PATH" ]]; then
+            if ! "$VENV_PATH/bin/python" --version 2>/dev/null | grep -Eq "3\.(10|11|12)"; then
+                rm -rf "$VENV_PATH"
+            fi
+        fi
+
+        if [[ ! -d "$VENV_PATH" ]]; then
+            "$PYTHON_BIN" -m venv "$VENV_PATH"
+            "$VENV_PATH/bin/pip" install --quiet setuptools wheel
+        fi
+
+        WHYLOGS_PIP="$VENV_PATH/bin/pip"
+
+        if "$WHYLOGS_PIP" install --quiet whylogs 2>&1 | grep -v WARNING; then
+            _mlops_ok "WhyLogs installed"
         else
             _mlops_warn "WhyLogs install failed — prediction profiling disabled"
         fi
