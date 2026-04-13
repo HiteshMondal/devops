@@ -78,10 +78,14 @@ install_lakectl() {
     LAKECTL_VERSION=$(curl -fsSL "https://api.github.com/repos/treeverse/lakeFS/releases/latest" \
         | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/' | head -1) || true
     if [[ -z "$LAKECTL_VERSION" ]]; then
-        LAKECTL_VERSION="1.50.0"
+        LAKECTL_VERSION="1.80.0"
     fi
+    # Try .tar.gz first, fall back to direct binary
     DOWNLOAD_URL="https://github.com/treeverse/lakeFS/releases/download/v${LAKECTL_VERSION}/lakectl_${LAKECTL_VERSION}_${OS}_${ARCH}.tar.gz"
-
+    # Verify URL exists before downloading
+    if ! curl -fsSL --head "${DOWNLOAD_URL}" >/dev/null 2>&1; then
+        DOWNLOAD_URL="https://github.com/treeverse/lakeFS/releases/download/v${LAKECTL_VERSION}/lakectl-${LAKECTL_VERSION}-${OS}-${ARCH}.tar.gz"
+    fi
     print_step "Downloading lakectl v${LAKECTL_VERSION}..."
 
     TMP_DIR="$(mktemp -d)"

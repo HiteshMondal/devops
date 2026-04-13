@@ -14,6 +14,7 @@ fi
 
 # Export MLflow URI so training_flow.py finds the tracking server
 export MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-http://localhost:5000}"
+export OPENLINEAGE_URL="${OPENLINEAGE_URL:-http://localhost:5001}"
 
 case "$1" in
     train)

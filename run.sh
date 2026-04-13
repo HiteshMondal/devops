@@ -139,10 +139,7 @@ ENABLE_LOKI=false
 ENABLE_TRIVY=false
 ENABLE_MLOPS=false
 
-##########################################################
 # BOOTSTRAP MENU
-##########################################################
-
 bootstrap_menu() {
 
     while true; do
@@ -617,30 +614,25 @@ deploy_mlops() {
     fi
 
     _mlops_step "📋" "WhyLogs profiling setup"
-    WHYLOGS_PIP="${PROJECT_ROOT}/.venv/bin/pip"
-    if [[ ! -f "$WHYLOGS_PIP" ]]; then
+    if [[ ! -d "${PROJECT_ROOT}/.venv" ]]; then
         python3 -m venv "${PROJECT_ROOT}/.venv"
-        WHYLOGS_PIP="${PROJECT_ROOT}/.venv/bin/pip"
-        "$WHYLOGS_PIP" install --quiet setuptools wheel
+        "${PROJECT_ROOT}/.venv/bin/pip" install --quiet setuptools wheel
     fi
-    if "$WHYLOGS_PIP" install --quiet whylogs 2>/dev/null; then
+    WHYLOGS_PIP="${PROJECT_ROOT}/.venv/bin/pip"
+    if "$WHYLOGS_PIP" install --quiet "whylogs" 2>&1 | grep -v "WARNING"; then
         _mlops_ok "WhyLogs installed"
     else
-        _mlops_warn "WhyLogs install failed"
+        # whylogs has strict deps — try the last known compatible version
+        if "$WHYLOGS_PIP" install --quiet "whylogs==1.3.27" 2>/dev/null; then
+            _mlops_ok "WhyLogs 1.3.27 installed"
+        else
+            _mlops_warn "WhyLogs install failed — prediction profiling disabled"
+        fi
     fi
     
     # Metaflow — now MLFLOW_TRACKING_URI=http://localhost:5000 is exported
     _mlops_step "🏃" "Metaflow training pipeline"
-    METAFLOW_PYTHON="${PROJECT_ROOT}/.venv/bin/python"
-    if [[ ! -f "$METAFLOW_PYTHON" ]]; then
-        python3 -m venv "${PROJECT_ROOT}/.venv"
-        METAFLOW_PYTHON="${PROJECT_ROOT}/.venv/bin/python"
-    fi
-    # Ensure metaflow is installed in the venv
-    "${PROJECT_ROOT}/.venv/bin/pip" install --quiet setuptools wheel metaflow scikit-learn pandas 2>/dev/null || true
-    export MLFLOW_TRACKING_URI="http://localhost:5000"
-    export OPENLINEAGE_URL="http://localhost:5001"
-    if "$METAFLOW_PYTHON" "$PROJECT_ROOT/ml/pipelines/metaflow/training_flow.py" run; then
+    if bash "$PROJECT_ROOT/ml/pipelines/metaflow/run_metaflow.sh"; then
         _mlops_ok "Metaflow training complete"
     else
         _mlops_warn "Metaflow training failed (model.pkl from DVC will be used)"
@@ -772,15 +764,27 @@ print_divider
 # COMPLETION BANNER
 
 echo ""
+PROM_LINE=$(
+    if [[ "$ENABLE_MONITORING" == true ]]; then
+        echo "CMD:Prometheus port-forward:|kubectl port-forward svc/prometheus 9090:9090 -n ${PROMETHEUS_NAMESPACE:-monitoring}"
+    else
+        echo "TEXT:Monitoring not deployed in this run"
+    fi
+)
+
+GRAF_LINE=$(
+    if [[ "$ENABLE_MONITORING" == true ]]; then
+        echo "CMD:Grafana port-forward:|kubectl port-forward svc/grafana 3000:3000 -n ${PROMETHEUS_NAMESPACE:-monitoring}"
+    else
+        echo "TEXT:"
+    fi
+)
+
 print_access_box "DEPLOYMENT COMPLETE" "+" \
     "CRED:Environment:${DEPLOY_TARGET^^}" \
     "CRED:Total time:$(_elapsed)" \
     "SEP:" \
-    "$(  [[ "$ENABLE_MONITORING" == true ]] && \
-        echo "CMD:Prometheus port-forward:|kubectl port-forward svc/prometheus 9090:9090 -n ${PROMETHEUS_NAMESPACE:-monitoring}" || \
-        echo "TEXT:Monitoring not deployed in this run" )" \
-    "$(  [[ "$ENABLE_MONITORING" == true ]] && \
-        echo "CMD:Grafana port-forward:|kubectl port-forward svc/grafana 3000:3000 -n ${PROMETHEUS_NAMESPACE:-monitoring}" || \
-        echo "TEXT:" )" \
+    "$PROM_LINE" \
+    "$GRAF_LINE" \
     "SEP:" \
     "CMD:Check all pods:|kubectl get pods --all-namespaces"
