@@ -83,8 +83,8 @@ stages:
       size: 875
     - path: ml/pipelines/metaflow/training_flow.py
       hash: md5
-      md5: 4368f5b89c472501231d8fa935a00ca2
-      size: 13983
+      md5: e936951f85eed5c6a12825708e356f69
+      size: 11188
     params:
       params.yaml:
         model:

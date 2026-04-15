@@ -64,8 +64,12 @@ install_lakectl() {
 
     # Detect architecture
     case "$(uname -m)" in
-        x86_64|amd64) ARCH="x86_64" ;;
-        arm64|aarch64) ARCH="arm64" ;;
+        x86_64|amd64)
+            ARCH_FILTER='amd64|x86_64'
+            ;;
+        arm64|aarch64)
+            ARCH_FILTER='arm64|aarch64'
+            ;;
         *)
             print_error "Unsupported architecture: $(uname -m)"
             return 1
@@ -77,7 +81,7 @@ install_lakectl() {
     TMP_DIR="$(mktemp -d)"
 
     print_step "Fetching latest lakectl release..."
-    if [[ "$LAKECTL_VERSION" == "latest" ]]; then
+    if [[ "${LAKECTL_VERSION:-latest}" == "latest" ]]; then
         # Resolve the latest version tag robustly — jq-free, handles API rate limits
         LAKECTL_VERSION="$(curl -fsSL \
             -H "Accept: application/vnd.github+json" \
@@ -95,17 +99,40 @@ install_lakectl() {
     fi
 
     # Build the download URL directly from the version — no grep over asset list needed
-    URL="https://github.com/treeverse/lakeFS/releases/download/v${LAKECTL_VERSION}/lakectl_${LAKECTL_VERSION}_${OS}_${ARCH}.tar.gz"
+    print_step "Resolving lakectl download URL..."
 
-    print_step "Downloading: $URL"
+    URL="$(curl -fsSL \
+      -H "Accept: application/vnd.github+json" \
+      "https://api.github.com/repos/treeverse/lakeFS/releases/tags/v${LAKECTL_VERSION}" \
+      | grep browser_download_url \
+      | grep -i lakectl \
+      | grep -Ei "${OS}|linux|darwin" \
+      | grep -Ei "${ARCH_FILTER}" \
+      | head -n1 \
+      | cut -d '"' -f4)"
 
-    if ! curl -fL "$URL" -o "${TMP_DIR}/lakectl.tar.gz"; then
-        print_error "Download failed"
+    if [[ -z "${URL:-}" ]]; then
+        print_error "Could not resolve lakectl asset from GitHub API."
+        print_error "Try:"
+        print_error "  export LAKECTL_VERSION=<specific-version>"
+        print_error "Example:"
+        print_error "  export LAKECTL_VERSION=1.35.0"
         rm -rf "$TMP_DIR"
         return 1
     fi
 
-    tar -xzf "${TMP_DIR}/lakectl.tar.gz" -C "$TMP_DIR"
+    print_step "Downloading: $URL"
+
+    case "$URL" in
+        *.tar.gz)
+            curl -fL "$URL" -o "${TMP_DIR}/lakectl.tar.gz"
+            tar -xzf "${TMP_DIR}/lakectl.tar.gz" -C "$TMP_DIR"
+            ;;
+        *)
+            curl -fL "$URL" -o "${TMP_DIR}/lakectl"
+            chmod +x "${TMP_DIR}/lakectl"
+            ;;
+    esac
     chmod +x "${TMP_DIR}/lakectl"
 
     print_step "Installing lakectl → ${INSTALL_DIR}"
@@ -200,7 +227,7 @@ create_repo() {
 
     lakectl_cmd repo create \
         "lakefs://${repo}" \
-        "mem://" \
+        "local://" \
         --default-branch "${DEFAULT_BRANCH}"
 
     print_success "Repository created: ${repo} (${description})"

@@ -1,23 +1,4 @@
 # ml/pipelines/metaflow/training_flow.py
-#
-# Metaflow — Training Pipeline
-# -----------------------------
-# Metaflow turns a plain Python class into a multi-step workflow.
-# Each @step is a discrete stage that can be retried, logged, and inspected.
-#
-# This flow:   start → train → end
-#
-# What each step does:
-#   start  — loads the processed CSV (runs prepare.py if needed)
-#   train  — trains RandomForest, evaluates, saves model.pkl and eval_metrics.json,
-#             then logs to Comet / MLflow and emits OpenLineage events
-#   end    — prints a final summary
-#
-# Run locally:
-#   python ml/pipelines/metaflow/training_flow.py run
-#
-# Run on Kubernetes:
-#   python ml/pipelines/metaflow/training_flow.py run --with kubernetes
 
 from metaflow import FlowSpec, step, Parameter
 import pandas as pd
@@ -51,16 +32,6 @@ def _section(title: str):
 
 
 class TrainingFlow(FlowSpec):
-    """
-    A Metaflow FlowSpec defines a multi-step ML pipeline.
-
-    Each method decorated with @step is one stage of the pipeline.
-    Metaflow stores all step outputs (self.df, self.metrics, etc.)
-    in its artifact store so steps can be retried or inspected later.
-
-    Run with:
-        python ml/pipelines/metaflow/training_flow.py run
-    """
 
     # Parameters can be overridden from the CLI:
     #   python training_flow.py run --data_path ml/data/processed/custom.csv
@@ -71,17 +42,6 @@ class TrainingFlow(FlowSpec):
     #  Step 1: Load data 
     @step
     def start(self):
-        """
-        Load the processed CSV into a DataFrame.
-
-        Metaflow stores self.df in its artifact store — a local or S3 folder
-        where each step's outputs are serialised. This means:
-          - Steps can be retried from exactly where they left off
-          - You can inspect any step's output with: metaflow step TrainingFlow/<run_id>/start
-
-        If the processed CSV doesn't exist yet, this step automatically
-        runs prepare.py first so training is always self-contained.
-        """
         _banner("Metaflow Training Pipeline — start step")
         _log("START", "Metaflow is loading the training data…", "cyan")
         _log("START", f"  Looking for: {self.data_path}", "gray")
@@ -259,17 +219,6 @@ class TrainingFlow(FlowSpec):
             _log("COMET", "  Set COMET_API_KEY + COMET_PROJECT in .env to enable", "gray")
 
     def _log_to_mlflow(self, model):
-        """
-        MLflow — Experiment Tracking + Model Registry
-
-        MLflow does two things:
-          1. Tracks this run (params + metrics) in the MLflow UI
-          2. Registers the model in the Model Registry so deploy_mlflow.sh
-             can promote it through: None → Staging → Production
-
-        Required env var:
-          MLFLOW_TRACKING_URI  (defaults to the in-cluster Kubernetes service)
-        """
         _log("MLFLOW", "Logging to MLflow…", "blue")
         try:
             import mlflow
@@ -299,28 +248,10 @@ class TrainingFlow(FlowSpec):
             _log("MLFLOW", "  Run deploy_mlflow.sh to start the MLflow server", "gray")
 
     def _emit_lineage(self):
-        """
-        OpenLineage — Data Lineage
-
-        Emits START + COMPLETE events describing:
-          processed CSV  →  training_flow.py  →  model.pkl
-
-        A lineage backend like Marquez receives these events and draws
-        a graph of your data pipeline — useful for debugging and auditing.
-
-        Required env var:
-          OPENLINEAGE_URL  (default: http://localhost:5001)
-
-        Note: we import the module object (not just the function) so we can
-        read _last_emit_succeeded after the call — importing a bool value
-        directly would snapshot it as False at import time and never update.
-        """
         try:
             import sys
             sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 
-            # Import the module, not just the function — this gives us a live
-            # reference to _last_emit_succeeded instead of a frozen copy
             import ml.lineage.openlineage.lineage_emitter as _lineage_mod
 
             _lineage_mod.emit_training_lineage(metrics=self.metrics)
@@ -333,7 +264,6 @@ class TrainingFlow(FlowSpec):
         except Exception as exc:
             _log("LINEAGE", f"✖ Skipped: {exc}", "yellow")
             _log("LINEAGE", "  Start Marquez: bash monitoring/marquez/deploy_marquez.sh", "gray")
-
 
 if __name__ == "__main__":
     TrainingFlow()
