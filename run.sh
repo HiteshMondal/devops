@@ -616,10 +616,13 @@ deploy_mlops() {
     _mlops_step "📋" "WhyLogs profiling setup"
     VENV_PATH="${PROJECT_ROOT}/.venv-mlops"
     PYTHON_BIN=""
-    for py in python3.12 python3.11 python3.10; do
+    for py in python3.12 python3.11 python3.10 python3; do
         if command -v "$py" >/dev/null 2>&1; then
-            PYTHON_BIN="$py"
-            break
+            _ver=$("$py" -c "import sys; print(sys.version_info[:2])" 2>/dev/null)
+            if [[ "$_ver" =~ \((3,\ (10|11|12))\) ]]; then
+                PYTHON_BIN="$py"
+                break
+            fi
         fi
     done
 

@@ -49,14 +49,13 @@ install_lakectl() {
 
     print_step "Installing lakectl..."
 
-    local OS ARCH DOWNLOAD_URL TMP_DIR INSTALL_DIR
-
+    local OS ARCH INSTALL_DIR TMP_DIR URL
     INSTALL_DIR="/usr/local/bin"
 
     # Detect OS
     case "$(uname -s)" in
-        Linux)  OS="linux" ;;
-        Darwin) OS="darwin" ;;
+        Linux)  OS="Linux" ;;
+        Darwin) OS="Darwin" ;;
         *)
             print_error "Unsupported OS: $(uname -s)"
             return 1
@@ -65,7 +64,7 @@ install_lakectl() {
 
     # Detect architecture
     case "$(uname -m)" in
-        x86_64|amd64) ARCH="amd64" ;;
+        x86_64|amd64) ARCH="x86_64" ;;
         arm64|aarch64) ARCH="arm64" ;;
         *)
             print_error "Unsupported architecture: $(uname -m)"
@@ -73,34 +72,35 @@ install_lakectl() {
             ;;
     esac
 
-    # Pinned version — avoids GitHub API rate limits and network flakiness
-    local LAKECTL_VERSION
-    LAKECTL_VERSION=$(curl -fsSL "https://api.github.com/repos/treeverse/lakeFS/releases/latest" \
-        | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/' | head -1) || true
-    if [[ -z "$LAKECTL_VERSION" ]]; then
-        LAKECTL_VERSION="1.80.0"
-    fi
-    # Try .tar.gz first, fall back to direct binary
-    DOWNLOAD_URL="https://github.com/treeverse/lakeFS/releases/download/v${LAKECTL_VERSION}/lakectl_${LAKECTL_VERSION}_${OS}_${ARCH}.tar.gz"
-    # Verify URL exists before downloading
-    if ! curl -fsSL --head "${DOWNLOAD_URL}" >/dev/null 2>&1; then
-        DOWNLOAD_URL="https://github.com/treeverse/lakeFS/releases/download/v${LAKECTL_VERSION}/lakectl-${LAKECTL_VERSION}-${OS}-${ARCH}.tar.gz"
-    fi
-    print_step "Downloading lakectl v${LAKECTL_VERSION}..."
+    : "${LAKECTL_VERSION:=latest}"
 
     TMP_DIR="$(mktemp -d)"
 
-    if ! curl -fL "${DOWNLOAD_URL}" -o "${TMP_DIR}/lakectl.tar.gz"; then
-        print_error "Download failed"
-        rm -rf "${TMP_DIR}"
+    print_step "Fetching latest lakectl release..."
+
+    if [[ "$LAKECTL_VERSION" == "latest" ]]; then
+        URL="$(curl -s https://api.github.com/repos/treeverse/lakeFS/releases/latest \
+            | grep browser_download_url \
+            | grep lakectl \
+            | grep "$OS" \
+            | grep "$ARCH" \
+            | cut -d '"' -f 4 \
+            | head -n 1)"
+    else
+        URL="https://github.com/treeverse/lakeFS/releases/download/${LAKECTL_VERSION}/lakectl_${OS}_${ARCH}"
+    fi
+
+    if [[ -z "$URL" ]]; then
+        print_error "Could not resolve lakectl download URL"
+        rm -rf "$TMP_DIR"
         return 1
     fi
 
-    print_step "Extracting lakectl..."
+    print_step "Downloading: $URL"
 
-    if ! tar -xzf "${TMP_DIR}/lakectl.tar.gz" -C "${TMP_DIR}"; then
-        print_error "Extraction failed"
-        rm -rf "${TMP_DIR}"
+    if ! curl -fL "$URL" -o "${TMP_DIR}/lakectl"; then
+        print_error "Download failed"
+        rm -rf "$TMP_DIR"
         return 1
     fi
 
@@ -319,10 +319,10 @@ main() {
     create_repo "${MODELS_REPO}" "Model artifact versioning"
 
     print_subsection "Seeding Data"
-    seed_data "${DATA_REPO}"   "${PROJECT_ROOT}/data/raw"         "raw"
-    seed_data "${DATA_REPO}"   "${PROJECT_ROOT}/data/processed"   "processed"
-    seed_data "${DATA_REPO}"   "${PROJECT_ROOT}/data/features"    "features"
-    seed_data "${MODELS_REPO}" "${PROJECT_ROOT}/models/artifacts" "artifacts"
+    seed_data "${DATA_REPO}"   "${PROJECT_ROOT}/ml/data/raw"         "raw"
+    seed_data "${DATA_REPO}"   "${PROJECT_ROOT}/ml/data/processed"   "processed"
+    seed_data "${DATA_REPO}"   "${PROJECT_ROOT}/ml/data/features"    "features"
+    seed_data "${MODELS_REPO}" "${PROJECT_ROOT}/ml/models/artifacts" "artifacts"
 
     configure_hooks
     print_lakefs_paths
