@@ -1,0 +1,4 @@
+# /monitoring/whylogs/requirements.txt
+
+whylogs==1.3.27
+pandas>=2.1,<3

@@ -614,41 +614,12 @@ deploy_mlops() {
     fi
 
     _mlops_step "📋" "WhyLogs profiling setup"
-    VENV_PATH="${PROJECT_ROOT}/.venv-mlops"
-    PYTHON_BIN=""
-    for py in python3.12 python3.11 python3.10 python3; do
-        if command -v "$py" >/dev/null 2>&1; then
-            _ver=$("$py" -c "import sys; print(sys.version_info[:2])" 2>/dev/null)
-            if [[ "$_ver" =~ \((3,\ (10|11|12))\) ]]; then
-                PYTHON_BIN="$py"
-                break
-            fi
-        fi
-    done
-
-    if [[ -z "$PYTHON_BIN" ]]; then
-        _mlops_warn "Compatible Python (3.10–3.12) not found — skipping WhyLogs setup"
+    if bash "$PROJECT_ROOT/monitoring/whylogs/run_whylogs.sh"; then
+        _mlops_ok "WhyLogs profiling complete"
     else
-        if [[ -d "$VENV_PATH" ]]; then
-            if ! "$VENV_PATH/bin/python" --version 2>/dev/null | grep -Eq "3\.(10|11|12)"; then
-                rm -rf "$VENV_PATH"
-            fi
-        fi
-
-        if [[ ! -d "$VENV_PATH" ]]; then
-            "$PYTHON_BIN" -m venv "$VENV_PATH"
-            "$VENV_PATH/bin/pip" install --quiet setuptools wheel
-        fi
-
-        WHYLOGS_PIP="$VENV_PATH/bin/pip"
-
-        if "$WHYLOGS_PIP" install --quiet whylogs 2>&1 | grep -v WARNING; then
-            _mlops_ok "WhyLogs installed"
-        else
-            _mlops_warn "WhyLogs install failed — prediction profiling disabled"
-        fi
+        _mlops_warn "WhyLogs profiling failed"
     fi
-    
+
     # Metaflow — now MLFLOW_TRACKING_URI=http://localhost:5000 is exported
     _mlops_step "🏃" "Metaflow training pipeline"
     if bash "$PROJECT_ROOT/ml/pipelines/metaflow/run_metaflow.sh"; then

@@ -1,0 +1,9 @@
+# /monitoring/whylogs/docker-compose.yml
+
+services:
+  profiler:
+    build:
+      context: ../../
+      dockerfile: monitoring/whylogs/Dockerfile
+    volumes:
+      - ../../ml/data:/app/ml/data

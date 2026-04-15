@@ -77,33 +77,35 @@ install_lakectl() {
     TMP_DIR="$(mktemp -d)"
 
     print_step "Fetching latest lakectl release..."
-
     if [[ "$LAKECTL_VERSION" == "latest" ]]; then
-        URL="$(curl -s https://api.github.com/repos/treeverse/lakeFS/releases/latest \
-            | grep browser_download_url \
-            | grep lakectl \
-            | grep "$OS" \
-            | grep "$ARCH" \
-            | cut -d '"' -f 4 \
-            | head -n 1)"
-    else
-        URL="https://github.com/treeverse/lakeFS/releases/download/${LAKECTL_VERSION}/lakectl_${OS}_${ARCH}"
+        # Resolve the latest version tag robustly — jq-free, handles API rate limits
+        LAKECTL_VERSION="$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/treeverse/lakeFS/releases/latest" \
+            2>/dev/null \
+          | grep '"tag_name"' \
+          | head -n1 \
+          | sed 's/.*"tag_name": *"v\?\([^"]*\)".*/\1/')"
+
+        if [[ -z "$LAKECTL_VERSION" ]]; then
+            print_error "Could not resolve latest lakectl version (GitHub API unavailable?)"
+            rm -rf "$TMP_DIR"
+            return 1
+        fi
     fi
 
-    if [[ -z "$URL" ]]; then
-        print_error "Could not resolve lakectl download URL"
-        rm -rf "$TMP_DIR"
-        return 1
-    fi
+    # Build the download URL directly from the version — no grep over asset list needed
+    URL="https://github.com/treeverse/lakeFS/releases/download/v${LAKECTL_VERSION}/lakectl_${LAKECTL_VERSION}_${OS}_${ARCH}.tar.gz"
 
     print_step "Downloading: $URL"
 
-    if ! curl -fL "$URL" -o "${TMP_DIR}/lakectl"; then
+    if ! curl -fL "$URL" -o "${TMP_DIR}/lakectl.tar.gz"; then
         print_error "Download failed"
         rm -rf "$TMP_DIR"
         return 1
     fi
 
+    tar -xzf "${TMP_DIR}/lakectl.tar.gz" -C "$TMP_DIR"
     chmod +x "${TMP_DIR}/lakectl"
 
     print_step "Installing lakectl → ${INSTALL_DIR}"
