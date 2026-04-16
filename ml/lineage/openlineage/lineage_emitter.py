@@ -1,27 +1,6 @@
 # ml/lineage/openlineage/lineage_emitter.py
 #
 # OpenLineage — Data Lineage Tracking
-# -------------------------------------
-# Data lineage answers the question: "Where did this data come from,
-# and what happened to it along the way?"
-#
-# OpenLineage is an open standard for lineage events. Tools like
-# Marquez, Apache Atlas, and DataHub can receive these events and
-# draw a graph of your data pipeline:
-#
-#   raw CSV  →  prepare.py  →  processed CSV  →  training_flow.py  →  model.pkl
-#
-# Every time a pipeline stage runs, we emit a START event (with inputs)
-# and a COMPLETE event (with outputs). If it fails, we emit FAIL.
-#
-# How it fits in this project:
-#   training_flow.py     — calls emit_training_lineage() after training
-#   prepare.py / DVC     — calls emit_preprocessing_lineage() after preprocessing
-#   Marquez (optional)   — receives events at OPENLINEAGE_URL and shows the graph
-#
-# Env vars:
-#   OPENLINEAGE_URL       — e.g. http://localhost:5000 (Marquez server)
-#   OPENLINEAGE_NAMESPACE — logical grouping name, e.g. "devops-aiml"
 
 import os
 import uuid
@@ -37,12 +16,6 @@ _last_emit_succeeded = False
 
 # Internal helper — send one OpenLineage event via HTTP POST
 def _emit(event: dict):
-    """
-    POST an OpenLineage event as JSON to the configured backend.
-
-    If the backend is unreachable we print a warning and continue —
-    lineage tracking should never block the training pipeline.
-    """
     url = f"{OPENLINEAGE_URL}/api/v1/lineage"
     payload = json.dumps(event).encode("utf-8")
 
@@ -65,13 +38,6 @@ def _emit(event: dict):
 
 # Build a minimal OpenLineage dataset descriptor
 def _dataset(namespace: str, name: str, facets: dict = None):
-    """
-    Helper that builds the dict structure OpenLineage expects for a dataset.
-
-    namespace — logical grouping (usually the project name)
-    name      — path or table name, e.g. "ml/data/raw/dataset.csv"
-    facets    — optional extra metadata (schema, data quality stats, etc.)
-    """
     d = {"namespace": namespace, "name": name}
     if facets:
         d["facets"] = facets
@@ -80,11 +46,6 @@ def _dataset(namespace: str, name: str, facets: dict = None):
 
 # Emit lineage for the preprocessing step (prepare.py)
 def emit_preprocessing_lineage(run_id: str = None):
-    """
-    Record that prepare.py read the raw CSV and wrote the processed CSV.
-
-    Call this from prepare.py (or the DVC pipeline) after preprocess() runs.
-    """
     run_id = run_id or str(uuid.uuid4())
     now    = datetime.datetime.utcnow().isoformat() + "Z"
 
@@ -130,14 +91,6 @@ def emit_preprocessing_lineage(run_id: str = None):
 
 # Emit lineage for the training step (training_flow.py)
 def emit_training_lineage(metrics: dict = None, run_id: str = None):
-    """
-    Record that training_flow.py read the processed CSV and wrote model.pkl.
-
-    Call this from training_flow.py after model.fit() completes.
-
-    metrics — dict like {"accuracy": 0.87, "f1": 0.85} — attached as a facet
-              so the lineage graph can show model quality alongside data flow.
-    """
     run_id  = run_id or str(uuid.uuid4())
     metrics = metrics or {}
     now     = datetime.datetime.utcnow().isoformat() + "Z"

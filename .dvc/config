@@ -1,5 +1,7 @@
 [core]
     no_scm = True
-    remote = localremote
+    remote = primary
 ['remote "localremote"']
     url = /tmp/dvc-storage
+['remote "primary"']
+    url = gdrive://mydrive:dvc-storage

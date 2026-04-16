@@ -16,7 +16,8 @@ fi
 export MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-http://localhost:5000}"
 export OPENLINEAGE_URL="${OPENLINEAGE_URL:-http://localhost:5001}"
 
-case "$1" in
+STAGE="${1:-}"
+case "$STAGE" in
     train)
         python ml/pipelines/metaflow/training_flow.py run
         ;;
@@ -24,7 +25,7 @@ case "$1" in
         python app/src/evaluate.py
         ;;
     *)
-        echo "[ERROR] Unknown stage: $1"
+        echo "[ERROR] Unknown stage: $STAGE"
         exit 1
         ;;
 esac
