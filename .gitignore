@@ -93,6 +93,9 @@ id_rsa*
 *.backup
 *.old
 
+# NOTEBOOKS
+**/.ipynb_checkpoints/
+
 # MONITORING DATA (runtime-generated artifacts — never commit)
 monitoring/**/reports/
 monitoring/**/profiles/
@@ -111,8 +114,6 @@ tmp/
 temp/
 
 # ML DATA — managed by DVC / LakeFS
-
-# Ignore datasets
 ml/data/raw/**
 ml/data/processed/**
 ml/data/interim/**
@@ -123,12 +124,10 @@ ml/data/features/**
 !ml/data/**/*.dvc
 
 # MODEL ARTIFACTS
-
 ml/models/artifacts/**
 
-# Allow lightweight metrics tracking (optional but recommended)
+# Allow lightweight metrics tracking
 !ml/models/artifacts/eval_metrics.json
-
 
 # COMMON MODEL FILE TYPES
 *.pt
@@ -143,7 +142,6 @@ ml/models/artifacts/**
 *.bin
 *.safetensors
 
-
 # DVC
 .dvc/cache/
 .dvc/tmp/
@@ -153,6 +151,8 @@ ml/models/artifacts/**
 
 # METAFLOW
 .metaflow/
+
+# MLFLOW
 ml/experiments/mlflow/mlruns/
 
 # LOCAL PLATFORM RUNTIME STATE
@@ -169,7 +169,7 @@ ml/feature_store/feast/feature_definitions.py
 ml/feature_store/feast/registry.db
 ml/feature_store/feast/online_store.db
 
-# KUBEFLOW LOCAL CACHE (sometimes generated)
+# KUBEFLOW LOCAL CACHE
 .kubeflow/
 
 # AIRFLOW LOCAL DB
@@ -180,3 +180,6 @@ ml/pipelines/airflow/*.db
 # PREFECT LOCAL STATE
 .prefect/
 ml/pipelines/prefect/.prefect/
+
+# DATA
+data
