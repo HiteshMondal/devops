@@ -631,7 +631,7 @@ deploy_mlops() {
     # Comet ML — experiment tracking smoke-test
     _mlops_step "☄️" "Comet ML experiment tracking"
     if [[ -n "${COMET_API_KEY:-}" ]]; then
-        if python3 "$PROJECT_ROOT/ml/experiments/comet/comet_tracking.py"; then
+        if "$PROJECT_ROOT/.venv/bin/python" "$PROJECT_ROOT/ml/experiments/comet/comet_tracking.py"; then
             _mlops_ok "Comet experiment logged"
         else
             _mlops_warn "Comet tracking failed"

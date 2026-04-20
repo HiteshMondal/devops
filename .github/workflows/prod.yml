@@ -34,32 +34,32 @@ on:
         type: boolean
 
 env:
-  # ── App ────────────────────────────────────────────────────────────────────
-  APP_NAME:           ${{ vars.APP_NAME           || 'devops-app' }}
+  #  App 
+  APP_NAME:           ${{ vars.APP_NAME            || 'devops-app' }}
   NAMESPACE:          ${{ vars.NAMESPACE           || 'devops-app' }}
   APP_PORT:           ${{ vars.APP_PORT            || '3000' }}
   REPLICAS:           ${{ vars.REPLICAS            || '2' }}
   MIN_REPLICAS:       ${{ vars.MIN_REPLICAS        || '2' }}
   MAX_REPLICAS:       ${{ vars.MAX_REPLICAS        || '10' }}
 
-  # ── Docker ─────────────────────────────────────────────────────────────────
+  #  Docker 
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
   DOCKER_IMAGE_TAG:   ${{ vars.DOCKER_IMAGE_TAG    || 'latest' }}
 
-  # ── Ingress ────────────────────────────────────────────────────────────────
+  #  Ingress 
   INGRESS_ENABLED:    ${{ vars.INGRESS_ENABLED     || 'true' }}
   INGRESS_HOST:       ${{ vars.INGRESS_HOST        || 'devops-app.local' }}
   INGRESS_CLASS:      ${{ vars.INGRESS_CLASS       || 'nginx' }}
   TLS_ENABLED:        ${{ vars.TLS_ENABLED         || 'false' }}
   TLS_SECRET_NAME:    ${{ vars.TLS_SECRET_NAME     || 'devops-app-tls' }}
 
-  # ── Database ───────────────────────────────────────────────────────────────
+  #  Database 
   DB_HOST:            ${{ vars.DB_HOST             || 'localhost' }}
   DB_PORT:            ${{ vars.DB_PORT             || '5432' }}
   DB_NAME:            ${{ vars.DB_NAME             || 'devopsdb' }}
   DB_USERNAME:        ${{ secrets.DB_USERNAME }}
 
-  # ── Monitoring ─────────────────────────────────────────────────────────────
+  #  Monitoring 
   PROMETHEUS_ENABLED:        ${{ vars.PROMETHEUS_ENABLED        || 'true' }}
   PROMETHEUS_NAMESPACE:      ${{ vars.PROMETHEUS_NAMESPACE      || 'monitoring' }}
   PROMETHEUS_RETENTION:      ${{ vars.PROMETHEUS_RETENTION      || '15d' }}
@@ -71,45 +71,45 @@ env:
   GRAFANA_PORT:              ${{ vars.GRAFANA_PORT              || '3000' }}
   GRAFANA_STORAGE_SIZE:      ${{ vars.GRAFANA_STORAGE_SIZE      || '5Gi' }}
 
-  # ── Resource Limits — App ──────────────────────────────────────────────────
+  #  Resource Limits — App 
   APP_CPU_REQUEST:    ${{ vars.APP_CPU_REQUEST     || '100m' }}
   APP_CPU_LIMIT:      ${{ vars.APP_CPU_LIMIT       || '500m' }}
   APP_MEMORY_REQUEST: ${{ vars.APP_MEMORY_REQUEST  || '128Mi' }}
   APP_MEMORY_LIMIT:   ${{ vars.APP_MEMORY_LIMIT    || '512Mi' }}
 
-  # ── Resource Limits — Prometheus ───────────────────────────────────────────
+  #  Resource Limits — Prometheus 
   PROMETHEUS_CPU_REQUEST:    ${{ vars.PROMETHEUS_CPU_REQUEST    || '500m' }}
   PROMETHEUS_CPU_LIMIT:      ${{ vars.PROMETHEUS_CPU_LIMIT      || '2000m' }}
   PROMETHEUS_MEMORY_REQUEST: ${{ vars.PROMETHEUS_MEMORY_REQUEST || '1Gi' }}
   PROMETHEUS_MEMORY_LIMIT:   ${{ vars.PROMETHEUS_MEMORY_LIMIT   || '4Gi' }}
 
-  # ── Resource Limits — Grafana ──────────────────────────────────────────────
+  #  Resource Limits — Grafana 
   GRAFANA_CPU_REQUEST:    ${{ vars.GRAFANA_CPU_REQUEST    || '100m' }}
   GRAFANA_CPU_LIMIT:      ${{ vars.GRAFANA_CPU_LIMIT      || '500m' }}
   GRAFANA_MEMORY_REQUEST: ${{ vars.GRAFANA_MEMORY_REQUEST || '256Mi' }}
   GRAFANA_MEMORY_LIMIT:   ${{ vars.GRAFANA_MEMORY_LIMIT   || '1Gi' }}
 
-  # ── AWS / EKS ──────────────────────────────────────────────────────────────
+  #  AWS / EKS 
   AWS_REGION:         ${{ vars.AWS_REGION          || 'us-east-1' }}
   EKS_CLUSTER_NAME:   ${{ vars.EKS_CLUSTER_NAME    || 'devops-cluster' }}
 
-  # ── Git ────────────────────────────────────────────────────────────────────
+  #  Git 
   GIT_AUTHOR_NAME:    ${{ vars.GIT_AUTHOR_NAME     || github.actor }}
   GIT_AUTHOR_EMAIL:   ${{ vars.GIT_AUTHOR_EMAIL    || format('{0}@users.noreply.github.com', github.actor) }}
 
-  # ── Loki ───────────────────────────────────────────────────────────────────
+  #  Loki 
   LOKI_ENABLED:          ${{ vars.LOKI_ENABLED          || 'true' }}
   LOKI_NAMESPACE:        ${{ vars.LOKI_NAMESPACE        || 'loki' }}
   LOKI_RETENTION_PERIOD: ${{ vars.LOKI_RETENTION_PERIOD || '168h' }}
   LOKI_STORAGE_SIZE:     ${{ vars.LOKI_STORAGE_SIZE     || '10Gi' }}
 
-  # ── Security / Trivy ───────────────────────────────────────────────────────
+  #  Security / Trivy 
   TRIVY_ENABLED:         ${{ vars.TRIVY_ENABLED         || 'true' }}
   TRIVY_NAMESPACE:       ${{ vars.TRIVY_NAMESPACE        || 'trivy-system' }}
   TRIVY_SEVERITY:        ${{ vars.TRIVY_SEVERITY         || 'HIGH,CRITICAL' }}
   TRIVY_METRICS_ENABLED: ${{ vars.TRIVY_METRICS_ENABLED  || 'true' }}
 
-  # ── CI flag ────────────────────────────────────────────────────────────────
+  #  CI flag 
   CI: true
 
 # ============================================================================

@@ -15,7 +15,7 @@
 #   COMET_WORKSPACE — your Comet username or team name
 
 import os
-import comet_ml  # must be imported before sklearn / torch
+import comet_ml
 
 
 # Initialise a new Comet experiment run
@@ -32,6 +32,10 @@ def init_experiment(name: str = "baseline") -> comet_ml.Experiment:
         workspace=os.getenv("COMET_WORKSPACE", "default"),
     )
     experiment.set_name(name)   # human-readable label shown in the dashboard
+    # Apply tags from env or defaults for dashboard filtering
+    tags = os.getenv("COMET_TAGS", "random-forest,binary-classification,mlops-demo")
+    experiment.add_tags([t.strip() for t in tags.split(",")])
+
     return experiment
 
 

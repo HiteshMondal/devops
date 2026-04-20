@@ -126,7 +126,8 @@ if [[ ! -f ".venv/bin/dvc" ]]; then
         pyyaml \
         joblib \
         mlflow \
-        prefect
+        prefect \
+        comet_ml
 
     print_success "DVC installed in .venv"
 
