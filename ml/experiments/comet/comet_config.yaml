@@ -1,14 +1,6 @@
 # ml/experiments/comet/comet_config.yaml
 #
 # Comet ML — Project Configuration
-# ----------------------------------
-# These values are read by comet_tracking.py at runtime.
-# Secrets (COMET_API_KEY) must come from your .env file — never hard-code them here.
-#
-# To get your API key:
-#   1. Sign up at https://www.comet.ml
-#   2. Go to Settings → API Key
-#   3. Add COMET_API_KEY=<your-key> to your .env file
 
 comet:
   # Comet project name — experiments are grouped under this in the dashboard

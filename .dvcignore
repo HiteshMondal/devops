@@ -20,7 +20,7 @@ ml/pipelines/airflow/logs/
 ml/pipelines/airflow/*.db
 .prefect/
 ml/pipelines/prefect/.prefect/
-ml/models/artifacts/
+ml/models/artifacts/*.log
 monitoring/**/reports/
 monitoring/**/profiles/
 .git/

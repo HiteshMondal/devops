@@ -14,6 +14,6 @@ COPY monitoring/whylogs/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY monitoring/whylogs ./monitoring/whylogs
-COPY ml/data/processed ./ml/data/processed
+RUN mkdir -p /app/ml/data/processed
 
 CMD ["python", "monitoring/whylogs/profiler.py"]

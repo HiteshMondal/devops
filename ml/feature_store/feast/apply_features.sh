@@ -134,9 +134,19 @@ PYEOF
 echo "[STEP] Running feast apply..."
 cd "${FEAST_DIR}"
 FEAST_BIN="$VENV_PATH/bin/feast"
+
 if [[ ! -f "$FEAST_BIN" ]]; then
-    FEAST_BIN=$(python3 -m site --user-base 2>/dev/null)/bin/feast
+    echo "[WARN] Feast binary not found at $FEAST_BIN — skipping"
+    exit 0
 fi
+
+PARQUET_PATH="${PROJECT_ROOT}/ml/data/features/features.parquet"
+if [[ ! -f "$PARQUET_PATH" ]]; then
+    echo "[WARN] features.parquet not found — run the DVC pipeline first"
+    echo "[WARN]   bash ml/pipelines/dvc/run_dvc.sh"
+    exit 0
+fi
+
 "$FEAST_BIN" apply
 
 #  5. Materialize features into the online store 
