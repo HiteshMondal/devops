@@ -336,7 +336,7 @@ jobs:
           context: ./app
           file: ./app/Dockerfile
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:${{ steps.meta.outputs.image_tag }}
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.APP_NAME }}:sha-${{ github.sha }}
