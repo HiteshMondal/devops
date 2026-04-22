@@ -1138,4 +1138,149 @@ Docker's healthcheck is advisory — it changes the container's health status bu
 
 ---
 
+**Q16: What is the difference between dockerfile and docker compose file?**
+
+**A:**
+
+# Core Difference (One-line definition)
+
+* **Dockerfile** → defines **how to build a container image**
+* **docker-compose.yml** → defines **how to run one or more containers as an application**
+
+# Lifecycle Position (Most Important Difference)
+
+| Stage                           | Tool           | Responsibility              |
+| ------------------------------- | -------------- | --------------------------- |
+| Image creation                  | Dockerfile     | Build image layers          |
+| Container orchestration (local) | Docker Compose | Run & coordinate containers |
+
+So:
+
+```
+Dockerfile → image
+Compose → containers from images
+```
+
+# Dockerfile (Exact Role)
+
+A **Dockerfile is a declarative build specification** interpreted by `docker build`.
+
+It defines:
+
+* base image (`FROM`)
+* filesystem modifications (`COPY`, `ADD`)
+* dependency installation (`RUN`)
+* metadata (`ENV`, `LABEL`, `WORKDIR`)
+* default runtime command (`CMD`, `ENTRYPOINT`)
+
+Example:
+
+```dockerfile
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+CMD ["python", "app.py"]
+```
+
+Output:
+
+```
+Dockerfile → docker build → Image
+```
+
+Important:
+
+Dockerfile **does not create containers**
+It only creates **images**
+
+
+# Docker Compose File (Exact Role)
+
+A **docker-compose.yml is a multi-container runtime configuration file**
+
+It defines:
+
+* services (containers)
+* networks
+* volumes
+* environment variables
+* port mappings
+* service dependencies
+* restart policies
+
+Example:
+
+```yaml
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+
+  redis:
+    image: redis:7
+```
+
+Output:
+
+```
+docker compose up → Containers running together
+```
+
+Important:
+
+Compose **does not build images unless instructed**
+It **runs containers**
+
+# Scope Difference (Single vs System Definition)
+
+| Feature                         | Dockerfile | Compose |
+| ------------------------------- | ---------- | ------- |
+| Defines image                   | ✅          | ❌       |
+| Defines container runtime       | ❌          | ✅       |
+| Defines multiple services       | ❌          | ✅       |
+| Defines networking              | ❌          | ✅       |
+| Defines volumes                 | ❌          | ✅       |
+| Defines environment per service | ❌          | ✅       |
+| Defines dependency order        | ❌          | ✅       |
+
+# Execution Commands
+
+Dockerfile:
+
+```
+docker build -t app .
+```
+
+Compose:
+
+```
+docker compose up
+```
+
+# Mental Model (Precise Engineering View)
+
+Think in layers:
+
+```
+Dockerfile → Image blueprint
+Image → Executable package
+Compose → Application topology
+Containers → Running instances
+```
+
+Or even more precisely:
+
+```
+Dockerfile = build-time specification
+Compose = runtime orchestration specification
+```
+
+Compose is **not a production orchestrator**
+It is a **local multi-container runner**
+
+---
+
 *This document covers Docker architecture and implementation details as used in a real-world DevOps project. For further reading, see the official Docker documentation at docs.docker.com.*
