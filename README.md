@@ -79,6 +79,7 @@ The runner interactively guides you through environment, component, and cloud pr
 
 ## Core Stack
 
+* **Shell Scripts**: Automated shell scripts to run — [`scripts/linux_documentation.md`](./scripts/linux_documentation.md) 
 * **Application**: FastAPI (Python) — [`app/app_documentation.md`](./app/app_documentation.md)
 * **Containerization**: Docker / Podman — [`app/docker/docker_documentation.md`](./app/docker/docker_documentation.md)
 * **Orchestration**: Kubernetes — [`app/k8s/documentation.md`](./app/k8s/documentation.md)
