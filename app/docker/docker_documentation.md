@@ -28,53 +28,144 @@
 Docker uses a **client-server architecture**. The Docker client communicates with the Docker daemon (`dockerd`) over a REST API (Unix socket or TCP). The daemon does the heavy lifting — building images, running containers, managing networks and volumes.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         DOCKER ARCHITECTURE                             │
-│                                                                         │
-│   ┌──────────────┐     REST API / Unix Socket      ┌─────────────────┐  │
-│   │ Docker Client│ ──────────────────────────────► │   Docker Daemon │  │
-│   │              │ ◄────────────────────────────── │   (dockerd)     │  │
-│   │  docker build│                                 │                 │  │
-│   │  docker pull │                                 │  ┌───────────┐  │  │
-│   │  docker run  │                                 │  │Containerd │  │  │
-│   └──────────────┘                                 │  │  (CRI)    │  │  │
-│                                                    │  └─────┬─────┘  │  │
-│                                                    │  ┌─────▼──────┐ │  │
-│                                                    │  │  runc      │ │  │
-│                                                    │  │(OCI Runtime│ │  │
-│                                                    │  └────────────┘ │  │
-│                                                    └────────┬────────┘  │
-│                                                             │           │
-│   ┌─────────────────────────────────────────────────────────▼────────┐  │
-│   │                        HOST MACHINE                              │  │
-│   │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐               │  │
-│   │  │ Container 1 │  │ Container 2 │  │ Container 3 │               │  │
-│   │  │ ┌─────────┐ │  │ ┌─────────┐ │  │ ┌─────────┐ │               │  │
-│   │  │ │  App A  │ │  │ │  App B  │ │  │ │  App C  │ │               │  │
-│   │  │ └─────────┘ │  │ └─────────┘ │  │ └─────────┘ │               │  │
-│   │  │ ┌─────────┐ │  │ ┌─────────┐ │  │ ┌─────────┐ │               │  │
-│   │  │ │ Libs/   │ │  │ │ Libs/   │ │  │ │ Libs/   │ │               │  │
-│   │  │ │  Deps   │ │  │ │  Deps   │ │  │ │  Deps   │ │               │  │
-│   │  │ └─────────┘ │  │ └─────────┘ │  │ └─────────┘ │               │  │
-│   │  └─────────────┘  └─────────────┘  └─────────────┘               │  │
-│   │  ┌────────────────────────────────────────────────────────────┐  │  │
-│   │  │                      Host OS Kernel                        │  │  │
-│   │  └────────────────────────────────────────────────────────────┘  │  │
-│   └──────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-│   ┌──────────────────────────────────────────────────────────────────┐  │
-│   │                      Docker Registry                             │  │
-│   │                    (Docker Hub / Private)                        │  │
-│   │Images:                                                           │  │
-│   │[nginx:latest] [python:3.11-slim] [myapp:v1.0] [node:18-alpine]   │  │
-│   │                                                                  │  │
-│   │Plugins and Extensions:                                           │  │  
-│   │Disk Usage, Portainer, Snyk, Grafana                              │  │
-│   │                                                                  │  │
-│   └──────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────┘
+╔═════════════════════════════════════════════════════════════════════════════════════╗
+║                            DOCKER ARCHITECTURE                                      ║
+╚═════════════════════════════════════════════════════════════════════════════════════╝
 
+  ┌─────────────────────┐                          ┌──────────────────────────────────┐
+  │    DOCKER CLIENT    │                          │         DOCKER REGISTRY          │
+  │                     │                          │      (Docker Hub / Private)      │
+  │  $ docker build .   │                          │                                  │
+  │  $ docker pull      │                          │  ┌──────────┐  ┌──────────────┐  │
+  │  $ docker run       │                          │  │nginx:    │  │python:       │  │
+  │  $ docker push      │                          │  │latest    │  │3.11-slim     │  │
+  │  $ docker ps        │                          │  └──────────┘  └──────────────┘  │
+  │  $ docker exec      │                          │  ┌──────────┐  ┌──────────────┐  │
+  └──────────┬──────────┘                          │  │myapp:    │  │node:         │  │
+             │                                     │  │v1.0      │  │18-alpine     │  │
+             │  REST API over Unix Socket          │  └──────────┘  └──────────────┘  │
+             │  /var/run/docker.sock               └────────────────────┬─────────────┘
+             │                                                          │
+             │  ◄── push / pull ────────────────────────────────────────┘
+             │
+             ▼
+╔══════════════════════════════════════════════════════════════════════╗
+║                        DOCKER DAEMON  (dockerd)                      ║
+║                                                                      ║
+║   ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐    ║
+║   │  Image Manager  │   │ Network Manager │   │  Volume Manager │    ║
+║   │                 │   │                 │   │                 │    ║
+║   │ • Layer store   │   │ • bridge        │   │ • Named volumes │    ║
+║   │ • Build cache   │   │ • host          │   │ • Bind mounts   │    ║
+║   │ • overlay2 fs   │   │ • overlay       │   │ • tmpfs         │    ║
+║   │ • Image pull/   │   │ • macvlan       │   │ • Volume driver │    ║
+║   │   push          │   │ • iptables NAT  │   │   plugins       │    ║
+║   └─────────────────┘   └─────────────────┘   └─────────────────┘    ║
+║                                                                      ║
+║   ┌───────────────────────────────────────────────────────────────┐  ║
+║   │                      RUNTIME CHAIN                            │  ║
+║   │                                                               │  ║
+║   │   dockerd  ──────►  containerd  ──────►  containerd-shim      │  ║
+║   │  (API layer)        (lifecycle +          (per container,     │  ║
+║   │                      snapshots)            stays alive)       │  ║
+║   │                                                │              │  ║
+║   │                                                ▼              │  ║
+║   │                                             runc              │  ║
+║   │                                          (OCI runtime,        │  ║
+║   │                                           calls kernel)       │  ║
+║   └───────────────────────────────────────────────────────────────┘  ║
+╚════════════════════════════╤═════════════════════════════════════════╝
+                             │  spawn + manage
+                             ▼
+╔══════════════════════════════════════════════════════════════════════╗
+║                          HOST MACHINE                                ║
+║                                                                      ║
+║  ┌───────────────────┐ ┌───────────────────┐ ┌───────────────────┐   ║
+║  │    CONTAINER 1    │ │    CONTAINER 2    │ │    CONTAINER 3    │   ║
+║  │                   │ │                   │ │                   │   ║
+║  │  ┌─────────────┐  │ │  ┌─────────────┐  │ │  ┌─────────────┐  │   ║
+║  │  │    App A    │  │ │  │    App B    │  │ │  │    App C    │  │   ║
+║  │  │  (nginx)    │  │ │  │  (python)   │  │ │  │  (node.js)  │  │   ║
+║  │  └─────────────┘  │ │  └─────────────┘  │ │  └─────────────┘  │   ║
+║  │  ┌─────────────┐  │ │  ┌─────────────┐  │ │  ┌─────────────┐  │   ║
+║  │  │  Libs/Deps  │  │ │  │  Libs/Deps  │  │ │  │  Libs/Deps  │  │   ║
+║  │  └─────────────┘  │ │  └─────────────┘  │ │  └─────────────┘  │   ║
+║  │  ┌─────────────┐  │ │  ┌─────────────┐  │ │  ┌─────────────┐  │   ║
+║  │  │ Writable    │  │ │  │ Writable    │  │ │  │ Writable    │  │   ║
+║  │  │ Layer (CoW) │  │ │  │ Layer (CoW) │  │ │  │ Layer (CoW) │  │   ║
+║  │  └─────────────┘  │ │  └─────────────┘  │ │  └─────────────┘  │   ║
+║  │                   │ │                   │ │                   │   ║
+║  │  Isolation via:   │ │  Isolation via:   │ │  Isolation via:   │   ║
+║  │  pid / net / mnt  │ │  pid / net / mnt  │ │  pid / net / mnt  │   ║
+║  │  uts / ipc / user │ │  uts / ipc / user │ │  uts / ipc / user │   ║
+║  └───────────────────┘ └───────────────────┘ └───────────────────┘   ║
+║           │                     │                     │              ║
+║           └─────────────────────┼─────────────────────┘              ║
+║                                 │ shared read-only image layers      ║
+║     ┌─────────────────────▼──────────────────────────────────┐       ║
+║     │              OVERLAY2 FILESYSTEM                       │       ║
+║     │                                                        │       ║
+║     │  Container writable layer  (copy-on-write, per ctr)    │       ║
+║     │  ─────────────────────────────────────────────         │       ║
+║     │  Image layer N             (read-only, shared)         │       ║
+║     │  ─────────────────────────────────────────────         │       ║
+║     │  Image layer N-1           (read-only, shared)         │       ║
+║     │  ─────────────────────────────────────────────         │       ║
+║     │  Base layer                (read-only, shared)         │       ║
+║     └────────────────────────────────────────────────────────┘       ║
+║                                                                      ║
+║  ┌───────────────────────────────────────────────────────────────┐   ║
+║  │                    LINUX KERNEL                               │   ║
+║  │                                                               │   ║
+║  │  namespaces  │  cgroups  │  seccomp  │  capabilities  │  LSM  │   ║
+║  └───────────────────────────────────────────────────────────────┘   ║
+╚══════════════════════════════════════════════════════════════════════╝
 ```
+---
+ 
+## Component Reference
+ 
+| Component | Role |
+|---|---|
+| **Docker Client** | CLI / SDK that translates commands into REST API calls |
+| **Docker Daemon (`dockerd`)** | Central server process — manages all Docker objects |
+| **Image Manager** | Builds, caches, stores, and distributes image layers |
+| **Network Manager** | Creates virtual networks, manages iptables rules |
+| **Volume Manager** | Manages persistent storage independent of containers |
+| **containerd** | Container lifecycle and snapshot manager (CNCF project) |
+| **containerd-shim** | Per-container process; keeps stdio open if daemon restarts |
+| **runc** | OCI runtime; calls `clone()` + cgroups to spawn the process |
+| **Overlay2 FS** | Union filesystem that stacks read-only image layers + writable CoW layer |
+| **Linux Kernel** | Provides namespaces, cgroups, seccomp, capabilities — actual isolation primitives |
+| **Docker Registry** | Remote image store (Docker Hub or self-hosted) |
+ 
+---
+
+The Docker daemon (`dockerd`) is the central server-side process in Docker — everything flows through it. Here's a structural breakdown of what lives inside it.Now let's zoom into the most critical path inside the daemon — what actually happens when a container is created.## Component-by-component breakdown
+
+**REST API server** is the daemon's front door. It listens on `/var/run/docker.sock` (Unix socket, default) or optionally on a TCP port for remote access. Every CLI command you run is serialized into an HTTP request to this server. The API follows REST conventions — `POST /containers/create`, `POST /containers/{id}/start`, etc.
+
+**Image management** handles everything related to Docker images. It contains:
+
+- the *image builder* which reads `Dockerfile` instructions and runs each as a new layer on top of the previous ones
+- the *layer store* (using the `overlay2` storage driver by default on Linux) which stores layers on disk as diff directories and uses the kernel's OverlayFS to compose them into a unified filesystem view
+- the *build cache* which tracks which layers can be reused across builds — a cache hit means skipping that `RUN` instruction entirely
+
+**Container runtime chain** is where the daemon hands off responsibility. `dockerd` itself does not directly call the Linux kernel to create containers. Instead it delegates:
+
+- to `containerd` — a standalone daemon (it was extracted from Docker and is now a CNCF project). `containerd` manages the full container lifecycle (create, start, stop, pause, delete) and handles image snapshot management.
+- to `containerd-shim` — a small per-container process that stays alive even if `containerd` restarts. It holds the container's stdio file descriptors open and reports its exit status back. This is what makes containers survive a daemon restart.
+- to `runc` — the OCI (Open Container Initiative) runtime. `runc` is a CLI tool that reads an OCI bundle (a `config.json` + a root filesystem), calls `clone()` with the right namespace flags, sets up cgroups, drops capabilities, and `exec`s the container's entry process. After spawning the process, `runc` exits — the container process is then parented by the shim.
+
+**Network subsystem** creates and manages virtual networks. Each network type is a driver: `bridge` (the default — a `docker0` virtual switch with NAT via iptables), `host` (container shares the host's network stack), `overlay` (cross-host networking for Swarm), and `none`. When a container starts, the daemon creates a virtual ethernet pair (`veth`), puts one end in the container's network namespace and plugs the other into the bridge.
+
+**Volume manager** manages Docker volumes (named, managed directories under `/var/lib/docker/volumes/`) and bind mounts (arbitrary host paths). Volumes are decoupled from the container's writable layer, so data survives container deletion. The manager also coordinates volume driver plugins for remote storage backends (NFS, EBS, etc.).
+
+**Plugin system** allows extending the daemon with third-party drivers. Plugins can provide storage drivers (volume backends), network drivers, authorization middleware (to intercept API calls), and log drivers. They communicate with the daemon via a local HTTP API.
+
+**Swarm orchestration** (when enabled with `docker swarm init`) adds a Raft-based consensus engine inside the daemon. The daemon that wins the leader election is responsible for scheduling services across worker nodes. Workers accept container assignments via an encrypted TLS channel and report status back. This is the built-in orchestration layer — separate from and simpler than Kubernetes.
+
+---
 
 ### How the Project Interacts with Docker
 
@@ -343,53 +434,302 @@ The final image contains zero build tools or dev dependencies.
 
 ## 5. Containers
 
-### Container Isolation
+# Docker Containers
 
-Containers use Linux kernel features to provide isolation:
+## What is a Container?
 
-| Feature | What It Isolates |
+A container is a **lightweight, isolated, executable unit** that packages an application together with all its dependencies — libraries, binaries, config files — into a single runnable artifact. Unlike a virtual machine, a container does **not** bundle a full OS kernel; it shares the host machine's kernel while keeping everything else isolated.
+
+It is a Linux process (or group of processes) running in a set of isolated kernel namespaces, constrained by cgroups, with a layered union filesystem providing its root. It is not a VM — it is a tightly scoped execution environment built from plain kernel features that have existed in Linux since 2008. The Docker daemon orchestrates the creation, networking, storage, and lifecycle of these environments, delegating the actual process spawning to `containerd` and `runc`.
+
+> Think of a container as a sealed box: the application inside sees its own filesystem, its own process tree, its own network interface — but the box itself runs directly on the host OS without a hypervisor in between.
+
+---
+
+## Container vs Virtual Machine
+
+| Aspect | Container | Virtual Machine |
+|---|---|---|
+| Kernel | Shared with host | Own full kernel |
+| Boot time | Milliseconds | Seconds to minutes |
+| Size | MBs | GBs |
+| Isolation | Process-level (namespaces) | Hardware-level (hypervisor) |
+| Overhead | Near-zero | Moderate (CPU, RAM) |
+| Portability | High | Lower |
+
+---
+
+## How Containers Work Internally
+
+Containers are not a single Linux feature — they are built from **three kernel primitives** working together.
+
+### 1. Namespaces (Isolation of Identity)
+
+Namespaces give each container its own isolated view of the system. Linux provides 7 namespace types used by Docker:
+
+| Namespace | What it isolates |
 |---|---|
-| **Namespaces** | PID, Network, Mount, UTS (hostname), IPC, User |
-| **cgroups** | CPU, memory, disk I/O limits |
-| **Capabilities** | What the process can do (in this project: all dropped) |
-| **Seccomp** | System calls the process can make |
-| **OverlayFS** | Filesystem — writable layer per container |
+| `pid` | Process IDs — container sees its own process tree starting at PID 1 |
+| `net` | Network interfaces, IP addresses, routing tables, ports |
+| `mnt` | Filesystem mount points |
+| `uts` | Hostname and domain name |
+| `ipc` | Inter-process communication (shared memory, semaphores) |
+| `user` | User and group IDs (UID/GID mapping) |
+| `cgroup` | Cgroup root — hides host cgroup hierarchy |
 
-### Container vs VM
+When Docker creates a container, it calls `clone()` with all these namespace flags. The new process is born inside a fresh set of namespaces — completely unaware of other containers or most of the host.
+
+### 2. Control Groups / cgroups (Isolation of Resources)
+
+While namespaces control *what a container can see*, cgroups control *how much of the host's resources it can consume*. Docker sets cgroup limits for:
+
+- **CPU** — shares, quota, pinning to specific cores
+- **Memory** — hard limit, swap limit, OOM kill behaviour
+- **Block I/O** — read/write bandwidth and IOPS throttling
+- **Device access** — whitelist of allowed devices
+
+Without cgroup limits, one container could starve all others on the host by consuming all CPU or memory.
+
+### 3. Union Filesystem / OverlayFS (Layered Filesystem)
+
+Containers do not copy an entire filesystem for each instance. Instead they use a **union mount** (typically `overlay2` on modern Linux) that stacks layers:
 
 ```
-VM:                              Container:
-┌─────────────────────┐         ┌─────────────────────┐
-│    Guest OS         │         │  App Process        │
-│    (full kernel)    │         │  (isolated via      │
-│  ┌──────────────┐   │         │   namespaces)       │
-│  │  Application │   │         ├─────────────────────┤
-│  └──────────────┘   │         │  Container Runtime  │
-├─────────────────────┤         │  (containerd/runc)  │
-│  Hypervisor         │         ├─────────────────────┤
-├─────────────────────┤         │  Host OS Kernel     │
-│  Physical Hardware  │         │  (shared)           │
-└─────────────────────┘         └─────────────────────┘
-Startup: minutes                Startup: milliseconds
-Size: GBs                       Size: MBs
-Isolation: Strong               Isolation: Process-level
+┌──────────────────────────────┐
+│   Writable container layer   │  ← copy-on-write, discarded on rm
+├──────────────────────────────┤
+│   Image layer N (read-only)  │
+├──────────────────────────────┤
+│   Image layer N-1 (r/o)      │
+├──────────────────────────────┤
+│   Base image layer (r/o)     │
+└──────────────────────────────┘
 ```
 
-### Resource Limits
+- **Read operations** traverse the stack from top to bottom — the first layer that has the file wins.
+- **Write operations** use copy-on-write (CoW): the file is copied up into the writable layer before modification. The original image layer is never changed.
+- When a container is deleted, its writable layer is discarded. Image layers are shared across all containers built from the same image — a 200 MB base image layer is stored on disk only once regardless of how many containers use it.
 
-The Dockerfile alone doesn't set resource limits — those are applied at runtime:
+---
+
+## Container Lifecycle
+
+```
+            docker create
+                  │
+                  ▼
+           ┌────────────┐
+           │  Created   │ ← allocated, not started
+           └────────────┘
+                  │ docker start
+                  ▼
+           ┌────────────┐
+           │  Running   │ ← PID 1 executing
+           └────────────┘
+           │            │
+  docker   │            │ docker
+  pause    ▼            │ stop / kill
+     ┌──────────┐       │
+     │  Paused  │       ▼
+     └──────────┘  ┌──────────┐
+  docker unpause   │  Stopped │ ← process exited, layers intact
+                   └──────────┘
+                        │ docker rm
+                        ▼
+                    (deleted)
+```
+
+Key lifecycle commands:
+
+| Command | Effect |
+|---|---|
+| `docker create` | Allocates writable layer, does not start process |
+| `docker start` | Calls `containerd` → `runc` → spawns PID 1 inside container |
+| `docker run` | `create` + `start` in one step |
+| `docker pause` | Sends `SIGSTOP` to all processes via cgroup freezer |
+| `docker stop` | Sends `SIGTERM`, waits grace period, then `SIGKILL` |
+| `docker kill` | Sends specified signal immediately (default `SIGKILL`) |
+| `docker rm` | Deletes the container's writable layer and metadata |
+
+---
+
+## Container Networking
+
+Each container gets its own network namespace. Docker connects containers to the outside world via **network drivers**:
+
+### Bridge (default)
+
+```
+Host
+ ├── docker0 (virtual switch, 172.17.0.1/16)
+ │    ├── veth0 ──── eth0 (container A, 172.17.0.2)
+ │    └── veth1 ──── eth0 (container B, 172.17.0.3)
+ └── iptables MASQUERADE rule → internet
+```
+
+- Containers on the same bridge can reach each other by IP.
+- Outbound traffic is NATed through the host's IP.
+- Port publishing (`-p 8080:80`) adds an iptables DNAT rule on the host.
+
+### Other network modes
+
+| Mode | Description |
+|---|---|
+| `host` | Container shares host's network stack — no isolation, highest performance |
+| `none` | No network interface except loopback |
+| `overlay` | Cross-host networking for Docker Swarm (VXLAN encapsulation) |
+| `macvlan` | Container gets its own MAC address, appears as a physical device on the LAN |
+
+---
+
+## Container Storage
+
+### Writable Layer (default)
+
+Every container has an ephemeral writable layer. Data written here:
+- Is **fast** (OverlayFS, no extra syscalls)
+- Is **lost** when the container is removed
+- Is **not shared** between containers
+
+### Volumes (recommended for persistence)
 
 ```bash
-# docker run equivalent of Kubernetes resource limits
-docker run \
-  --memory="512m" \            # Memory limit → maps to limits.memory
-  --memory-reservation="128m" \ # Soft limit → maps to requests.memory
-  --cpus="0.5" \               # CPU limit → maps to limits.cpu: 500m
-  devops-app:latest
+docker volume create mydata
+docker run -v mydata:/app/data myimage
 ```
 
-In Kubernetes, these are specified in the Deployment manifest and enforced by the container runtime via cgroups.
+- Stored under `/var/lib/docker/volumes/` on the host
+- Managed by Docker, survive container deletion
+- Can be shared between multiple containers simultaneously
+- Support third-party drivers (NFS, EBS, GlusterFS via plugins)
 
+### Bind Mounts
+
+```bash
+docker run -v /host/path:/container/path myimage
+```
+
+- Maps an arbitrary host directory into the container
+- The container can read/write the host filesystem directly
+- Useful in development (live code reloading), risky in production
+
+### tmpfs Mounts
+
+```bash
+docker run --tmpfs /run:rw,size=64m myimage
+```
+
+- Stored in host RAM only — never written to disk
+- Ideal for secrets, session data, or scratch space that must not persist
+
+---
+
+## Resource Limits
+
+Set at `docker run` time or in Compose:
+
+```bash
+docker run \
+  --memory="512m" \        # hard memory limit
+  --memory-swap="1g" \     # total memory+swap limit
+  --cpus="1.5" \           # max 1.5 CPU cores
+  --cpu-shares=512 \       # relative weight (default 1024)
+  --blkio-weight=300 \     # relative I/O weight
+  myimage
+```
+
+These translate directly into cgroup entries under `/sys/fs/cgroup/`.
+
+---
+
+## Security Model
+
+### Default security boundaries
+
+| Mechanism | What it does |
+|---|---|
+| Namespaces | Hides host PIDs, filesystem, network from container |
+| cgroups | Prevents resource exhaustion |
+| Capability dropping | Containers run with a reduced set of Linux capabilities (no `CAP_SYS_ADMIN` by default) |
+| Seccomp profile | Default profile blocks ~44 dangerous syscalls (`reboot`, `mount`, `ptrace`, etc.) |
+| AppArmor / SELinux | MAC profiles restrict file and network access further (distro-dependent) |
+
+### Privilege escalation risks
+
+- `--privileged` flag disables almost all isolation — gives the container full access to the host. Avoid in production.
+- `--cap-add` adds specific capabilities back selectively — safer than full privileged mode.
+- Running containers as root (UID 0) inside is common but risky if combined with volume mounts — a breakout could write to the host as root.
+- **User namespaces** (`userns-remap`) remap container root (UID 0) to an unprivileged host UID — best practice for defence in depth.
+
+---
+
+## Key Container Concepts
+
+### PID 1 and signal handling
+
+The first process started inside a container (the `ENTRYPOINT`/`CMD`) runs as **PID 1**. This matters because:
+
+- PID 1 receives `SIGTERM` from `docker stop`.
+- PID 1 is responsible for reaping zombie child processes.
+- Many apps are not designed to run as PID 1 — they ignore `SIGTERM` or don't reap zombies.
+
+Solutions: use `tini` (a minimal init) as PID 1, or Docker's `--init` flag which injects `tini` automatically.
+
+### Immutability
+
+Image layers are read-only by design. This means:
+
+- A container built from an image is always in a known, reproducible state at start.
+- Configuration drift is prevented — state is in volumes, not in the container.
+- Rolling back means switching to the previous image tag, not patching a running system.
+
+### Ephemeral by design
+
+Containers should be treated as **cattle, not pets**. They are expected to:
+
+- Start fast and exit cleanly
+- Carry no unique local state (state goes in volumes or external systems)
+- Be replaceable at any time by a new container from the same image
+
+---
+
+## Container vs Image
+
+| | Image | Container |
+|---|---|---|
+| State | Immutable, read-only | Has writable layer, mutable at runtime |
+| Stored as | Stacked layers on disk | Running process + writable layer |
+| Created by | `docker build` / `docker pull` | `docker run` / `docker create` |
+| Analogy | Class definition | Object instance |
+
+One image can spawn many containers simultaneously. Each gets its own independent writable layer.
+
+---
+
+## Useful Diagnostic Commands
+
+```bash
+# Inspect container metadata and config
+docker inspect <container>
+
+# Live resource usage
+docker stats <container>
+
+# Running processes inside container
+docker top <container>
+
+# View filesystem changes (diff against image layers)
+docker diff <container>
+
+# Container logs
+docker logs -f <container>
+
+# Execute a command inside a running container
+docker exec -it <container> /bin/sh
+
+# Export container filesystem as tar
+docker export <container> -o container.tar
+```
 ---
 
 ## 6. Docker Networking
@@ -1238,13 +1578,13 @@ It **runs containers**
 
 | Feature                         | Dockerfile | Compose |
 | ------------------------------- | ---------- | ------- |
-| Defines image                   | ✅          | ❌       |
-| Defines container runtime       | ❌          | ✅       |
-| Defines multiple services       | ❌          | ✅       |
-| Defines networking              | ❌          | ✅       |
-| Defines volumes                 | ❌          | ✅       |
-| Defines environment per service | ❌          | ✅       |
-| Defines dependency order        | ❌          | ✅       |
+| Defines image                   | ✅         | ❌       |
+| Defines container runtime       | ❌         | ✅       |
+| Defines multiple services       | ❌         | ✅       |
+| Defines networking              | ❌         | ✅       |
+| Defines volumes                 | ❌         | ✅       |
+| Defines environment per service | ❌         | ✅       |
+| Defines dependency order        | ❌         | ✅       |
 
 # Execution Commands
 
