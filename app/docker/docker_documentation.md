@@ -32,21 +32,21 @@ Docker uses a **client-server architecture**. The Docker client communicates wit
 ║                            DOCKER ARCHITECTURE                                      ║
 ╚═════════════════════════════════════════════════════════════════════════════════════╝
 
-  ┌─────────────────────┐                          ┌──────────────────────────────────┐
-  │    DOCKER CLIENT    │                          │         DOCKER REGISTRY          │
-  │                     │                          │      (Docker Hub / Private)      │
-  │  $ docker build .   │                          │                                  │
-  │  $ docker pull      │                          │  ┌──────────┐  ┌──────────────┐  │
-  │  $ docker run       │                          │  │nginx:    │  │python:       │  │
-  │  $ docker push      │                          │  │latest    │  │3.11-slim     │  │
-  │  $ docker ps        │                          │  └──────────┘  └──────────────┘  │
-  │  $ docker exec      │                          │  ┌──────────┐  ┌──────────────┐  │
-  └──────────┬──────────┘                          │  │myapp:    │  │node:         │  │
-             │                                     │  │v1.0      │  │18-alpine     │  │
-             │  REST API over Unix Socket          │  └──────────┘  └──────────────┘  │
-             │  /var/run/docker.sock               └────────────────────┬─────────────┘
-             │                                                          │
-             │  ◄── push / pull ────────────────────────────────────────┘
+  ┌─────────────────────┐                     ┌──────────────────────────────────┐
+  │    DOCKER CLIENT    │                     │         DOCKER REGISTRY          │
+  │                     │                     │      (Docker Hub / Private)      │
+  │  $ docker build .   │                     │                                  │
+  │  $ docker pull      │                     │  ┌──────────┐  ┌──────────────┐  │
+  │  $ docker run       │                     │  │nginx:    │  │python:       │  │
+  │  $ docker push      │                     │  │latest    │  │3.11-slim     │  │
+  │  $ docker ps        │                     │  └──────────┘  └──────────────┘  │
+  │  $ docker exec      │                     │  ┌──────────┐  ┌──────────────┐  │
+  └──────────┬──────────┘                     │  │myapp:    │  │node:         │  │
+             │                                │  │v1.0      │  │18-alpine     │  │
+             │  REST API over Unix Socket     │  └──────────┘  └──────────────┘  │
+             │  /var/run/docker.sock          └───────────────┬──────────────────┘
+             │                                                │
+             │  ◄── push / pull ──────────────────────────────┘
              │
              ▼
 ╔══════════════════════════════════════════════════════════════════════╗
@@ -141,7 +141,9 @@ Docker uses a **client-server architecture**. The Docker client communicates wit
  
 ---
 
-The Docker daemon (`dockerd`) is the central server-side process in Docker — everything flows through it. Here's a structural breakdown of what lives inside it.Now let's zoom into the most critical path inside the daemon — what actually happens when a container is created.## Component-by-component breakdown
+The Docker daemon (`dockerd`) is the central server-side process in Docker — everything flows through it. Here's a structural breakdown of what lives inside it.Now let's zoom into the most critical path inside the daemon — what actually happens when a container is created.
+
+## Component-by-component breakdown
 
 **REST API server** is the daemon's front door. It listens on `/var/run/docker.sock` (Unix socket, default) or optionally on a TCP port for remote access. Every CLI command you run is serialized into an HTTP request to this server. The API follows REST conventions — `POST /containers/create`, `POST /containers/{id}/start`, etc.
 
@@ -1274,7 +1276,7 @@ FROM node:18-alpine AS production
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules  # Copy only node_modules
-COPY ./src ./src                                    # Copy only source
+COPY ./src ./src                                   # Copy only source
 RUN chown -R appuser:appgroup /app
 USER appuser
 EXPOSE 3000
