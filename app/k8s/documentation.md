@@ -28,72 +28,181 @@
 Kubernetes (K8s) is a container orchestration platform that automates deployment, scaling, and management of containerized applications. It follows a **master-worker** (control plane + data plane) architecture.
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                          KUBERNETES CLUSTER                                  │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │                         CONTROL PLANE (Master)                         │  │
-│  │                                                                        │  │
-│  │  ┌───────────────┐  ┌────────────────┐  ┌──────────────────────────┐   │  │
-│  │  │  kube-api-    │  │ kube-scheduler │  │ kube-controller-manager  │   │  │
-│  │  │  server       │  │                │  │                          │   │  │
-│  │  │               │  │ - Watches for  │  │ - Node Controller        │   │  │
-│  │  │ - REST API    │  │   unscheduled  │  │ - Replication Controller │   │  │
-│  │  │ - Auth/Authz  │  │   Pods         │  │ - Endpoints Controller   │   │  │
-│  │  │ - Validation  │  │ - Assigns node │  │ - Service Account Ctrl   │   │  │
-│  │  │ - Frontend    │  │   based on     │  │                          │   │  │
-│  │  │   for etcd    │  │   resources &  │  └──────────────────────────┘   │  │
-│  │  └───────┬───────┘  │   constraints  │                                 │  │
-│  │          │          └────────────────┘  ┌──────────────────────────┐   │  │
-│  │          │                              │   cloud-controller-mgr   │   │  │
-│  │  ┌───────▼───────┐                      │ (optional, cloud-specific)   │  │
-│  │  │     etcd      │                      └──────────────────────────┘   │  │
-│  │  │               │                                                     │  │
-│  │  │ - Consistent  │                                                     │  │
-│  │  │   key-value   │                                                     │  │
-│  │  │   store       │                                                     │  │
-│  │  │ - Cluster     │                                                     │  │
-│  │  │   state/config│                                                     │  │
-│  │  └───────────────┘                                                     │  │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-│                                    │  API calls                              │
-│           ┌────────────────────────┼──────────────────────┐                  │
-│           │                        │                      │                  │
-│  ┌────────▼────────┐    ┌──────────▼──────┐    ┌──────────▼──────┐           │
-│  │   WORKER NODE 1 │    │  WORKER NODE 2  │    │  WORKER NODE 3  │           │
-│  │                 │    │                 │    │                 │           │
-│  │ ┌─────────────┐ │    │ ┌─────────────┐ │    │ ┌─────────────┐ │           │
-│  │ │   kubelet   │ │    │ │   kubelet   │ │    │ │   kubelet   │ │           │
-│  │ │             │ │    │ │             │ │    │ │             │ │           │
-│  │ │ - Node agent│ │    │ │ - Node agent│ │    │ │ - Node agent│ │           │
-│  │ │ - Manages   │ │    │ │ - Manages   │ │    │ │ - Manages   │ │           │
-│  │ │   Pod life- │ │    │ │   Pod life- │ │    │ │   Pod life- │ │           │
-│  │ │   cycle     │ │    │ │   cycle     │ │    │ │   cycle     │ │           │
-│  │ └─────────────┘ │    │ └─────────────┘ │    │ └─────────────┘ │           │
-│  │ ┌─────────────┐ │    │ ┌─────────────┐ │    │ ┌─────────────┐ │           │
-│  │ │ kube-proxy  │ │    │ │ kube-proxy  │ │    │ │ kube-proxy  │ │           │
-│  │ │             │ │    │ │             │ │    │ │             │ │           │
-│  │ │ - Network   │ │    │ │ - Network   │ │    │ │ - Network   │ │           │
-│  │ │   rules     │ │    │ │   rules     │ │    │ │   rules     │ │           │
-│  │ │ - iptables/ │ │    │ │   iptables/ │ │    │ │   iptables/ │ │           │
-│  │ │   ipvs      │ │    │ │   ipvs      │ │    │ │   ipvs      │ │           │
-│  │ └─────────────┘ │    │ └─────────────┘ │    │ └─────────────┘ │           │
-│  │ ┌─────────────┐ │    │ ┌─────────────┐ │    │ ┌─────────────┐ │           │
-│  │ │  Container  │ │    │ │  Container  │ │    │ │  Container  │ │           │
-│  │ │  Runtime    │ │    │ │  Runtime    │ │    │ │  Runtime    │ │           │
-│  │ │ (containerd │ │    │ │ (containerd │ │    │ │ (containerd │ │           │
-│  │ │  / CRI-O)   │ │    │ │  / CRI-O)   │ │    │ │  / CRI-O)   │ │           │
-│  │ └──────┬──────┘ │    │ └──────┬──────┘ │    │ └──────┬──────┘ │           │
-│  │        │        │    │        │        │    │        │        │           │
-│  │ ┌──────▼──────┐ │    │ ┌──────▼──────┐ │    │ ┌──────▼──────┐ │           │
-│  │ │  Pod  Pod   │ │    │ │  Pod  Pod   │ │    │ │  Pod  Pod   │ │           │
-│  │ │ ┌──┐ ┌──┐   │ │    │ │ ┌──┐ ┌──┐   │ │    │ │ ┌──┐ ┌──┐   │ │           │
-│  │ │ │C1│ │C1│   │ │    │ │ │C1│ │C1│   │ │    │ │ │C1│ │C1│   │ │           │
-│  │ │ │C2│ │  │   │ │    │ │ │  │ │  │   │ │    │ │ │  │ │  │   │ │           │
-│  │ │ └──┘ └──┘   │ │    │ │ └──┘ └──┘   │ │    │ │ └──┘ └──┘   │ │           │
-│  │ └─────────────┘ │    │ └─────────────┘ │    │ └─────────────┘ │           │
-│  └─────────────────┘    └─────────────────┘    └─────────────────┘           │
-└──────────────────────────────────────────────────────────────────────────────┘
+═════════════════════════════════════════════════════════════════════════════════════════════════
+                              KUBERNETES CLUSTER                                                 
+                                                                                                 
+  ┌──────────────────────────────── CONTROL PLANE (Master Node) ──────────────────────────────┐  
+  │                                                                                           │  
+  │  ┌─────────────────────────┐    ┌─────────────────────┐    ┌──────────────────────────┐   │  
+  │  │    kube-apiserver       │    │   kube-scheduler    │    │  kube-controller-manager │   │  
+  │  │─────────────────────────│    │─────────────────────│    │──────────────────────────│   │  
+  │  │ • REST API gateway      │    │ • Watches API for   │    │ • Node Controller        │   │  
+  │  │ • Authentication (x509, │    │   unscheduled Pods  │    │ • ReplicaSet Controller  │   │  
+  │  │   OIDC, tokens)         │    │ • Scores nodes by:  │    │ • Deployment Controller  │   │  
+  │  │ • Authorization (RBAC,  │    │   - Resource fit    │    │ • StatefulSet Controller │   │  
+  │  │   ABAC, Webhook)        │    │   - Affinity rules  │    │ • DaemonSet Controller   │   │  
+  │  │ • Admission controllers │    │   - Taints/Tolerations   │ • Job/CronJob Controller │   │  
+  │  │ • API versioning        │    │   - Priority class  │    │ • Endpoints Controller   │   │  
+  │  │ • Watches & notification│    │ • Binds Pod to node │    │ • ServiceAccount Ctrl    │   │  
+  │  │ • Only component that   │    │ • Plugins: NodeName,│    │ • Namespace Controller   │   │  
+  │  │   talks to etcd         │    │   NodeAffinity,     │    │ • PV/PVC Controller      │   │  
+  │  │ • Horizontal scalability│    │   PodTopologySpread │    │ • Token Controller       │   │  
+  │  └──────────┬──────────────┘    └─────────────────────┘    └──────────────────────────┘   │  
+  │             │ reads/writes                                                                │  
+  │             │                    ┌─────────────────────────────────────────────────────┐  │  
+  │  ┌──────────▼───────────────┐    │          cloud-controller-manager (optional)        │  │  
+  │  │          etcd            │    │─────────────────────────────────────────────────────│  │  
+  │  │──────────────────────────│    │ • Node Controller (cloud provider)                  │  │  
+  │  │ • Distributed key-value  │    │ • Route Controller (cloud networking)               │  │  
+  │  │   store (Raft consensus) │    │ • Service Controller (load balancers)               │  │  
+  │  │ • Source of truth for    │    │ • Runs cloud-specific reconciliation loops          │  │  
+  │  │   ALL cluster state      │    │ • Decouples cloud logic from core k8s               │  │  
+  │  │ • Stores: Pods, Services,│    └─────────────────────────────────────────────────────┘  │  
+  │  │   ConfigMaps, Secrets,   │                                                             │  
+  │  │   RBAC policies,         │    ┌─────────────────────────────────────────────────────┐  │  
+  │  │   Namespaces, etc.       │    │              Admission Controllers                  │  │  
+  │  │ • Strongly consistent    │    │─────────────────────────────────────────────────────│  │  
+  │  │ • Usually 3 or 5 members │    │ • MutatingAdmissionWebhook (modify objects)         │  │  
+  │  │   for HA clusters        │    │ • ValidatingAdmissionWebhook (validate objects)     │  │  
+  │  │ • Data encrypted at rest │    │ • LimitRanger, ResourceQuota, NamespaceLifecycle    │  │  
+  │  └──────────────────────────┘    │ • PodSecurity (replaces PodSecurityPolicy)          │  │  
+  │                                  └─────────────────────────────────────────────────────┘  │  
+  └───────────────────────────────────────────────────────────────────────────────────────────┘  
+                                                                                                 
+              API Server communicates with all nodes via secure TLS (port 6443)                  
+                      │                      │                     │                            
+           ┌──────────▼──────────┐ ┌─────────▼───────────┐ ┌───────▼─────────────┐               
+           │    WORKER NODE 1    │ │    WORKER NODE 2    │ │    WORKER NODE 3    │               
+           │─────────────────────│ │─────────────────────│ │─────────────────────│               
+           │                     │ │                     │ │                     │               
+           │  ┌───────────────┐  │ │  ┌───────────────┐  │ │  ┌───────────────┐  │               
+           │  │    kubelet    │  │ │  │    kubelet    │  │ │  │    kubelet    │  │               
+           │  │───────────────│  │ │  │───────────────│  │ │  │───────────────│  │               
+           │  │ • Node agent  │  │ │  │ • Node agent  │  │ │  │ • Node agent  │  │               
+           │  │ • Registers   │  │ │  │ • Registers   │  │ │  │ • Registers   │  │               
+           │  │   node w/ API │  │ │  │   node w/ API │  │ │  │   node w/ API │  │               
+           │  │ • Reads       │  │ │  │ • Reads       │  │ │  │ • Reads       │  │               
+           │  │   PodSpec from│  │ │  │   PodSpec from│  │ │  │   PodSpec from│  │               
+           │  │   API server  │  │ │  │   API server  │  │ │  │   API server  │  │               
+           │  │ • Starts/stops│  │ │  │ • Starts/stops│  │ │  │ • Starts/stops│  │               
+           │  │   containers  │  │ │  │   containers  │  │ │  │   containers  │  │               
+           │  │ • Liveness &  │  │ │  │ • Liveness &  │  │ │  │ • Liveness &  │  │               
+           │  │   readiness   │  │ │  │   readiness   │  │ │  │   readiness   │  │               
+           │  │   probes      │  │ │  │   probes      │  │ │  │   probes      │  │               
+           │  │ • Reports node│  │ │  │ • Reports node│  │ │  │ • Reports node│  │               
+           │  │   status/     │  │ │  │   status/     │  │ │  │   status/     │  │               
+           │  │   resource    │  │ │  │   resource    │  │ │  │   resource    │  │               
+           │  │   capacity    │  │ │  │   capacity    │  │ │  │   capacity    │  │               
+           │  │ • Mounts      │  │ │  │ • Mounts      │  │ │  │ • Mounts      │  │               
+           │  │   volumes &   │  │ │  │   volumes &   │  │ │  │   volumes &   │  │               
+           │  │   secrets     │  │ │  │   secrets     │  │ │  │   secrets     │  │               
+           │  │ • Uses CRI to │  │ │  │ • Uses CRI to │  │ │  │ • Uses CRI to │  │               
+           │  │   talk to     │  │ │  │   talk to     │  │ │  │   talk to     │  │               
+           │  │   runtime     │  │ │  │   runtime     │  │ │  │   runtime     │  │               
+           │  └───────┬───────┘  │ │  └───────┬───────┘  │ │  └───────┬───────┘  │             
+           │          │ CRI gRPC │ │          │          │ │          │          │              
+           │  ┌───────▼───────┐  │ │  ┌───────▼───────┐  │ │  ┌───────▼───────┐  │             
+           │  │ Container     │  │ │  │ Container     │  │ │  │ Container     │  │             
+           │  │ Runtime       │  │ │  │ Runtime       │  │ │  │ Runtime       │  │             
+           │  │───────────────│  │ │  │───────────────│  │ │  │───────────────│  │             
+           │  │ containerd /  │  │ │  │ containerd /  │  │ │  │ containerd /  │  │             
+           │  │ CRI-O         │  │ │  │ CRI-O         │  │ │  │ CRI-O         │  │             
+           │  │ • Pulls images│  │ │  │ • Pulls images│  │ │  │ • Pulls images│  │             
+           │  │ • OCI runtime │  │ │  │ • OCI runtime │  │ │  │ • OCI runtime │  │             
+           │  │   (runc,      │  │ │  │   (runc,      │  │ │  │   (runc,      │  │             
+           │  │    gVisor,    │  │ │  │    gVisor)    │  │ │  │    kata)      │  │             
+           │  │    kata)      │  │ │  │ • Manages     │  │ │  │ • Manages     │  │             
+           │  │ • Manages     │  │ │  │   namespaces/ │  │ │  │   namespaces/ │  │             
+           │  │   cgroups /   │  │ │  │   cgroups     │  │ │  │   cgroups     │  │             
+           │  │   namespaces  │  │ │  └───────────────┘  │ │  └───────────────┘  │             
+           │  └───────────────┘  │ │                     │ │                     │             
+           │                     │ │                     │ │                     │             
+           │  ┌───────────────┐  │ │  ┌───────────────┐  │ │  ┌───────────────┐  │             
+           │  │  kube-proxy   │  │ │  │  kube-proxy   │  │ │  │  kube-proxy   │  │             
+           │  │───────────────│  │ │  │───────────────│  │ │  │───────────────│  │             
+           │  │ • Runs on     │  │ │  │ • Runs on     │  │ │  │ • Runs on     │  │             
+           │  │   every node  │  │ │  │   every node  │  │ │  │   every node  │  │             
+           │  │ • Maintains   │  │ │  │ • Maintains   │  │ │  │ • Maintains   │  │             
+           │  │   network     │  │ │  │   network     │  │ │  │   network     │  │             
+           │  │   rules (     │  │ │  │   rules       │  │ │  │   rules       │  │             
+           │  │   iptables /  │  │ │  │ • Service VIP │  │ │  │ • Service VIP │  │             
+           │  │   ipvs / ebpf)│  │ │  │   routing     │  │ │  │   routing     │  │             
+           │  │ • Service     │  │ │  │ • Load-balance│  │ │  │ • Load-balance│  │             
+           │  │   ClusterIP   │  │ │  │   across Pod  │  │ │  │   across Pod  │  │             
+           │  │   routing     │  │ │  │   endpoints   │  │ │  │   endpoints   │  │             
+           │  │ • NodePort &  │  │ │  └───────────────┘  │ │  └───────────────┘  │             
+           │  │   LoadBalancer│  │ │                     │ │                     │             
+           │  │   handling    │  │ │  ┌───────────────┐  │ │  ┌───────────────┐  │             
+           │  └───────────────┘  │ │  │               │  │ │  │               │  │             
+           │                     │ │  │  Pod  A       │  │ │  │  Pod  D       │  │             
+           │  ┌───────────────┐  │ │  │ ┌───────────┐ │  │ │  │ ┌───────────┐ │  │             
+           │  │   Pod A       │  │ │  │ │ Container │ │  │ │  │ │ Container │ │  │             
+           │  │ ┌───────────┐ │  │ │  │ │  app      │ │  │ │  │ │  worker   │ │  │             
+           │  │ │ Container │ │  │ │  │ └───────────┘ │  │ │  │ └───────────┘ │  │             
+           │  │ │  nginx    │ │  │ │  │ ┌───────────┐ │  │ │  │ ┌───────────┐ │  │             
+           │  │ └───────────┘ │  │ │  │ │ Container │ │  │ │  │ │ sidecar   │ │  │             
+           │  │ ┌───────────┐ │  │ │  │ │  sidecar  │ │  │ │  │ │ (envoy)   │ │  │             
+           │  │ │ sidecar   │ │  │ │  │ └───────────┘ │  │ │  │ └───────────┘ │  │             
+           │  │ │ (log ship)│ │  │ │  │               │  │ │  │               │  │             
+           │  │ └───────────┘ │  │ │  │  Pod  B       │  │ │  │  Pod  E       │  │             
+           │  │               │  │ │  │ ┌───────────┐ │  │ │  │ ┌───────────┐ │  │             
+           │  │  Shared:      │  │ │  │ │ Container │ │  │ │  │ │ Container │ │  │             
+           │  │  - network ns │  │ │  │ │  redis    │ │  │ │  │ │  cronjob  │ │  │             
+           │  │  - IPC ns     │  │ │  │ └───────────┘ │  │ │  │ └───────────┘ │  │             
+           │  │  - volumes    │  │ │  │               │  │ │  └───────────────┘  │             
+           │  └───────────────┘  │ │  └───────────────┘  │ │                     │             
+           │  IP: 10.244.1.x     │ │  IP: 10.244.2.x     │ │  IP: 10.244.3.x     │             
+           └─────────────────────┘ └─────────────────────┘ └─────────────────────┘             
+                                                                                               
+  ┌──────────────────────────── CLUSTER NETWORKING (CNI) ────────────────────────────────────  
+  │  Flannel / Calico / Cilium / Weave / Antrea                                             │ 
+  │  • Every Pod gets a unique cluster-wide routable IP                                     │ 
+  │  • Pods communicate across nodes without NAT                                            │ 
+  │  • CNI plugin handles overlay/underlay routing                                          │ 
+  └─────────────────────────────────────────────────────────────────────────────────────────┘ 
+                                                                                               
+  ┌───────────────────── KUBERNETES API OBJECTS (Workloads & Config) ─────────────────────────┐  
+  │                                                                                           │  
+  │  WORKLOADS              NETWORKING             STORAGE               CONFIG & SECURITY    │  
+  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  ┌───────────────────┐  │  
+  │  │ Pod              │  │ Service          │  │ PersistentVolume │  │ ConfigMap         │  │  
+  │  │ ReplicaSet       │  │  • ClusterIP     │  │  (PV)            │  │ Secret            │  │  
+  │  │ Deployment       │  │  • NodePort      │  │ PersistentVolume │  │ ServiceAccount    │  │  
+  │  │ StatefulSet      │  │  • LoadBalancer  │  │  Claim (PVC)     │  │ RBAC              │  │  
+  │  │ DaemonSet        │  │  • ExternalName  │  │ StorageClass     │  │  • Role           │  │  
+  │  │ Job              │  │ Ingress          │  │ Volume           │  │  • ClusterRole    │  │  
+  │  │ CronJob          │  │ NetworkPolicy    │  │  • emptyDir      │  │  • RoleBinding    │  │  
+  │  │ HPA              │  │ EndpointSlice    │  │  • hostPath      │  │  • ClusterRoleB.  │  │  
+  │  │ VPA              │  └──────────────────┘  │  • NFS / CSI     │  │ LimitRange        │  │  
+  │  │ PodDisruptionBdg │                        └──────────────────┘  │ ResourceQuota     │  │  
+  │  └──────────────────┘                                              │ NetworkPolicy     │  │  
+  │                                                                    └───────────────────┘  │  
+  └───────────────────────────────────────────────────────────────────────────────────────────┘  
+                                                                                                 
+  ┌───────────────────────────── REQUEST LIFECYCLE ────────────────────────────────────────────┐  
+  │                                                                                            │  
+  │  kubectl apply -f pod.yaml                                                                 │  
+  │       │                                                                                    │  
+  │       ▼                                                                                    │  
+  │  [1] kube-apiserver  ──► Authenticate ──► Authorize (RBAC) ──► Admission Controllers       │  
+  │       │                                                                                    │  
+  │       ▼                                                                                    │  
+  │  [2] etcd  ◄── API server writes desired state (Pod object, phase: Pending)                │  
+  │                                                                                            │  
+  │       ▼                                                                                    │  
+  │  [3] kube-scheduler  ──► Watches API ──► Scores nodes ──► Binds Pod to best node           │  
+  │                                                                                            │  
+  │       ▼                                                                                    │  
+  │  [4] kubelet (on chosen node)  ──► Pulls PodSpec ──► Tells container runtime to start Pod  │  
+  │                                                                                            │  
+  │       ▼                                                                                    │  
+  │  [5] Container Runtime  ──► Pulls image ──► Creates namespaces/cgroups ──► Runs container  │  
+  │                                                                                            │  
+  │       ▼                                                                                    │  
+  │  [6] kubelet  ──► Reports Pod status (Running) back to API server ──► etcd updated         │  
+  │                                                                                            │  
+  └────────────────────────────────────────────────────────────────────────────────────────────┘  
+══════════════════════════════════════════════════════════════════════════════════════════════════
 ```
 
 ### How the Project Uses This Architecture
@@ -103,26 +212,259 @@ In this project, `run.sh` uses `kubectl cluster-info` and node-label inspection 
 ---
 
 ## 2. Core Components
+ 
+### Control Plane Components
+ 
+#### 1. kube-apiserver
+ 
+The API server is the **front door to the entire cluster**. Every action — whether from `kubectl`, an internal controller, or an external CI system — passes through it.
+ 
+**Key responsibilities:**
+- Exposes the Kubernetes REST API over HTTPS (default port `6443`)
+- Handles **Authentication**: verifies identity via client certificates (x509), bearer tokens, OIDC, or webhook tokens
+- Handles **Authorization**: enforces RBAC, ABAC, or webhook policies to decide what an authenticated identity *can do*
+- Runs **Admission Controllers**: a chain of plugins that can mutate or reject API requests before they are persisted (e.g., injecting sidecar containers, enforcing resource quotas, applying default values)
+- Is the **only** component that reads from and writes to etcd — all others go through the API server
+- Supports **watch** semantics so controllers and kubelets can be notified of changes instantly rather than polling
+- Designed to scale horizontally — multiple replicas can run behind a load balancer in production HA clusters
+---
+ 
+#### 2. etcd
+ 
+etcd is a **distributed, strongly consistent key-value store** that serves as Kubernetes's single source of truth.
+ 
+**Key responsibilities:**
+- Stores the complete desired and observed state of the cluster: Pod definitions, Service specs, Secrets, ConfigMaps, RBAC policies, Namespaces, Node registrations, and more
+- Uses the **Raft consensus algorithm** to ensure data consistency across its member nodes — typically 3 or 5 members in production
+- Supports **watch** on keys, which the API server uses to implement efficient notification of changes
+- Secrets can be **encrypted at rest** using EncryptionConfiguration
+- All writes are linearizable — no stale reads, making it safe as a coordination backend
+> **Operational note:** etcd is the most critical component to back up. Without it, cluster state cannot be recovered. Use `etcdctl snapshot save` for backups.
+ 
+---
+ 
+#### 3. kube-scheduler
+ 
+The scheduler is responsible for **deciding which node a new Pod should run on**.
+ 
+**How it works — two phases:**
+ 
+1. **Filtering (Predicates):** Eliminates nodes that cannot run the Pod. Filters include: sufficient CPU/memory, required node labels, taints and tolerations match, pod affinity/anti-affinity rules, volume zone constraints.
+2. **Scoring (Priorities):** Ranks the remaining eligible nodes. Scoring plugins include: `LeastAllocated` (prefer nodes with more free resources), `InterPodAffinity` (prefer nodes where preferred pods run), `ImageLocality` (prefer nodes that already have the container image cached).
+The node with the highest score wins. The scheduler writes a **Binding** object to the API server — it does not start the Pod itself.
+ 
+**Extension points:** Custom schedulers or scheduler plugins (using the Scheduling Framework) can be used for specialized workloads (GPU allocation, NUMA topology-aware scheduling, etc.).
+ 
+---
+ 
+#### 4. kube-controller-manager
+ 
+A single binary that runs multiple **control loops** (controllers). Each controller watches the API server for its resource type and reconciles the actual state toward the desired state.
+ 
+| Controller | What it does |
+|---|---|
+| **Node Controller** | Detects when nodes go unreachable; marks them `NotReady`; evicts Pods after timeout |
+| **ReplicaSet Controller** | Ensures the correct number of Pod replicas exist; creates or deletes Pods |
+| **Deployment Controller** | Manages rolling updates and rollbacks by orchestrating ReplicaSets |
+| **StatefulSet Controller** | Manages ordered, stable Pod deployment with stable network identities and storage |
+| **DaemonSet Controller** | Ensures one Pod per matching node (e.g., log collectors, node monitoring agents) |
+| **Job Controller** | Runs Pods to completion; handles retries and parallelism |
+| **CronJob Controller** | Creates Jobs on a schedule |
+| **Endpoints Controller** | Populates `Endpoints` objects that back Services |
+| **ServiceAccount Controller** | Creates default ServiceAccounts in new Namespaces |
+| **PersistentVolume Controller** | Binds PVCs to PVs; handles dynamic provisioning |
+| **Namespace Controller** | Cleans up resources when a Namespace is deleted |
+ 
+All controllers follow the same pattern: **watch → compare → act → repeat**.
+ 
+---
+ 
+#### 5. cloud-controller-manager (optional)
+ 
+Introduced to **decouple cloud-provider-specific logic** from the core Kubernetes codebase.
+ 
+- **Node Controller (cloud):** Checks the cloud provider API to verify if a node that stopped responding has actually been deleted from the cloud
+- **Route Controller:** Configures routes in the cloud network fabric for Pod CIDRs
+- **Service Controller:** Creates, updates, and deletes cloud load balancers when Services of type `LoadBalancer` are created
+Only present in clusters running on cloud providers (AWS, GCP, Azure, etc.). In bare-metal or on-prem clusters, this component is typically absent or replaced by a custom solution like MetalLB.
+ 
+---
+ 
+### Node (Worker) Components
+ 
+---
+ 
+#### 6. kubelet
+ 
+The kubelet is the **primary node agent** — it runs on every worker node and is the bridge between the control plane and the actual container runtime.
+ 
+**Key responsibilities:**
+- Registers the node with the API server (CPU, memory, GPU capacity, allocatable resources)
+- Watches the API server for PodSpecs assigned to its node
+- Instructs the container runtime (via CRI) to pull images, create and start containers
+- Runs **liveness probes** (restart container if unhealthy), **readiness probes** (remove from Service endpoint if not ready), and **startup probes**
+- Mounts Volumes (Secrets, ConfigMaps, PersistentVolumeClaims) into Pod filesystems
+- Reports Pod and node status back to the API server (used by controllers and the scheduler)
+- Enforces resource limits via cgroups (CPU throttling, memory OOM kills)
+- Does **not** manage containers not created through Kubernetes (native Docker containers are invisible to it)
+---
+ 
+#### 7. kube-proxy
+ 
+kube-proxy implements **Kubernetes Service networking** on each node. It does not proxy traffic itself at the application layer — instead it programs the node's network stack so that traffic to a Service VIP (ClusterIP) is transparently forwarded to one of the Service's healthy Pod endpoints.
+ 
+**Implementation modes:**
+ 
+| Mode | Mechanism | Notes |
+|---|---|---|
+| **iptables** | Linux netfilter rules; DNAT for each Service | Default; scales to ~10,000 Services |
+| **ipvs** | Linux IP Virtual Server; hash-based LB | Better performance at scale (100k+ endpoints) |
+| **eBPF** | Cilium replaces kube-proxy entirely | Highest performance; kernel bypass; observability |
+ 
+**What it handles:**
+- `ClusterIP` Services: routes internal cluster traffic to Pod endpoints
+- `NodePort` Services: opens a port on every node that forwards to the Service
+- `LoadBalancer` Services: works in conjunction with the cloud load balancer
+- Watches `EndpointSlice` objects to know which Pods are healthy for each Service
+---
+ 
+#### 8. Container Runtime (CRI)
+ 
+The container runtime is the component that **actually runs containers**. The kubelet communicates with it via the **Container Runtime Interface (CRI)** — a gRPC API that standardizes the interface between Kubernetes and any runtime.
+ 
+**Common runtimes:**
+ 
+| Runtime | Notes |
+|---|---|
+| **containerd** | Lightweight, graduated CNCF project; most widely used; default in most managed K8s |
+| **CRI-O** | Designed specifically for Kubernetes; minimal footprint; used in OpenShift |
+| **Docker Engine** | No longer supported directly (dockershim removed in K8s 1.24); containerd runs underneath it |
+ 
+**What the runtime does:**
+- Pulls container images from registries (applying ImagePullSecrets)
+- Creates Linux namespaces (PID, network, mount, UTS, IPC) to isolate containers
+- Configures cgroups for resource limits
+- Passes execution to an **OCI runtime** (runc, gVisor/runsc for sandboxing, kata-containers for VM-level isolation)
+---
+ 
+### Networking
+ 
+---
+ 
+#### 9. CNI (Container Network Interface) Plugin
+ 
+Kubernetes does not include networking itself — it delegates to a CNI plugin which must satisfy the **Kubernetes networking model:**
+ 
+- Every Pod gets a unique, routable IP address
+- Pods can communicate with any other Pod in the cluster without NAT
+- Nodes can communicate with Pods without NAT
+- The IP a Pod sees for itself is the same IP other Pods use to reach it
+**Popular CNI plugins:**
+ 
+| Plugin | Key feature |
+|---|---|
+| **Flannel** | Simple overlay (VXLAN); good for learning/small clusters |
+| **Calico** | BGP-based; supports NetworkPolicy; widely used in production |
+| **Cilium** | eBPF-powered; replaces kube-proxy; deep observability; zero-trust |
+| **Weave** | Encrypted overlay; simple setup |
+| **Antrea** | Open vSwitch based; native for VMware environments |
+ 
+---
+ 
+### Key API Objects
+ 
+---
+ 
+#### Workloads
+ 
+| Object | Purpose |
+|---|---|
+| **Pod** | The smallest deployable unit. One or more containers sharing a network namespace, IPC namespace, and volumes. Containers in a Pod always co-locate on the same node |
+| **ReplicaSet** | Ensures N replicas of a Pod template are always running |
+| **Deployment** | Manages ReplicaSets to enable declarative rolling updates and rollbacks |
+| **StatefulSet** | Like Deployment but gives Pods stable hostnames (`pod-0`, `pod-1`) and stable PVC bindings. Used for databases, Kafka, etc. |
+| **DaemonSet** | Runs exactly one Pod per node (or per selected nodes). Used for log shippers, monitoring agents, CNI plugins |
+| **Job** | Runs Pods until successful completion. Retries on failure up to a limit |
+| **CronJob** | Creates Jobs on a cron schedule |
+| **HorizontalPodAutoscaler** | Scales Deployment/StatefulSet replicas based on CPU, memory, or custom metrics |
+ 
+---
+ 
+#### Networking Objects
+ 
+| Object | Purpose |
+|---|---|
+| **Service (ClusterIP)** | Stable virtual IP inside the cluster that load-balances across matching Pods |
+| **Service (NodePort)** | Exposes a port on every node, forwarding to the Service |
+| **Service (LoadBalancer)** | Provisions a cloud load balancer that routes external traffic to the Service |
+| **Ingress** | L7 HTTP/HTTPS routing rules (path- and host-based); processed by an Ingress Controller (nginx, Traefik, AWS ALB) |
+| **NetworkPolicy** | Firewall rules for Pod-to-Pod traffic (requires a CNI that supports it, e.g., Calico, Cilium) |
+ 
+---
+ 
+#### Storage Objects
+ 
+| Object | Purpose |
+|---|---|
+| **PersistentVolume (PV)** | A piece of storage provisioned by an admin or dynamically by a StorageClass |
+| **PersistentVolumeClaim (PVC)** | A request for storage by a Pod. Binds to a matching PV |
+| **StorageClass** | Defines a "type" of storage and the provisioner to create it dynamically (e.g., AWS EBS, GCP PD, Ceph) |
+ 
+---
+ 
+#### Configuration & Security Objects
+ 
+| Object | Purpose |
+|---|---|
+| **ConfigMap** | Key-value non-sensitive configuration injected as env vars or files into Pods |
+| **Secret** | Base64-encoded (optionally encrypted) sensitive data (passwords, tokens, TLS certs) |
+| **ServiceAccount** | An identity for Pods to authenticate to the API server; used with RBAC |
+| **Role / ClusterRole** | Defines a set of permissions on API resources |
+| **RoleBinding / ClusterRoleBinding** | Grants a Role to a user, group, or ServiceAccount |
+| **LimitRange** | Sets default and maximum resource requests/limits per Namespace |
+| **ResourceQuota** | Caps total resource consumption (CPU, memory, object count) per Namespace |
+ 
+---
+ 
+### Pod Lifecycle
+ 
+```
+Pending ──► Running ──► Succeeded
+                  │
+                  └──► Failed ──► (restart per restartPolicy)
+                  │
+                  └──► Unknown (node communication lost)
+```
+ 
+**Phases:**
+- **Pending** — Pod accepted by API server; waiting to be scheduled or for images to pull
+- **Running** — Bound to a node; at least one container is running
+- **Succeeded** — All containers exited with code 0; not restarted
+- **Failed** — All containers exited; at least one exited non-zero
+- **Unknown** — Node not reachable; state cannot be determined
+---
+ 
+### Control Loop — The Reconciliation Pattern
+ 
+Every controller in Kubernetes follows the same fundamental pattern:
+ 
+```
+┌─────────────────────────────────────────┐
+│                                         │
+│   Watch API server for resource changes │
+│              │                          │
+│              ▼                          │
+│   Compare desired state vs actual state │
+│              │                          │
+│              ▼                          │
+│   Act: create / update / delete         │
+│              │                          │
+│              └──────────────────────────┘
+│            (loop forever)               │
+└─────────────────────────────────────────┘
+```
 
-### 2.1 Control Plane Components
-
-| Component | Role |
-|-----------|------|
-| **kube-apiserver** | Single entry point for all cluster operations; validates and processes REST requests |
-| **etcd** | Distributed, consistent key-value store; source of truth for all cluster state |
-| **kube-scheduler** | Assigns Pods to Nodes based on resource requirements, constraints, and affinity rules |
-| **kube-controller-manager** | Runs controllers (Deployment, ReplicaSet, Node, Endpoint) to reconcile desired vs actual state |
-| **cloud-controller-manager** | Interacts with cloud APIs (AWS, GCP, Azure) to provision LoadBalancers, Volumes, etc. |
-
-### 2.2 Node Components
-
-| Component | Role |
-|-----------|------|
-| **kubelet** | Agent on each node; ensures containers in Pods are running and healthy via health probes |
-| **kube-proxy** | Maintains network rules on nodes; enables Service-to-Pod networking via iptables/IPVS |
-| **Container Runtime** | Runs containers — Docker (via containerd), containerd, or CRI-O |
-
-### 2.3 Kubernetes Distributions in This Project
+### Kubernetes Distributions in This Project
 
 The `detect_k8s_cluster()` function in `run.sh` and `detect_k8s_distribution()` in `deploy_kubernetes.sh` identify the distribution and set environment-specific variables:
 
