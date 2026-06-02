@@ -96,8 +96,8 @@ stages:
     outs:
     - path: ml/models/artifacts/model.pkl
       hash: md5
-      md5: 082aebb29a5bb5abdb895f5898578285
-      size: 317958
+      md5: 3d3804a6009883f8f4aa6b2703e0eb67
+      size: 317976
   evaluate:
     cmd: bash ml/pipelines/dvc/run_stage.sh evaluate
     deps:
@@ -111,8 +111,8 @@ stages:
       size: 5909
     - path: ml/models/artifacts/model.pkl
       hash: md5
-      md5: 082aebb29a5bb5abdb895f5898578285
-      size: 317958
+      md5: 3d3804a6009883f8f4aa6b2703e0eb67
+      size: 317976
     - path: ml/pipelines/dvc/run_stage.sh
       hash: md5
       md5: 1726194b1b4bbfcc997eb85256e2fc97
