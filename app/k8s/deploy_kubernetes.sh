@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+
+# /app/k8s/deploy_kubernetes.sh
 # Should work and be compatible with all Linux computers including WSL.
 # Works in both environments: ArgoCD and direct
 # Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others.
-# Usage: ./deploy_kubernetes.sh.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -249,7 +250,20 @@ deploy() {
     print_divider
     print_subsection "Application Access"
 
-    app_url=$(get_service_url "${APP_NAME}" "${NAMESPACE}" "${APP_PORT}")
+    SERVICE_NAME=$(
+        kubectl get svc -n "${NAMESPACE}" \
+        -o jsonpath="{.items[?(@.spec.selector.app=='${APP_NAME}')].metadata.name}" \
+        | awk '{print $1}'
+    )
+
+    app_url=$(get_service_url "${SERVICE_NAME}" "${NAMESPACE}" "${APP_PORT}")
+
+    SERVICE_PORT=$(
+        kubectl get svc "${SERVICE_NAME}" -n "${NAMESPACE}" \
+        -o jsonpath='{.spec.ports[0].port}'
+    )
+
+    SERVICE_PORT="${SERVICE_PORT:-80}"
 
     case "$app_url" in
         port-forward:*)
@@ -257,13 +271,13 @@ deploy() {
             print_access_box "APPLICATION" ">" \
                 "NOTE:Application service is ClusterIP — expose using port-forward" \
                 "SEP:" \
-                "CMD:Step 1  --  Start port-forward:|kubectl port-forward svc/${APP_NAME} ${port}:${port} -n ${NAMESPACE}" \
+                "CMD:Step 1  --  Start port-forward:|kubectl port-forward svc/${SERVICE_NAME} ${port}:${SERVICE_PORT} -n ${NAMESPACE}" \
                 "URL:Step 2  --  Open Application:http://localhost:${port}"
             ;;
         pending-loadbalancer)
             print_access_box "APPLICATION" ">" \
                 "NOTE:LoadBalancer provisioning in progress" \
-                "CMD:Check status:|kubectl get svc ${APP_NAME} -n ${NAMESPACE}"
+                "CMD:Check status:|kubectl get svc ${SERVICE_NAME} -n ${NAMESPACE}"
             ;;
         *)
             print_access_box "APPLICATION" ">" \
