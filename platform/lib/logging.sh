@@ -54,12 +54,12 @@ print_subsection() {
 
 # LOG LEVELS
 
-print_step() {
-    echo -e "  ${BOLD}${CYAN}  ->  ${RESET}$1"
-}
-
 print_success() {
     echo -e "  ${BOLD}${BG_GREEN}${BRIGHT_WHITE} OK ${RESET}  ${BRIGHT_GREEN}$1${RESET}"
+}
+
+print_step() {
+    echo -e "  ${BOLD}${CYAN}  ->  ${RESET}$1"
 }
 
 print_info() {
@@ -80,19 +80,19 @@ print_warn() {
 
 # INLINE HELPERS
 
-# Labelled URL
-print_url() {
-    local label="$1"
-    local url="$2"
-    echo -e "     ${DIM}${label}${RESET}  ${BOLD}${ACCENT_URL}${url}${RESET}"
-}
-
 # Shell command with optional label
 print_cmd() {
     local label="$1"
     local cmd="$2"
     [[ -n "$label" ]] && echo -e "     ${DIM}${label}${RESET}"
     echo -e "     ${BOLD}${YELLOW}\$${RESET} ${ACCENT_CMD}${cmd}${RESET}"
+}
+
+# Labelled URL
+print_url() {
+    local label="$1"
+    local url="$2"
+    echo -e "     ${DIM}${label}${RESET}  ${BOLD}${ACCENT_URL}${url}${RESET}"
 }
 
 # Key / value credential line
