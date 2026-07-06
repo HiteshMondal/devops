@@ -55,7 +55,6 @@ _menu() {
     local title="$1"; shift
     local options=("$@")
     local n=${#options[@]}
-
     echo ""
     echo -e "  ${BOLD}${BRIGHT_CYAN}┌  ${title}${RESET}"
 
@@ -129,7 +128,6 @@ _row() {
 }
 
 # COMPONENT FLAGS DEFAULTS
-
 ENABLE_INFRA=false
 ENABLE_IMAGE=false
 ENABLE_ARGO=false
