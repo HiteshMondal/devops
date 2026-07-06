@@ -149,11 +149,11 @@ ml/models/artifacts/**
 .dvc/state
 .dvc/config.local
 
-# METAFLOW
-.metaflow/
-
 # MLFLOW
 ml/experiments/mlflow/mlruns/
+
+# METAFLOW
+.metaflow/
 
 # LOCAL PLATFORM RUNTIME STATE
 .platform/
@@ -162,15 +162,15 @@ ml/experiments/mlflow/mlruns/
 .lakefs/
 ml/lakefs/repositories/**
 
+# KUBEFLOW LOCAL CACHE
+.kubeflow/
+
 # FEAST LOCAL REGISTRY CACHE
 .feast/
 ml/feature_store/feast/*.db
 ml/feature_store/feast/feature_definitions.py
 ml/feature_store/feast/registry.db
 ml/feature_store/feast/online_store.db
-
-# KUBEFLOW LOCAL CACHE
-.kubeflow/
 
 # AIRFLOW LOCAL DB
 airflow.db
