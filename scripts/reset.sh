@@ -29,8 +29,8 @@ else
 fi
 
 # PRINT PRIMITIVES
-_SEP_HEAVY="  ============================================================================"
 _SEP_LIGHT="  ----------------------------------------------------------------------------"
+_SEP_HEAVY="  ============================================================================"
 
 print_header() {
     local title="$1"
@@ -100,7 +100,6 @@ toggle() {
 # INTERACTIVE MENU
 show_menu() {
     clear
-
     echo ""
     echo -e "${BOLD}${BRIGHT_CYAN}+============================================================================+${RESET}"
     echo -e "${BOLD}${BRIGHT_CYAN}|${RESET}  ${BOLD}${BRIGHT_WHITE}DevOps Environment  --  Selective Cleanup & Reset${RESET}"
@@ -237,7 +236,6 @@ confirm_selection() {
     echo ""
     echo -e "  ${BOLD}${RED}This cannot be undone.${RESET}"
     echo ""
-
     read -rp "$(echo -e "  ${BOLD}${RED}Type 'yes' to confirm and start cleanup:${RESET} ")" FINAL
     if [[ "$FINAL" != "yes" ]]; then
         echo ""
@@ -313,7 +311,6 @@ clean_argocd() {
     print_step "Removing ArgoCD ClusterRoles and ClusterRoleBindings..."
     run_kubectl delete clusterrole          -l app.kubernetes.io/part-of=argocd
     run_kubectl delete clusterrolebinding   -l app.kubernetes.io/part-of=argocd
-
     print_ok "ArgoCD fully removed"
 }
 
@@ -331,7 +328,7 @@ clean_gitlab_runner() {
 }
 
 clean_kubernetes_workloads() {
-    print_section "Kubernetes Workloads  (cluster preserved)"
+    print_section "Kubernetes Workloads (cluster preserved)"
     print_step "Deleting all deployments across all namespaces..."
     run_kubectl delete deployments --all --all-namespaces
     print_step "Deleting all services (except kubernetes system service)..."
