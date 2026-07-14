@@ -2195,24 +2195,1052 @@ fi
 
 # Quick Reference Cheatsheet
 
-## File Operations:
+# Linux File Operations Commands (Detailed Guide)
+
+File operations are among the most frequently used Linux commands. They help you create, view, copy, move, modify, search, and delete files and directories.
+
+---
+
+# 1. ls (List Files and Directories)
+
+## Syntax
 
 ```bash
-ls -lah            # List all files with details
-cp -r src/ dest/   # Copy directory recursively
-mv file.txt /tmp/  # Move file
-rm -rf directory/  # Remove directory forcefully
-mkdir -p a/b/c     # Create nested directories
-touch file.txt     # Create empty file or update timestamp
-cat file.txt       # Print file contents
-less file.txt      # Paginated file view
-wc -l file.txt     # Count lines
-sort file.txt      # Sort lines
-uniq file.txt      # Remove duplicate lines
-cut -d: -f1 /etc/passwd  # Extract first field
-awk '{print $1}' file    # Print first column
-sed 's/old/new/g' file   # Replace text
+ls [OPTIONS] [FILE/DIRECTORY]
 ```
+
+## Purpose
+
+Displays files and directories.
+
+---
+
+## Common Examples
+
+### List files
+
+```bash
+ls
+```
+
+Output
+
+```
+file1.txt
+file2.txt
+Documents
+Downloads
+```
+
+---
+
+### Long Listing
+
+```bash
+ls -l
+```
+
+Output
+
+```
+-rw-r--r-- 1 user user 2500 Jul 10 file1.txt
+drwxr-xr-x 2 user user 4096 Jul 11 Documents
+```
+
+Explanation
+
+- File permissions
+- Number of links
+- Owner
+- Group
+- File size
+- Modified date
+- File name
+
+---
+
+### Show Hidden Files
+
+```bash
+ls -a
+```
+
+Shows files beginning with "."
+
+Example
+
+```
+.bashrc
+.profile
+.gitignore
+```
+
+---
+
+### Human Readable Size
+
+```bash
+ls -lh
+```
+
+Output
+
+```
+-rw-r--r-- 1 user user 2.3K file.txt
+```
+
+---
+
+### Combined Options
+
+```bash
+ls -lah
+```
+
+Options
+
+| Option | Meaning |
+|---------|----------|
+| -l | Long listing |
+| -a | Show hidden files |
+| -h | Human readable size |
+
+Example
+
+```bash
+ls -lah
+```
+
+Output
+
+```
+drwxr-xr-x
+-rw-r--r--
+.bashrc
+.git
+README.md
+```
+
+---
+
+# Interview Questions
+
+### Q1. Difference between ls and ls -l?
+
+Answer
+
+- ls only shows names.
+- ls -l shows detailed information.
+
+---
+
+### Q2. What does ls -a show?
+
+Hidden files starting with ".".
+
+---
+
+# 2. cp (Copy Files and Directories)
+
+## Syntax
+
+```bash
+cp [OPTIONS] SOURCE DESTINATION
+```
+
+---
+
+## Copy File
+
+```bash
+cp file.txt backup.txt
+```
+
+Creates
+
+```
+file.txt
+backup.txt
+```
+
+---
+
+## Copy Directory
+
+```bash
+cp -r project backup/
+```
+
+Option
+
+```
+-r = Recursive
+```
+
+Without -r
+
+```
+cp: omitting directory 'project'
+```
+
+---
+
+## Preserve Permissions
+
+```bash
+cp -p file.txt backup.txt
+```
+
+Preserves
+
+- ownership
+- timestamps
+- permissions
+
+---
+
+## Verbose Copy
+
+```bash
+cp -v file.txt backup.txt
+```
+
+Output
+
+```
+'file.txt' -> 'backup.txt'
+```
+
+---
+
+## Interview Questions
+
+### Why is -r required?
+
+Directories contain subdirectories and files.
+
+Recursive mode copies everything.
+
+---
+
+# 3. mv (Move or Rename)
+
+## Syntax
+
+```bash
+mv SOURCE DESTINATION
+```
+
+---
+
+## Rename File
+
+```bash
+mv old.txt new.txt
+```
+
+---
+
+## Move File
+
+```bash
+mv report.pdf /home/user/Documents/
+```
+
+---
+
+## Move Multiple Files
+
+```bash
+mv *.txt backup/
+```
+
+---
+
+## Rename Directory
+
+```bash
+mv project old_project
+```
+
+---
+
+## Interview Questions
+
+### Difference between cp and mv?
+
+cp
+
+Copies.
+
+mv
+
+Moves.
+
+---
+
+# 4. rm (Remove Files)
+
+## Syntax
+
+```bash
+rm [OPTIONS] FILE
+```
+
+---
+
+## Delete File
+
+```bash
+rm notes.txt
+```
+
+---
+
+## Delete Directory
+
+```bash
+rm -r folder/
+```
+
+---
+
+## Force Delete
+
+```bash
+rm -f file.txt
+```
+
+No confirmation.
+
+---
+
+## Dangerous Command
+
+```bash
+rm -rf directory/
+```
+
+Meaning
+
+| Option | Description |
+|----------|-------------|
+| -r | Recursive |
+| -f | Force delete |
+
+Deletes everything permanently.
+
+No recycle bin.
+
+---
+
+## Safe Alternative
+
+```bash
+rm -ri folder
+```
+
+Asks before deletion.
+
+---
+
+## Interview Questions
+
+### Why is rm -rf dangerous?
+
+Because it permanently deletes files without confirmation.
+
+---
+
+# 5. mkdir (Create Directories)
+
+## Syntax
+
+```bash
+mkdir directory_name
+```
+
+---
+
+## Create Single Directory
+
+```bash
+mkdir logs
+```
+
+---
+
+## Create Multiple Directories
+
+```bash
+mkdir dir1 dir2 dir3
+```
+
+---
+
+## Nested Directories
+
+```bash
+mkdir -p project/src/java
+```
+
+Creates
+
+```
+project/
+    src/
+        java/
+```
+
+Without -p
+
+```
+No such file or directory
+```
+
+---
+
+## Interview Questions
+
+### What does -p do?
+
+Creates parent directories automatically.
+
+---
+
+# 6. touch
+
+## Syntax
+
+```bash
+touch filename
+```
+
+---
+
+## Create Empty File
+
+```bash
+touch notes.txt
+```
+
+---
+
+## Create Multiple Files
+
+```bash
+touch a.txt b.txt c.txt
+```
+
+---
+
+## Update Timestamp
+
+```bash
+touch existing.txt
+```
+
+Updates modification time.
+
+---
+
+## Interview Questions
+
+### Does touch overwrite files?
+
+No.
+
+It only updates timestamps if the file exists.
+
+---
+
+# 7. cat (Concatenate)
+
+## Syntax
+
+```bash
+cat file
+```
+
+---
+
+## Display File
+
+```bash
+cat notes.txt
+```
+
+---
+
+## Create File
+
+```bash
+cat > file.txt
+```
+
+Type content.
+
+Press
+
+```
+Ctrl+D
+```
+
+---
+
+## Merge Files
+
+```bash
+cat file1 file2 > combined.txt
+```
+
+---
+
+## Number Lines
+
+```bash
+cat -n file.txt
+```
+
+---
+
+## Interview Questions
+
+### Difference between cat and less?
+
+cat
+
+Prints everything.
+
+less
+
+Shows one page at a time.
+
+---
+
+# 8. less
+
+## Syntax
+
+```bash
+less filename
+```
+
+---
+
+## Open Large File
+
+```bash
+less server.log
+```
+
+Navigation
+
+```
+Up Arrow
+Down Arrow
+Space
+/Page Down
+/Page Up
+q = Quit
+```
+
+---
+
+## Why use less?
+
+Large log files.
+
+Doesn't load the whole file into memory.
+
+---
+
+# 9. wc (Word Count)
+
+## Syntax
+
+```bash
+wc [OPTIONS] file
+```
+
+---
+
+## Count Lines
+
+```bash
+wc -l file.txt
+```
+
+---
+
+## Count Words
+
+```bash
+wc -w file.txt
+```
+
+---
+
+## Count Characters
+
+```bash
+wc -m file.txt
+```
+
+---
+
+## Count Bytes
+
+```bash
+wc -c file.txt
+```
+
+---
+
+## Interview Questions
+
+### What does wc -l return?
+
+Total number of lines.
+
+---
+
+# 10. sort
+
+## Syntax
+
+```bash
+sort file.txt
+```
+
+---
+
+## Alphabetical Sort
+
+```bash
+sort names.txt
+```
+
+---
+
+## Reverse
+
+```bash
+sort -r names.txt
+```
+
+---
+
+## Numeric
+
+```bash
+sort -n numbers.txt
+```
+
+---
+
+## Remove Duplicates
+
+```bash
+sort -u file.txt
+```
+
+---
+
+## Interview Questions
+
+### Difference between sort and sort -n?
+
+sort
+
+Alphabetical.
+
+sort -n
+
+Numeric.
+
+---
+
+# 11. uniq
+
+## Syntax
+
+```bash
+uniq file.txt
+```
+
+Removes adjacent duplicate lines.
+
+---
+
+## Example
+
+Input
+
+```
+apple
+apple
+banana
+banana
+orange
+```
+
+Output
+
+```
+apple
+banana
+orange
+```
+
+---
+
+## Count Duplicates
+
+```bash
+uniq -c file.txt
+```
+
+Output
+
+```
+2 apple
+2 banana
+1 orange
+```
+
+---
+
+## Remove Non-Unique
+
+```bash
+uniq -u file.txt
+```
+
+---
+
+## Important
+
+Usually used with sort.
+
+```bash
+sort file.txt | uniq
+```
+
+---
+
+# 12. cut
+
+## Syntax
+
+```bash
+cut [OPTIONS] file
+```
+
+---
+
+## Extract First Field
+
+```bash
+cut -d: -f1 /etc/passwd
+```
+
+Options
+
+| Option | Meaning |
+|----------|----------|
+| -d | Delimiter |
+| -f | Field |
+
+Example
+
+```
+root:x:0:0
+```
+
+Output
+
+```
+root
+```
+
+---
+
+## CSV Example
+
+```
+John,25,Engineer
+```
+
+```bash
+cut -d, -f2 employee.csv
+```
+
+Output
+
+```
+25
+```
+
+---
+
+# 13. awk
+
+Powerful text-processing language.
+
+---
+
+## Print First Column
+
+```bash
+awk '{print $1}' file.txt
+```
+
+---
+
+Example
+
+```
+John 25
+Alice 30
+```
+
+Output
+
+```
+John
+Alice
+```
+
+---
+
+## Print Multiple Columns
+
+```bash
+awk '{print $1,$2}'
+```
+
+---
+
+## Print Last Column
+
+```bash
+awk '{print $NF}'
+```
+
+NF = Number of Fields
+
+---
+
+## Sum Numbers
+
+```bash
+awk '{sum+=$2} END {print sum}'
+```
+
+---
+
+## Filter
+
+```bash
+awk '$3>100'
+```
+
+---
+
+## Interview Questions
+
+### Why is awk powerful?
+
+It can
+
+- Filter
+- Calculate
+- Format
+- Search
+- Parse
+- Generate reports
+
+---
+
+# 14. sed (Stream Editor)
+
+Used for searching and replacing text.
+
+---
+
+## Replace Text
+
+```bash
+sed 's/old/new/' file.txt
+```
+
+Only first occurrence per line.
+
+---
+
+## Replace All
+
+```bash
+sed 's/old/new/g' file.txt
+```
+
+g = Global
+
+---
+
+## Edit File Directly
+
+```bash
+sed -i 's/old/new/g' file.txt
+```
+
+---
+
+## Delete Line
+
+```bash
+sed '3d' file.txt
+```
+
+Deletes line 3.
+
+---
+
+## Print Specific Line
+
+```bash
+sed -n '5p' file.txt
+```
+
+Prints line 5.
+
+---
+
+## Replace Using Regex
+
+```bash
+sed 's/[0-9]/X/g'
+```
+
+---
+
+## Interview Questions
+
+### Difference between sed and awk?
+
+| sed | awk |
+|------|------|
+| Stream editor | Programming language |
+| Best for replacing text | Best for parsing structured data |
+| Line-oriented editing | Field-oriented processing |
+| Supports regex | Supports variables, conditions, loops, arithmetic |
+
+---
+
+# Common Command Combinations
+
+## Find duplicate usernames
+
+```bash
+cut -d: -f1 /etc/passwd | sort | uniq
+```
+
+---
+
+## Count unique entries
+
+```bash
+sort file.txt | uniq | wc -l
+```
+
+---
+
+## Replace text and save
+
+```bash
+sed 's/Linux/Ubuntu/g' input.txt > output.txt
+```
+
+---
+
+## Print first column then sort
+
+```bash
+awk '{print $1}' employees.txt | sort
+```
+
+---
+
+## Count occurrences
+
+```bash
+sort file.txt | uniq -c
+```
+
+---
+
+# Real-World Examples
+
+### Backup a project
+
+```bash
+cp -r myproject/ backup/
+```
+
+---
+
+### Rename a log file
+
+```bash
+mv app.log app.log.old
+```
+
+---
+
+### Delete temporary files
+
+```bash
+rm -rf /tmp/project/*
+```
+
+---
+
+### View a large log file
+
+```bash
+less /var/log/syslog
+```
+
+---
+
+### Find unique IP addresses in a log
+
+```bash
+awk '{print $1}' access.log | sort | uniq
+```
+
+---
+
+### Replace "http" with "https" in a configuration file
+
+```bash
+sed -i 's/http:/https:/g' config.conf
+```
+
+---
+
+# Best Practices
+
+- Use `ls -lah` to inspect files with permissions and human-readable sizes.
+- Prefer `cp -p` when preserving file metadata is important.
+- Use `mv` to rename files without creating duplicates.
+- Be extremely cautious with `rm -rf`; verify the target path before executing.
+- Use `mkdir -p` to create nested directory structures safely.
+- Prefer `less` over `cat` for large files and logs.
+- Combine `sort` with `uniq` because `uniq` only removes adjacent duplicate lines.
+- Use `cut` for simple delimiter-based extraction, `awk` for complex field processing, and `sed` for stream editing and text replacement.
+- Always test `sed` commands without `-i` before editing files in place.
 
 ## Process Management:
 
