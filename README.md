@@ -83,9 +83,10 @@ The runner interactively guides you through environment, component, and cloud pr
 * **Application**: FastAPI (Python) — [`app/app_documentation.md`](./app/app_documentation.md)
 * **Containerization**: Docker / Podman — [`app/docker/docker_documentation.md`](./app/docker/docker_documentation.md)
 * **Orchestration**: Kubernetes — [`app/k8s/documentation.md`](./app/k8s/documentation.md)
-* **CI/CD** | GitHub Actions · GitLab CI · ArgoCD |
+* **CI/CD**: GitHub Actions · GitLab CI · ArgoCD - [`platform/cicd/CICD_Documentation.md`](./platform/cicd/CICD_Documentation.md)
 * **Infrastructure**: Terraform / OpenTofu / Pulumi — [`platform/infra/documentation.md`](./platform/infra/documentation.md)
 * **Monitoring**: Prometheus + Grafana + Loki — [`monitoring/documentation.md`](./monitoring/documentation.md)
+* **AWS**: [`platform/infra/terraform/AWS_Documentation.md`](./platform/infra/terraform/AWS_Documentation.md)
 * **ML Pipelines** | Metaflow · Prefect · Lakefs · Kubeflow · DVC |
 * **ML Tracking** | Evidently · WhyLabs |
 
