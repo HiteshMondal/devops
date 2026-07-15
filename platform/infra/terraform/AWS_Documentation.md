@@ -168,6 +168,38 @@ across all resources enables cost allocation reports in Cost Explorer, easier re
 search/filtering in the Console, and automated policies (e.g., "delete anything tagged
 `Environment=dev` older than 7 days").
 
+## CIDR - Classless Inter-Domain Routing
+
+| CIDR |  Total IPs | Usable IPs | Common Use                   |
+| ---- | ---------: | ---------: | ---------------------------- |
+| /32  |          1 |          1 | Single host/IP whitelist     |
+| /30  |          4 |          2 | Point-to-point links         |
+| /29  |          8 |          6 | Very small subnet            |
+| /28  |         16 |         14 | Small network                |
+| /27  |         32 |         30 | Small office                 |
+| /26  |         64 |         62 | Medium subnet                |
+| /25  |        128 |        126 | Medium subnet                |
+| /24  |        256 |        254 | Common subnet size           |
+| /23  |        512 |        510 | Larger subnet                |
+| /22  |       1024 |       1022 | Multiple application servers |
+| /21  |       2048 |       2046 | Large subnet                 |
+| /20  |       4096 |       4094 | Enterprise subnet            |
+| /16  |     65,536 |     65,534 | Common AWS VPC               |
+| /8   | 16,777,216 | 16,777,214 | Very large private network   |
+
+The / is the number of bits reserved for the network portion of the IP address. CIDR divides IP address bits into Network Bits and Host Bits. The more host bits you have, the more IP addresses you can create.
+Formula:
+Host Bits = 32 − CIDR
+Total IPs = 2^(Host Bits)
+
+Example 1: /24
+192.168.1.0/24
+|--------24--------|----8----|
+ Network Bits        Host Bits
+ Host bits = 16
+
+Number of IPs: 2^16 = 65,536
+
 **Q9: Walk through the CIDR math for `cidrsubnet(var.vpc_cidr, 8, count.index)` on a `10.0.0.0/16` VPC.**
 
 `cidrsubnet(prefix, newbits, netnum)` adds `newbits` to the prefix length and selects subnet number `netnum`. For a `/16` VPC with `newbits = 8`, the result is a `/24` subnet:
