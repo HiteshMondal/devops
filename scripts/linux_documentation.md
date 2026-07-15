@@ -21,6 +21,24 @@
 
 # Part 1 — Linux Commands
 
+## Navigating the filesystem (pwd, cd)
+```bash
+pwd              # print current directory
+cd /path/to/dir  # absolute path
+cd ..            # go up one level
+cd ~             # go to home directory
+cd -             # go to previous directory
+```
+
+## Quoting rules
+
+'single quotes' → literal, no variable expansion
+"double quotes" → allows $variable expansion
+`backticks` / $(command) → command substitution
+Why echo $var can break with spaces/globbing but echo "$var" doesn't
+
+## Default text editors - nano or vim
+
 ## What is the difference between `ls`, `ls -l`, and `ls -a`?
 
 These are all variations of the **list directory contents** command, each revealing different levels of detail.
