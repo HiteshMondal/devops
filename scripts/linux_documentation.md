@@ -212,22 +212,61 @@ grep "pattern" *.log           # Search in all .log files
 | `-B n` | Show n lines Before match |
 | `-E` | Extended regex (same as `egrep`) |
 
-### Examples:
+### Common `grep` Examples
 
 ```bash
-grep "error" /var/log/syslog             # Find errors in syslog
-grep -i "error" app.log                  # Case-insensitive
-grep -r "TODO" /home/hitesh/projects/    # Recursive search
-grep -n "function" script.sh             # Show line numbers
-grep -v "DEBUG" app.log                  # Exclude DEBUG lines
-grep -c "404" access.log                 # Count 404 occurrences
-grep -w "fail" logs.txt                  # Whole word match only
-grep -A 3 "ERROR" app.log               # Show 3 lines after each match
-grep -E "error|warning|critical" app.log # Extended regex with OR
+# Basic search
+grep "error" app.log               # Search for "error"
+grep -i "error" app.log            # Case-insensitive search
 
-# Chain with pipes (real-world usage)
-ps -ef | grep nginx                      # Find nginx process
-cat /etc/passwd | grep hitesh            # Find user in passwd file
+# Recursive search
+grep -r "password" /etc            # Search recursively
+grep -rn "TODO" .                  # Recursive search with line numbers
+
+# Match options
+grep -v "INFO" app.log             # Show lines NOT containing INFO
+grep -w "cat" file.txt             # Match whole word only
+grep -x "Completed" status.txt     # Match entire line only
+
+# Line numbers and counting
+grep -n "main" program.c           # Show line numbers
+grep -c "error" app.log            # Count matching lines
+
+# Multiple patterns
+grep -E "error|warning" app.log    # Match either "error" or "warning"
+
+# Show context around matches
+grep -A 3 "Exception" app.log      # 3 lines after match
+grep -B 3 "Exception" app.log      # 3 lines before match
+grep -C 3 "Exception" app.log      # 3 lines before & after
+
+# Show matching filenames
+grep -l "TODO" *.py                # Files containing TODO
+
+# Highlight matches
+grep --color=auto "error" app.log
+```
+
+### Using `grep` with Other Commands
+
+```bash
+ps -ef | grep nginx                # Find running process
+history | grep docker              # Search command history
+env | grep JAVA                    # Find environment variables
+ss -tuln | grep 443                # Check if port 443 is open
+ls -l | grep ".txt"                # Filter files by extension
+cat /etc/passwd | grep root        # Find root user entry
+```
+
+### Common Regular Expression Examples
+
+```bash
+grep "^root" /etc/passwd           # Starts with "root"
+grep "bash$" /etc/passwd           # Ends with "bash"
+grep "^$" file.txt                 # Empty lines
+grep "[0-9]" file.txt              # Contains a digit
+grep "[A-Z]" file.txt              # Contains uppercase letters
+grep -E "colou?r" file.txt         # Match "color" or "colour"
 ```
 
 ---
@@ -888,7 +927,7 @@ watch ps aux             # Refresh process list
 
 # Part 3 — Shell Scripting Basics
 
-### What is POSIX-compliant systems?
+## What is POSIX-compliant systems?
 
 **POSIX-compliant systems:** POSIX stands for Portable Operating System Interface. It is a set of standards defined by the IEEE that specifies how Unix-like operating systems should behave, including commands, APIs, shell behavior, and utilities. The goal of POSIX is portability—a script or program written for one POSIX-compliant system should run on another with little or no modification.
 
@@ -991,16 +1030,32 @@ echo ${name:="Anonymous"}               # Assign default if unset
 ### Special Variables:
 
 ```bash
+# Environment variables
 $HOME        # Current user's home directory
-$PATH        # List of directories to search for commands
+$PATH        # Directories searched for commands
 $USER        # Current username
 $HOSTNAME    # Machine hostname
 $SHELL       # Current shell
 $PWD         # Current working directory
+$OLDPWD      # Previous working directory
+$LANG        # Current system language/locale
+
+# Shell variables
 $RANDOM      # Random number
 $LINENO      # Current line number in script
+
+# Process variables
 $$           # PID of current shell/script
 $!           # PID of last background process
+$?           # Exit status of last command (0 = success, non-zero = failure)
+
+# Script positional parameters
+$0           # Script name
+$1           # First argument
+$2           # Second argument
+$#           # Number of arguments
+$@           # All arguments (preserves each argument)
+$*           # All arguments (as a single string)
 ```
 
 ---
@@ -1657,18 +1712,31 @@ done
 
 ## How to redirect output?
 
-Linux has three standard streams: stdin (0), stdout (1), stderr (2).
+Linux programs use three standard streams:
+
+- **stdin (0)** → Standard Input (where a program reads input from, usually the keyboard)
+- **stdout (1)** → Standard Output (normal output shown on the terminal)
+- **stderr (2)** → Standard Error (error messages shown on the terminal)
 
 | Symbol | Purpose |
 |--------|---------|
-| `>` | Redirect stdout to file (overwrite) |
-| `>>` | Redirect stdout to file (append) |
-| `2>` | Redirect stderr to file |
-| `2>>` | Append stderr to file |
-| `&>` | Redirect both stdout and stderr |
-| `2>&1` | Merge stderr into stdout |
-| `< file` | Use file as stdin |
-| `/dev/null` | Discard output |
+| `>` | Redirect **stdout (normal output)** to a file. If the file already exists, its contents are **overwritten**. |
+| `>>` | Redirect **stdout** to a file. If the file exists, new output is **appended** to the end instead of replacing it. |
+| `2>` | Redirect **stderr (error messages only)** to a file. Normal output still appears on the terminal. |
+| `2>>` | Append **stderr** to a file without overwriting its existing contents. |
+| `&>` | Redirect **both stdout and stderr** to the same file (Bash shortcut). Nothing is displayed on the terminal. |
+| `2>&1` | Redirect **stderr to wherever stdout is currently going**. Commonly used to combine normal output and errors into one destination. |
+| `< file` | Use the specified **file as the program's input (stdin)** instead of typing from the keyboard. |
+| `/dev/null` | A special "black hole" device. Anything redirected here is **discarded permanently**. Useful when you want to ignore output or errors. |
+
+### Easy to Remember
+
+- `>` → **Replace** the file with new output.
+- `>>` → **Append** new output to the end of the file.
+- `2>` → Save **only errors**.
+- `2>&1` → Combine **normal output + errors**.
+- `<` → Read **input from a file**.
+- `/dev/null` → Throw the output away.
 
 ```bash
 # Basic redirects
@@ -1990,25 +2058,25 @@ set -e    # Turn it back on
 The Linux filesystem follows the **Filesystem Hierarchy Standard (FHS)** which standardizes directory structure across all distributions.
 
 ```
-/
-├── bin      → Essential user commands
-├── boot     → Bootloader and kernel files
-├── dev      → Device files
-├── etc      → Configuration files
-├── home     → User home directories
-├── lib      → Shared system libraries
-├── media    → Auto-mounted removable media
-├── mnt      → Temporary mount points
-├── opt      → Optional/third-party software
-├── proc     → Virtual filesystem (process/kernel info)
-├── root     → Root user's home directory
-├── run      → Runtime data (cleared on reboot)
-├── sbin     → System administration commands
-├── srv      → Service data
-├── sys      → Kernel/hardware interface
-├── tmp      → Temporary files
-├── usr      → User programs and utilities
-└── var      → Variable data (logs, cache, mail)
+/        # Root directory; the top-level directory. Everything in Linux starts from here.
+/bin     # Essential user commands (ls, cp, mv, rm, cat, etc.). Required for booting and basic system operation.
+/boot    # Bootloader files, Linux kernel (vmlinuz), initramfs, and GRUB configuration used during system startup.
+/dev     # Device files representing hardware (disks, USB, terminals, etc.). In Linux, devices are treated as files.
+/etc     # System-wide configuration files (network, users, services, SSH, DNS, etc.). No user data is stored here.
+/home    # Home directories for normal users (e.g., /home/alice, /home/john). Stores personal files and settings.
+/lib     # Essential shared libraries required by programs in /bin and /sbin. Similar to DLLs in Windows.
+/media   # Automatically mounted removable media like USB drives, DVDs, and external hard disks.
+/mnt     # Temporary mount point used by administrators for manually mounting filesystems.
+/opt     # Optional or third-party software installed outside the default package manager (e.g., Oracle, Tomcat).
+/proc    # Virtual filesystem containing live process and kernel information (CPU, memory, processes). Files are generated by the kernel, not stored on disk.
+/root    # Home directory of the root (administrator) user. Different from the root directory (/).
+/run     # Runtime data such as PID files, sockets, and lock files. Cleared automatically after reboot.
+/sbin    # Essential system administration commands (fsck, reboot, shutdown, mkfs, iptables). Mainly used by root.
+/srv     # Data served by system services such as web servers (HTTP), FTP servers, or Git repositories.
+/sys     # Virtual filesystem exposing kernel, driver, and hardware information. Used for hardware management.
+/tmp     # Temporary files created by users and applications. Often cleaned automatically after reboot or periodically.
+/usr     # User applications, utilities, libraries, documentation, and shared resources. Most installed software resides here.
+/var     # Variable data that changes frequently, including logs, cache, mail, spool files, databases, and temporary application data.
 ```
 
 ### Quick Reference Table:
