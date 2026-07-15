@@ -21,7 +21,7 @@
 
 # Part 1 — Linux Commands
 
-## 1️⃣ What is the difference between `ls`, `ls -l`, and `ls -a`?
+## What is the difference between `ls`, `ls -l`, and `ls -a`?
 
 These are all variations of the **list directory contents** command, each revealing different levels of detail.
 
@@ -62,7 +62,7 @@ $ ls -a
 
 ---
 
-## 2️⃣ What does `chmod` do?
+## What does `chmod` do?
 
 `chmod` stands for **Change Mode**. It modifies the **read, write, and execute permissions** for files and directories.
 
@@ -88,16 +88,59 @@ $ ls -a
 
 ```bash
 # Numeric method
+
 chmod 755 script.sh       # Owner: rwx, Group: r-x, Others: r-x
 chmod 644 config.txt      # Owner: rw-, Group: r--, Others: r--
 chmod 700 private.sh      # Only owner can read, write, execute
 
 # Symbolic method
-chmod u+x script.sh       # Add execute for owner (user)
-chmod g-w file.txt        # Remove write from group
-chmod o+r file.txt        # Add read for others
-chmod a+x script.sh       # Add execute for all (a = all)
-chmod u=rwx,g=rx,o=r file # Set exact permissions
+
+# Add Permissions (+)
+chmod u+x script.sh           # Add execute permission for owner
+chmod u+w notes.txt           # Add write permission for owner
+chmod g+w project.txt         # Add write permission for group
+chmod g+x deploy.sh           # Add execute permission for group
+chmod o+r file.txt            # Add read permission for others
+chmod o+x script.sh           # Add execute permission for others
+chmod a+x script.sh           # Add execute permission for everyone
+chmod a+r file.txt            # Add read permission for everyone
+chmod ug+w shared.txt         # Add write permission to owner and group
+chmod go+r document.txt       # Add read permission to group and others
+
+# Remove Permissions (-)
+chmod u-w file.txt            # Remove write permission from owner
+chmod u-x script.sh           # Remove execute permission from owner
+chmod g-w project.txt         # Remove write permission from group
+chmod g-x deploy.sh           # Remove execute permission from group
+chmod o-r secret.txt          # Remove read permission from others
+chmod o-w public.txt          # Remove write permission from others
+chmod a-x script.sh           # Remove execute permission from everyone
+chmod a-w readonly.txt        # Remove write permission from everyone
+
+# Set Exact Permissions (=)
+chmod u=rwx file.sh           # Owner: read, write, execute
+chmod u=rw file.txt           # Owner: read and write only
+chmod g=rx script.sh          # Group: read and execute only
+chmod g=r file.txt            # Group: read only
+chmod o=r file.txt            # Others: read only
+chmod o= file.txt             # Remove all permissions from others
+chmod a=r file.txt            # Everyone: read only
+chmod u=rwx,g=rx,o=r file.sh  # Set exact permissions for all
+
+# Multiple Operations
+chmod u+x,g-w,o-r file.txt    # Add execute to owner, remove write from group, remove read from others
+chmod ug+rwx,o= file.sh       # Owner & group: full access, others: no access
+chmod u=rw,g=r,o= file.txt    # Equivalent to chmod 640
+chmod u=rwx,g=rx,o=rx app.sh  # Equivalent to chmod 755
+chmod u=rwx,g=rwx,o=rx app.sh # Equivalent to chmod 775
+chmod a=rw file.txt           # Everyone: read and write
+chmod a=r file.txt            # Everyone: read only
+
+# Recursive
+chmod -R u+rwx project/       # Give owner full permissions recursively
+chmod -R g+rw shared/         # Give group read and write recursively
+chmod -R o-r private/         # Remove read permission for others recursively
+chmod -R a+X scripts/         # Add execute only to directories and executable files
 
 # Recursive (apply to directory and all contents)
 chmod -R 755 /var/www/html
@@ -107,13 +150,13 @@ chmod -R 755 /var/www/html
 
 ---
 
-## 3️⃣ How to view the first and last lines of a file?
+## How to view the first and last lines of a file?
 
 ### `head` — View beginning of a file:
 
 ```bash
 head filename.txt          # Shows first 10 lines (default)
-head -n 20 filename.txt    # Shows first 20 lines
+head -n 20 filename.txt    # Shows first 20 lines (using "-n" is more portable for POSIX-compliant systems)
 head -5 filename.txt       # Shows first 5 lines
 ```
 
@@ -142,7 +185,7 @@ head -30 file.txt | tail -11
 
 ---
 
-## 4️⃣ How to search a string in files using `grep`?
+## How to search a string in files using `grep`?
 
 `grep` stands for **Global Regular Expression Print**. It searches for patterns in files or input.
 
@@ -189,7 +232,7 @@ cat /etc/passwd | grep hitesh            # Find user in passwd file
 
 ---
 
-## 5️⃣ What does `df -h` show?
+## What does `df -h` show?
 
 `df` stands for **Disk Free**. It reports disk space usage of filesystems.
 
@@ -223,7 +266,7 @@ Reading the columns:
 
 ---
 
-## 6️⃣ What is the difference between `ps` and `top`?
+## What is the difference between `ps` and `top`?
 
 Both commands deal with **process monitoring**, but serve different purposes.
 
@@ -271,7 +314,7 @@ top             # Launch top
 
 ---
 
-## 7️⃣ What is `sudo`?
+## What is `sudo`?
 
 `sudo` stands for **Superuser Do**. It allows a permitted user to run commands as **root (administrator)** without fully switching to the root account.
 
@@ -310,7 +353,7 @@ sudo -l          # List what the current user can run with sudo
 
 ---
 
-## 8️⃣ How do you check system logs?
+## How do you check system logs?
 
 Linux stores logs in `/var/log/` directory. Different services write to different files.
 
@@ -345,7 +388,7 @@ journalctl -p err                 # Only error-level and above
 
 ---
 
-## 9️⃣ What is the difference between soft link and hard link?
+## What is the difference between soft link and hard link?
 
 Both are ways to **reference a file**, but they work very differently under the hood.
 
@@ -388,7 +431,7 @@ lrwxrwxrwx 1 hitesh hitesh 15 Jun 10 10:00 mysyslog -> /var/log/syslog
 
 ---
 
-## 🔟 How to find files in Linux?
+## How to find files in Linux?
 
 The `find` command is a powerful tool to search for files based on various criteria.
 
@@ -440,7 +483,7 @@ find /home -type f -exec chmod 644 {} \;  # Fix permissions
 
 # Part 2 — Advanced Linux Commands
 
-## 1️⃣ What is the difference between `cron` and `at` commands?
+## What is the difference between `cron` and `at` commands?
 
 Both schedule tasks, but for different use cases.
 
@@ -499,7 +542,7 @@ atrm 3 # Remove job number 3
 
 ---
 
-## 2️⃣ Explain file permissions in symbolic format
+## Explain file permissions in symbolic format
 
 ### Reading Permission String:
 
@@ -543,7 +586,7 @@ chmod +t /tmp
 
 ---
 
-## 3️⃣ How to check network connectivity?
+## How to check network connectivity?
 
 ```bash
 # Basic connectivity test
@@ -554,6 +597,9 @@ ping -i 2 google.com        # Interval 2 seconds between pings
 # IP configuration
 ip addr show                # Show all network interfaces and IPs
 ip addr show eth0           # Show specific interface
+ip link show                # Show network interfaces and status
+hostname -I                 # Display all assigned IP addresses
+hostname -i                 # Display host IP address
 ifconfig                    # Older alternative (may need net-tools)
 
 # Routing
@@ -564,23 +610,65 @@ tracepath google.com        # Similar to traceroute
 
 # Port and connection monitoring
 ss -tulnp                   # Show listening ports (modern)
-netstat -tulnp              # Show listening ports (older)
 ss -s                       # Summary statistics
 ss -tp                      # TCP connections with process names
+ss -tun                     # Show all TCP/UDP connections
+netstat -tulnp              # Show listening ports (older)
+netstat -rn                 # Show routing table
+netstat -i                  # Show network interface statistics
 
 # DNS lookup
 nslookup google.com         # DNS query
 dig google.com              # Detailed DNS query
+dig google.com +short       # Show only the IP address
 host google.com             # Simple DNS lookup
 cat /etc/resolv.conf        # View configured DNS servers
 
+# Test specific ports
+nc -zv google.com 443       # Check if TCP port 443 is open
+telnet google.com 80        # Test TCP connection (if installed)
+
+# Download a webpage (test HTTP/HTTPS)
+curl https://google.com     # Fetch webpage
+curl -I https://google.com  # Show only HTTP headers
+wget https://example.com    # Download a file
+
+# ARP (Address Resolution Protocol)
+arp -a                      # Show ARP cache
+ip neigh                    # Modern replacement for arp
+
 # Network interface statistics
 ip -s link show eth0        # Packet statistics
+ip -br addr                 # Brief IP address summary
+ethtool eth0                # Display NIC speed, duplex, driver info
+
+# Socket and process information
+lsof -i                     # List processes using network
+lsof -i :80                 # Processes using port 80
+fuser 8080/tcp              # Process using TCP port 8080
+
+# Firewall
+iptables -L                 # List iptables firewall rules
+firewall-cmd --list-all     # Show firewalld configuration (RHEL/CentOS)
+ufw status                  # Show UFW firewall status (Ubuntu)
+
+# Network services
+systemctl status NetworkManager    # Check NetworkManager
+systemctl status networking        # Check networking service (Debian/Ubuntu)
+
+# View hosts configuration
+cat /etc/hosts              # Local hostname mappings
+hostname                    # Display hostname
+hostnamectl                 # Show hostname and system information
+
+# Live network monitoring
+watch -n 1 ss -tuln         # Refresh listening ports every second
+watch -n 2 ip addr          # Watch IP address changes
 ```
 
 ---
 
-## 4️⃣ What is `tar` used for?
+## What is `tar` used for?
 
 `tar` stands for **Tape Archive**. It bundles multiple files into a single archive (and optionally compresses it).
 
@@ -623,7 +711,7 @@ tar -xvf backup.tar home/user/file.txt
 
 ---
 
-## 5️⃣ Difference between `apt` and `yum`/`dnf`?
+## Difference between `apt` and `yum`/`dnf`?
 
 These are **package managers** — tools that install, update, and remove software on Linux.
 
@@ -662,7 +750,7 @@ dnf install nginx             # dnf is modern replacement for yum
 
 ---
 
-## 6️⃣ What is `du` command used for?
+## What is `du` command used for?
 
 `du` stands for **Disk Usage**. It shows how much space files and directories consume.
 
@@ -680,7 +768,7 @@ du -h /home | sort -rh | head -10
 
 ---
 
-## 7️⃣ What is SELinux?
+## What is SELinux?
 
 **Security-Enhanced Linux (SELinux)** is a mandatory access control (MAC) security framework built into the Linux kernel — primarily used in RHEL/CentOS systems.
 
@@ -717,42 +805,94 @@ grep "denied" /var/log/audit/audit.log
 
 ---
 
-## 8️⃣ How to check system resource usage?
+## How to check system resource usage?
 
 ```bash
 # CPU and processes
 top                      # Interactive process monitor
 htop                     # Enhanced version of top
+ps aux                   # Show all running processes
+ps -ef                   # Full-format process list
 vmstat 1                 # Virtual memory stats every 1 second
 vmstat -s                # Summary memory stats
 mpstat                   # Per-CPU statistics
+pidstat                  # CPU usage per process
 uptime                   # Load average overview
 
 # Memory
 free -m                  # Memory in megabytes
 free -h                  # Human-readable
 cat /proc/meminfo        # Detailed memory information
+sar -r                   # Memory usage statistics
+slabtop                  # Kernel slab cache usage
+
+# Disk usage
+df -h                    # Filesystem disk usage
+df -i                    # Inode usage
+du -sh /path             # Size of a directory
+du -ah                   # Size of all files and directories
+du -sh *                 # Size of items in current directory
+lsblk                    # Block devices and partitions
+blkid                    # Filesystem UUIDs and types
 
 # Disk I/O
 iostat                   # I/O stats for disks
 iostat -x 1              # Extended stats every 1 second
 iotop                    # Real-time disk I/O per process
 
-# CPU info
+# CPU information
 lscpu                    # CPU architecture details
 cat /proc/cpuinfo        # Raw CPU information
-nproc                    # Number of processing units
+nproc                    # Number of CPU cores
+cat /proc/loadavg        # Current system load average
 
 # Network I/O
 iftop                    # Real-time network bandwidth by connection
 nethogs                  # Network usage per process
+sar -n DEV               # Network interface statistics
+
+# System information
+uname -a                 # Kernel and system information
+hostnamectl              # Hostname and OS information
+lsb_release -a           # Linux distribution details
+cat /etc/os-release      # OS release information
+
+# Running services
+systemctl status         # List failed and loaded services
+systemctl --type=service # List all services
+systemctl list-units --type=service --state=running
+
+# System logs
+journalctl               # View systemd logs
+journalctl -xe           # Recent errors
+dmesg                    # Kernel messages
+
+# Open files
+lsof                     # List all open files
+lsof -p PID              # Files opened by a process
+
+# Hardware information
+lsmem                    # Memory layout
+lspci                    # PCI devices
+lsusb                    # USB devices
+dmidecode                # BIOS and hardware information (root)
+
+# Monitor commands continuously
+watch free -h            # Refresh memory usage
+watch df -h              # Refresh disk usage
+watch uptime             # Refresh system load
+watch ps aux             # Refresh process list
 ```
 
 ---
 
 # Part 3 — Shell Scripting Basics
 
-## 1️⃣ What is a shell script?
+### What is POSIX-compliant systems?
+
+**POSIX-compliant systems:** POSIX stands for Portable Operating System Interface. It is a set of standards defined by the IEEE that specifies how Unix-like operating systems should behave, including commands, APIs, shell behavior, and utilities. The goal of POSIX is portability—a script or program written for one POSIX-compliant system should run on another with little or no modification.
+
+## What is a shell script?
 
 A **shell script** is a plain text file containing a series of Linux/Unix commands that are executed sequentially by the shell interpreter (like `bash`, `sh`, `zsh`).
 
@@ -800,7 +940,7 @@ source hello.sh
 
 ---
 
-## 2️⃣ How to define and access variables?
+## How to define and access variables?
 
 Variables store data that can be reused throughout the script.
 
@@ -865,7 +1005,7 @@ $!           # PID of last background process
 
 ---
 
-## 3️⃣ What are positional parameters?
+## What are positional parameters?
 
 Positional parameters allow passing **arguments to a script** from the command line.
 
@@ -922,7 +1062,7 @@ Example: ./deploy.sh production 1.2.3
 
 ---
 
-## 4️⃣ How do you write an `if` condition in bash?
+## How do you write an `if` condition in bash?
 
 ### Syntax:
 
@@ -1016,7 +1156,7 @@ fi
 
 ---
 
-## 5️⃣ How to use loops?
+## How to use loops?
 
 ### `for` loop — iterate over list or range:
 
@@ -1112,7 +1252,7 @@ done
 
 ---
 
-## 6️⃣ How to read user input?
+## How to read user input?
 
 ```bash
 #!/bin/bash
@@ -1156,7 +1296,7 @@ done
 
 ---
 
-## 7️⃣ What is `$?`?
+## What is `$?`?
 
 `$?` is the **exit status** of the last executed command. It's crucial for error handling.
 
@@ -1206,7 +1346,7 @@ echo "Return value: $?"   # Prints: 1
 
 ---
 
-## 8️⃣ What is the shebang (`#!`)?
+## What is the shebang (`#!`)?
 
 The **shebang** (also called hashbang) is the first line of a script. It tells the OS **which interpreter** to use to run the script.
 
@@ -1238,7 +1378,7 @@ echo $0           # Current shell or script name
 
 ---
 
-## 9️⃣ How to run a script?
+## How to run a script?
 
 ```bash
 # Step 1: Create the script
@@ -1274,7 +1414,7 @@ source myscript.sh
 
 ---
 
-## 🔟 How to debug a script?
+## How to debug a script?
 
 Debugging helps find errors in shell scripts.
 
@@ -1322,7 +1462,7 @@ echo "[DEBUG] About to run: $command"
 
 # Part 4 — Advanced Shell Scripting
 
-## 1️⃣ How do you handle functions in bash?
+## How do you handle functions in bash?
 
 Functions allow you to organize code into reusable blocks.
 
@@ -1392,7 +1532,7 @@ echo "5! = $(factorial 5)"
 
 ---
 
-## 2️⃣ What is the use of `case` statement?
+## What is the use of `case` statement?
 
 `case` is a clean alternative to multiple `if-elif` conditions — especially useful for menus and option parsing.
 
@@ -1456,7 +1596,7 @@ esac
 
 ---
 
-## 3️⃣ What are arrays in bash?
+## What are arrays in bash?
 
 Arrays store multiple values in a single variable.
 
@@ -1515,7 +1655,7 @@ done
 
 ---
 
-## 4️⃣ How to redirect output?
+## How to redirect output?
 
 Linux has three standard streams: stdin (0), stdout (1), stderr (2).
 
@@ -1559,7 +1699,7 @@ grep "pattern" <<< "This is the string to search"
 
 ---
 
-## 5️⃣ What is a pipeline?
+## What is a pipeline?
 
 A pipeline (`|`) connects the **stdout of one command to the stdin of another**. This chains commands together to process data progressively.
 
@@ -1598,7 +1738,7 @@ command2 < mypipe
 
 ---
 
-## 6️⃣ What is a here-document?
+## What is a here-document?
 
 A here-document (heredoc) allows providing multi-line input to a command inline in the script.
 
@@ -1657,7 +1797,7 @@ SQL
 
 ---
 
-## 7️⃣ What is the `trap` command?
+## What is the `trap` command?
 
 `trap` catches **signals** (interrupts) and executes a function/command when they occur.
 
@@ -1701,7 +1841,7 @@ trap SIGINT       # Restore default behavior
 
 ---
 
-## 8️⃣ What is the difference between `==` and `-eq`?
+## What is the difference between `==` and `-eq`?
 
 | Operator | Type | Used For |
 |----------|------|---------|
@@ -1747,7 +1887,7 @@ fi
 
 ---
 
-## 9️⃣ How to check if a file or directory exists?
+## How to check if a file or directory exists?
 
 ```bash
 #!/bin/bash
@@ -1798,7 +1938,7 @@ check_file "/etc/hosts"
 
 ---
 
-## 🔟 What is `set -e` in bash?
+## What is `set -e` in bash?
 
 `set -e` makes the script **exit immediately** when any command returns a non-zero exit status (i.e., fails).
 
