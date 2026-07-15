@@ -21,6 +21,44 @@
 
 ---
 
+## 0. AWS & Cloud Computing Fundamentals
+
+**Q0.1: What is cloud computing, and what are the three service models (IaaS, PaaS, SaaS)?**
+
+Cloud computing delivers compute, storage, and other IT resources over the internet
+with pay-as-you-go pricing instead of buying physical hardware. The three service
+models differ in how much AWS manages vs you:
+- **IaaS (Infrastructure as a Service)** — AWS gives you raw building blocks (EC2, VPC, EBS);
+  you manage the OS, runtime, and application. Most control, most responsibility.
+- **PaaS (Platform as a Service)** — AWS manages the underlying infrastructure and runtime;
+  you just deploy code (e.g., Elastic Beanstalk, App Runner).
+- **SaaS (Software as a Service)** — a fully finished application you just use
+  (e.g., AWS WorkMail, Amazon Chime).
+
+EKS and RDS in this project sit closer to the "managed" end — AWS runs the control
+plane/DB engine, you manage configuration and workloads on top.
+
+**Q0.2: What is the AWS pricing model, and what is the Free Tier?**
+
+AWS bills **pay-as-you-go** — no upfront commitment, billed per hour/second/request/GB
+depending on the service. The **Free Tier** has three distinct types, often confused:
+- **Always Free** — permanently free within a limit (e.g., 1M Lambda requests/month).
+- **12-Months Free** — free for the first year after account creation (e.g., 750 hrs/month
+  of `t2.micro` EC2, 750 hrs/month `db.t2.micro` RDS).
+- **Trials** — short-term free credits for specific services, expiring after a set period
+  regardless of usage.
+
+**Q0.3: What are the three ways to interact with AWS?**
+
+1. **AWS Management Console** — the web UI; best for learning and one-off tasks.
+2. **AWS CLI** — command-line tool (`aws configure`, `aws s3 ls`, etc.); best for scripting
+   and repeatable tasks.
+3. **AWS SDKs** — language-specific libraries (boto3 for Python, AWS SDK for JS, etc.) for
+   calling AWS APIs directly from application code.
+
+This project uses Terraform (which itself calls the AWS API under the hood) rather than
+the Console or CLI directly — but Terraform is a fourth, IaC-based way to reach the same APIs.
+
 ## 1. AWS Global Infrastructure
 
 **Q1: Explain the difference between an AWS Region, Availability Zone (AZ), and Edge Location.**
@@ -46,6 +84,22 @@ AWS is responsible for **security OF the cloud** (physical data centers, host in
 An **IAM User** represents a permanent identity (a person or a service) with long-lived credentials (access key + secret key). An **IAM Role** is an identity with temporary credentials that can be *assumed* by a trusted principal (an EC2 instance, an EKS pod, another AWS account, or an external identity provider). Roles are strongly preferred for workloads because credentials automatically rotate and are never stored on disk.
 
 In this project, `aws_iam_role.eks_cluster` is assumed by the EKS control plane service, and `aws_iam_role.eks_nodes` is assumed by EC2 worker nodes — no static credentials are ever used.
+
+**Q4a: What is the AWS root user, and why should it never be used for daily work?**
+
+The **root user** is created with the AWS account itself and has unrestricted access to
+everything, including closing the account and changing billing. Best practice: enable
+**MFA (Multi-Factor Authentication)** on root immediately, generate no access keys for it,
+store its credentials securely, and create an IAM user (or use IAM Identity Center) with
+appropriate permissions for all actual day-to-day work — so a single compromised credential
+can never fully take over the account.
+
+**Q4b: What is MFA, and where should it be applied?**
+
+Multi-Factor Authentication requires a second proof of identity (a virtual MFA app like
+Google Authenticator, a hardware token, etc.) in addition to a password. It should be
+enabled on the root user without exception, and enforced via IAM policy/password policy
+for human IAM users — especially anyone with console access to production resources.
 
 **Q5: What is IRSA (IAM Roles for Service Accounts) and why does it matter for EKS?**
 
@@ -76,6 +130,32 @@ The `aws_lbc` IAM policy is scoped extremely narrowly — the `elasticloadbalanc
 ---
 
 ## 3. VPC & Networking
+
+**Q8a: What is an AMI (Amazon Machine Image)?**
+
+An AMI is a template containing an OS, application server, and any pre-installed software
+used to launch an EC2 instance. AWS provides official AMIs (Amazon Linux, Ubuntu, etc.);
+you can also create your own "golden image" AMI with your software baked in for faster,
+consistent instance launches.
+
+**Q8b: What are EC2 instance families, and how do you choose one?**
+
+Instance types are grouped into families optimized for different workloads:
+- **General purpose (t, m)** — balanced CPU/memory; good default choice.
+- **Compute optimized (c)** — high CPU-to-memory ratio; batch processing, gaming servers.
+- **Memory optimized (r, x)** — high memory-to-CPU ratio; in-memory databases, caching.
+- **Storage optimized (i, d)** — high-speed local storage; data warehousing.
+
+`t3.micro` (used in this project's Free Tier resources) is a general-purpose burstable
+instance suited to low, variable workloads rather than sustained high CPU.
+
+**Q8c: What is a resource tagging strategy, and why does it matter beyond Kubernetes discovery?**
+
+Beyond the EKS-specific discovery tags covered later (Q11), a basic tagging convention
+— `Name`, `Environment` (dev/staging/prod), `Owner`, `CostCenter` — applied consistently
+across all resources enables cost allocation reports in Cost Explorer, easier resource
+search/filtering in the Console, and automated policies (e.g., "delete anything tagged
+`Environment=dev` older than 7 days").
 
 **Q9: Walk through the CIDR math for `cidrsubnet(var.vpc_cidr, 8, count.index)` on a `10.0.0.0/16` VPC.**
 
@@ -490,6 +570,29 @@ SSM Session Manager provides secure shell access to instances **without opening 
 
 **AWS-managed policies** are created and maintained by AWS (e.g., `AmazonEKSClusterPolicy`) — convenient, automatically updated as AWS adds new required permissions, but not customizable. **Customer-managed policies** are created by you, fully customizable, reusable across multiple identities, and independently versioned. **Inline policies** are embedded directly on a single user/group/role with a strict one-to-one relationship — useful for a policy that must never accidentally be reused or detached from a specific identity, but harder to audit/reuse at scale. Best practice generally favors customer-managed policies for reusable custom permission sets.
 
+---
+
+## 18. Billing, Cost Visibility & Support (Beginner Essentials)
+
+**Q79: How do you avoid an unexpected AWS bill as a beginner?**
+
+Three things to set up on day one, before touching any other service:
+1. **Billing Alarms/Budgets** — AWS Budgets lets you set a spend threshold (e.g., $5)
+   and get an email/SNS alert when forecasted or actual spend crosses it.
+2. **Cost Explorer** — a dashboard to visualize spend by service, tag, or time period,
+   useful for spotting an unexpected cost driver (like a NAT Gateway left running).
+3. **AWS Free Tier usage alerts** — a built-in alert when Free Tier usage limits are
+   approaching, so you know before you're billed for overage.
+
+**Q80: What are the AWS Support Plan tiers?**
+
+- **Basic** — free; account/billing support only, no technical support.
+- **Developer** — paid; business-hours email access to Cloud Support Associates.
+- **Business** — paid; 24/7 phone/chat/email, faster response SLAs, Trusted Advisor
+  full checks.
+- **Enterprise (On-Ramp/Enterprise)** — paid; a named Technical Account Manager (TAM),
+  fastest SLAs, architectural guidance — aimed at production-critical workloads.
+  
 ---
 
 *Documentation prepared as an AWS interview reference — covering IAM, VPC, EKS, RDS, KMS, Secrets Manager, CloudWatch, S3, compute services, load balancing, Lambda, SQS/SNS, API Gateway, DynamoDB, CloudFront, Route 53, disaster recovery, security frameworks, and cost optimization.*
