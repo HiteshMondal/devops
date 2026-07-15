@@ -32,6 +32,7 @@ models differ in how much AWS manages vs you:
   you manage the OS, runtime, and application. Most control, most responsibility.
 - **PaaS (Platform as a Service)** — AWS manages the underlying infrastructure and runtime;
   you just deploy code (e.g., Elastic Beanstalk, App Runner).
+  IaaS (Infrastructure as a Service) provides raw, virtualized computing hardware over the internet—like virtual servers, storage, and networking—giving you maximum control. PaaS (Platform as a Service) provides a ready-to-use framework and environment for developers, handling the backend infrastructure so you can focus purely on writing code
 - **SaaS (Software as a Service)** — a fully finished application you just use
   (e.g., AWS WorkMail, Amazon Chime).
 
@@ -130,13 +131,11 @@ The `aws_lbc` IAM policy is scoped extremely narrowly — the `elasticloadbalanc
 ---
 
 ## 3. VPC & Networking
+Amazon Virtual Private Cloud (VPC) lets you provision a logically isolated section of the AWS cloud where you launch resources in a virtual network that you define. It gives you full control over IP addresses, subnets, route tables, and network gateways.
 
 **Q8a: What is an AMI (Amazon Machine Image)?**
 
-An AMI is a template containing an OS, application server, and any pre-installed software
-used to launch an EC2 instance. AWS provides official AMIs (Amazon Linux, Ubuntu, etc.);
-you can also create your own "golden image" AMI with your software baked in for faster,
-consistent instance launches.
+An Amazon Machine Image (AMI) is a pre-configured template containing the operating system, applications, and storage settings required to launch a virtual server (EC2 instance) in AWS. It acts as a reusable blueprint, allowing you to quickly clone and scale identical environments
 
 **Q8b: What are EC2 instance families, and how do you choose one?**
 
@@ -180,13 +179,17 @@ A NAT Gateway lets instances in a private subnet initiate outbound internet conn
 
 **Q13: What is the difference between a Security Group and a Network ACL (NACL)?**
 
-| Aspect | Security Group | Network ACL |
-|---|---|---|
-| Level | Instance/ENI level | Subnet level |
-| State | Stateful (return traffic auto-allowed) | Stateless (must allow both directions explicitly) |
-| Rules | Allow rules only | Allow AND deny rules |
-| Evaluation | All rules evaluated together | Rules evaluated in numbered order, first match wins |
-| Default | Deny all inbound, allow all outbound | Allow all in/out (default NACL) |
+| **Aspect** | **Security Group (SG)** | **Network ACL (NACL)** |
+|------------|-------------------------|------------------------|
+| **Level** | Instance/Elastic Network Interface (ENI) level firewall | Subnet level firewall protecting all resources in the subnet |
+| **Scope** | Controls traffic for individual EC2 instances | Controls traffic for the entire subnet |
+| **State** | **Stateful** – Return traffic is automatically allowed; no outbound rule is needed for response traffic | **Stateless** – Return traffic must be explicitly allowed with both inbound and outbound rules |
+| **Rules** | Supports **Allow** rules only; anything not explicitly allowed is denied | Supports both **Allow** and **Deny** rules, making it useful for blocking specific IP addresses or ports |
+| **Rule Evaluation** | AWS evaluates all rules together. If any rule allows the traffic, it is permitted | Rules are processed in ascending rule number order (lowest first). The first matching rule is applied |
+| **Default Behavior** | Default Security Group: Denies all inbound traffic and allows all outbound traffic | Default NACL: Allows all inbound and outbound traffic; Custom NACL: Denies all traffic until rules are added |
+| **Multiple Associations** | Multiple Security Groups can be attached to a single EC2 instance (ENI) | A subnet can be associated with only one NACL at a time |
+| **Best Use Case** | Secure individual EC2 instances by allowing only required traffic (e.g., HTTP, HTTPS, SSH) | Provide an additional subnet-level security layer and block unwanted traffic before it reaches instances |
+| **Typical Usage** | Primary firewall used for EC2 instances | Secondary layer of defense for subnet-wide traffic filtering |
 
 In this project, security groups are chained: the RDS SG only allows inbound `5432` from the EKS nodes SG, not from a CIDR block — meaning only traffic actually originating from an EKS node's ENI is permitted, regardless of what IP that node currently has.
 
