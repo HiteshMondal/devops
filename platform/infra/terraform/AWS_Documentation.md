@@ -80,6 +80,18 @@ AWS is responsible for **security OF the cloud** (physical data centers, host in
 
 ## 2. IAM (Identity and Access Management)
 
+AWS Identity and Access Management (IAM) is a security service that enables you to securely manage access to AWS resources. It provides the tools to control who is authenticated (signed in) and authorized (has permissions) to use specific AWS services and resources.
+
+### Key Features of IAM
+
+IAM allows you to create and manage users, groups, roles, and policies to define permissions. It supports fine-grained access control, enabling you to grant only the permissions necessary for specific tasks, adhering to the principle of least privilege.
+
+### Core Components:
+IAM Users: Individual accounts for people or services needing access to AWS. Permissions are assigned via policies.
+IAM Groups: Collections of users with shared permissions, simplifying access management.
+IAM Roles: Temporary permissions assumed by AWS services or users, often used for service-to-service communication.
+IAM Policies: JSON documents defining what actions identities can perform on which resources.
+
 **Q4: What is the difference between an IAM Role and an IAM User?**
 
 An **IAM User** represents a permanent identity (a person or a service) with long-lived credentials (access key + secret key). An **IAM Role** is an identity with temporary credentials that can be *assumed* by a trusted principal (an EC2 instance, an EKS pod, another AWS account, or an external identity provider). Roles are strongly preferred for workloads because credentials automatically rotate and are never stored on disk.
@@ -104,7 +116,7 @@ for human IAM users — especially anyone with console access to production reso
 
 **Q5: What is IRSA (IAM Roles for Service Accounts) and why does it matter for EKS?**
 
-IRSA lets you bind a specific IAM role to a specific Kubernetes **ServiceAccount**, rather than to an entire EC2 node. Mechanically, EKS exposes an **OIDC (OpenID Connect) provider**:
+In AWS EKS, IAM Roles for Service Accounts (IRSA) enable Kubernetes pods to assume IAM roles securely using OpenID Connect (OIDC) without distributing AWS credentials directly to containers. IRSA lets you bind a specific IAM role to a specific Kubernetes **ServiceAccount**, rather than to an entire EC2 node. Mechanically, EKS exposes an **OIDC (OpenID Connect) provider**:
 
 ```hcl
 resource "aws_iam_openid_connect_provider" "eks" {
