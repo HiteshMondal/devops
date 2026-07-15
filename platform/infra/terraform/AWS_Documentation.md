@@ -188,17 +188,17 @@ search/filtering in the Console, and automated policies (e.g., "delete anything 
 | /8   | 16,777,216 | 16,777,214 | Very large private network   |
 
 The / is the number of bits reserved for the network portion of the IP address. CIDR divides IP address bits into Network Bits and Host Bits. The more host bits you have, the more IP addresses you can create.
-Formula:
+### Formula:
 Host Bits = 32 − CIDR
 Total IPs = 2^(Host Bits)
 
-Example 1: /24
-192.168.1.0/24
+### Example: /24 192.168.1.0/24
 |--------24--------|----8----|
- Network Bits        Host Bits
- Host bits = 16
 
-Number of IPs: 2^16 = 65,536
+ Network Bits = 24
+ Host bits = 8
+
+Number of IPs: 2^8 = 256
 
 **Q9: Walk through the CIDR math for `cidrsubnet(var.vpc_cidr, 8, count.index)` on a `10.0.0.0/16` VPC.**
 
@@ -217,7 +217,7 @@ For any subnet, AWS reserves: the network address (`.0`), the VPC router (`.1`),
 
 These tags let the **AWS Load Balancer Controller** and the legacy in-tree cloud provider auto-discover which subnets to use when provisioning load balancers, without the user having to manually specify subnet IDs in every Ingress or Service manifest. `kubernetes.io/role/elb = 1` on public subnets tells AWS "put internet-facing ALBs/NLBs here." `kubernetes.io/role/internal-elb = 1` on private subnets tells it "put internal load balancers here." The `kubernetes.io/cluster/<cluster-name> = shared` (or `owned`) tag additionally scopes discovery to subnets belonging to this specific cluster.
 
-**Q12: What is a NAT Gateway, and why is it expensive? What are the free-tier alternatives?**
+**Q12: What is a NAT Gateway (Network Address Translation Gateway), and why is it expensive? What are the free-tier alternatives?**
 
 A NAT Gateway lets instances in a private subnet initiate outbound internet connections (e.g., pulling container images, hitting external APIs) without being directly reachable from the internet. It is a **fully managed, highly available AWS service** — but it costs roughly $0.045/hour (~$32/month) plus per-GB data processing charges, and it is **not** covered by AWS Free Tier. A **NAT Instance** (a small EC2 instance running NAT software) is a free-tier-eligible alternative but requires manual HA setup, patching, and doesn't scale automatically — it's a self-managed trade-off of cost for operational burden.
 
