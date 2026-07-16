@@ -379,6 +379,8 @@ It forces all client connections to use SSL/TLS, rejecting unencrypted connectio
 
 ## 6. KMS (Key Management Service)
 
+AWS Key Management Service (KMS) is a fully managed, FIPS-validated service that makes it easy to create and control cryptographic keys. It is deeply integrated with over 100 AWS services (such as S3, EBS, and RDS) to securely encrypt data at rest, generate digital signatures, and manage key lifecycles.
+
 **Q40: What is envelope encryption, and how does KMS implement it?**
 
 Rather than encrypting large amounts of data directly with a KMS key (which never leaves AWS and is rate-limited), KMS generates a unique **data key** for each encryption operation. The data key encrypts the actual data locally (fast, unlimited volume), and the data key itself is then encrypted ("wrapped") by the KMS Customer Master Key (CMK) and stored alongside the encrypted data. To decrypt, KMS unwraps the data key (a lightweight API call), and the data key decrypts the payload locally. This is exactly the mechanism behind EKS secrets encryption and RDS storage encryption.
