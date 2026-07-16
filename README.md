@@ -84,7 +84,7 @@ The runner interactively guides you through environment, component, and cloud pr
 * **Containerization**: Docker / Podman — [`app/docker/docker_documentation.md`](./app/docker/docker_documentation.md)
 * **Orchestration**: Kubernetes — [`app/k8s/documentation.md`](./app/k8s/documentation.md)
 * **CI/CD**: GitHub Actions · GitLab CI · ArgoCD - [`platform/cicd/CICD_Documentation.md`](./platform/cicd/CICD_Documentation.md)
-                                                   [`platform/cicd/github/configure_git_github.sh`](./platform/cicd/github/configure_git_github.sh)
+                                                   [`platform/cicd/github/Git_GitHub_Fundamentals.md`](./platform/cicd/github/Git_GitHub_Fundamentals.md)
 * **Infrastructure**: Terraform / OpenTofu / Pulumi — [`platform/infra/documentation.md`](./platform/infra/documentation.md)
 * **Monitoring**: Prometheus + Grafana + Loki — [`monitoring/documentation.md`](./monitoring/documentation.md)
 * **AWS**: [`platform/infra/terraform/AWS_Documentation.md`](./platform/infra/terraform/AWS_Documentation.md)
