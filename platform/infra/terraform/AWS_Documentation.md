@@ -338,6 +338,7 @@ Kubernetes RBAC (`Role`, `ClusterRole`, `RoleBinding`) controls **what an alread
 ---
 
 ## 5. RDS (Relational Database Service)
+Supported Databases - MySQL, PostgreSQL, Oracle, SQL Server, MariaDB and Aurora
 
 **Q31: Why is `storage_encrypted = true` considered a baseline security requirement, and what does it actually protect against?**
 
