@@ -645,4 +645,270 @@ Three things to set up on day one, before touching any other service:
   
 ---
 
+## 19. Elastic Beanstalk
+
+AWS Elastic Beanstalk is a fully managed service provided by Amazon Web Services (AWS) that simplifies the process of deploying and managing web applications and services. It abstracts the underlying infrastructure, allowing developers to focus on writing code rather than managing servers and resources.
+
+### Key Features
+
+Automatic Deployment and Management: Elastic Beanstalk handles the deployment, from capacity provisioning, load balancing, and auto-scaling to application health monitoring.
+
+Support for Multiple Platforms: It supports applications developed in various languages, including Go, Java, .NET, Node.js, PHP, Python, and Ruby. It also supports Docker containers, allowing you to choose your own programming language and dependencies.
+
+Scalability: Elastic Beanstalk automatically scales your application based on demand, ensuring optimal performance and cost-efficiency.
+
+Integration with AWS Services: It integrates seamlessly with other AWS services like Amazon EC2, S3, RDS, and more, providing a comprehensive solution for deploying and managing applications.
+
+### How It Works
+
+To use Elastic Beanstalk, you need to create an application, upload your application code, and provide some configuration details. Elastic Beanstalk then automatically provisions the necessary AWS resources, such as EC2 instances, load balancers, and auto-scaling groups, to run your application.
+
+#### Example Workflow
+
+Create an Application: Go to the AWS Management Console, search for Elastic Beanstalk, and click "Create application".
+
+Upload Your Code: Upload your application code in the form of a ZIP or WAR file.
+
+Configure the Environment: Select the platform and configure the environment settings.
+
+Deploy the Application: Elastic Beanstalk will automatically handle the deployment and provisioning of resources.
+
+Monitor and Manage: Use the Elastic Beanstalk console, CLI, or APIs to monitor and manage your application.
+
+### Benefits
+
+Ease of Use: Simplifies the deployment process, allowing you to focus on writing code.
+
+Flexibility: Provides full control over the underlying AWS resources.
+
+Cost-Effective: You only pay for the AWS resources your application consumes, with no additional charges for using Elastic Beanstalk.
+
+Reliability: Ensures high availability and fault tolerance through automated health checks and load balancing.
+
+---
+
+## Amazon Elastic File System (EFS)
+
+Amazon Elastic File System (Amazon EFS) is a serverless, fully elastic file storage service that allows you to share file data without the need for provisioning or managing storage capacity and performance. It is designed to scale on demand to petabytes without disrupting applications, automatically growing and shrinking as you add and remove files.
+
+### Key Features
+
+#### Scalability and Elasticity
+
+Amazon EFS can scale workloads on-demand to petabytes of storage and gigabytes per second of throughput out of the box. This makes it ideal for a wide range of applications, including web serving, content management systems, home directories, and general file serving.
+
+#### Performance Modes
+
+Amazon EFS offers two performance modes to meet different workload requirements:
+
+General Purpose: Ideal for latency-sensitive applications.
+
+Elastic: Automatically scales throughput performance up or down to meet the needs of your workload activity.
+
+#### Availability and Durability
+
+Amazon EFS provides two types of file systems:
+
+Regional: Stores data redundantly across multiple Availability Zones within the same AWS Region, ensuring continuous availability even if one or more Availability Zones are unavailable.
+
+One Zone: Stores data within a single Availability Zone, providing continuous availability but with a risk of data loss if the Availability Zone is compromised.
+
+#### Security
+
+Amazon EFS supports authentication, authorization, and encryption capabilities to help meet security and compliance requirements. It offers encryption in transit and at rest, and access control through AWS Identity and Access Management (IAM) policies and network security policies.
+
+### Use Cases
+
+Amazon EFS is suitable for various use cases, including:
+
+DevOps: Share code and other files securely to increase agility and respond faster to customer feedback.
+
+Application Development: Persist and share data from AWS containers and serverless applications with zero management required.
+
+Data Science: Offers the performance and consistency needed for machine learning (ML) and big data analytics workloads.
+
+Content Management Systems: Simplify persistent storage for modern CMS workloads, enabling faster, more reliable, and secure product and service delivery.
+
+---
+
+## Amazon FSx
+
+Amazon FSx is a fully managed service that simplifies the deployment, operation, and scaling of feature-rich, high-performance file systems in the cloud. It supports a variety of workloads by offering reliability, security, scalability, and cost-effectiveness. FSx integrates seamlessly with AWS services and provides native support for widely-used file systems, enabling organizations to migrate or build applications without modifying existing code.
+
+### Supported File Systems
+
+Amazon FSx offers four file system options tailored to different use cases:
+
+FSx for Windows File Server: Provides fully managed Windows file systems with native support for SMB protocol, ideal for enterprise Windows workloads like business applications, home directories, and media processing.
+
+FSx for NetApp ONTAP: Delivers shared storage built on NetApp's ONTAP file system, supporting advanced data management features like deduplication and compression.
+
+FSx for OpenZFS: Offers a fully managed OpenZFS file system, suitable for Linux-based workloads requiring high performance and scalability.
+
+FSx for Lustre: Designed for high-performance computing (HPC), machine learning, and analytics workloads, providing sub-millisecond latencies and millions of IOPS.
+
+### Key Features
+
+Amazon FSx provides several benefits to meet diverse workload requirements:
+
+Fully Managed: Handles hardware provisioning, patching, and backups, allowing users to focus on applications and business needs.
+
+High Performance: Delivers sub-millisecond latencies and high throughput, with options for SSD or HDD storage.
+
+Scalability: Supports independent scaling of storage and throughput to optimize cost and performance.
+
+Data Protection: Ensures high availability with automatic replication across Availability Zones and integrates with AWS Backup for centralized backup management.
+
+Security: Encrypts data at rest and in transit using AWS Key Management Service (KMS) and supports compliance with standards like HIPAA, PCI-DSS, and SOC.
+
+### Use Cases
+
+Amazon FSx is versatile and supports a wide range of applications:
+
+Cloud Migration: Enables seamless migration of on-premises workloads to the cloud without altering application code.
+
+High-Performance Applications: Supports demanding workloads like machine learning, analytics, and HPC with scalable, low-latency storage.
+
+Business Continuity: Simplifies backup, archiving, and disaster recovery with secure and durable storage.
+
+Media & Entertainment: Provides high-performance storage for rendering, transcoding, and editing across multiple operating systems.
+
+---
+
+## AWS WAF & Shield
+
+AWS Shield and AWS WAF are two distinct services offered by Amazon Web Services (AWS) to enhance the security of your web applications. While both services aim to protect your applications, they serve different purposes and operate at different layers of the network.
+
+### AWS WAF (Web Application Firewall)
+
+AWS WAF is designed to protect your web applications from common web exploits and vulnerabilities. It operates at the application layer (Layer 7) and allows you to create customizable web security rules to filter malicious traffic. AWS WAF can protect against attacks such as SQL injection, cross-site scripting (XSS), and cross-site request forgery (CSRF).
+
+#### Key features of AWS WAF include:
+
+Customizable Rules: You can create custom rules to allow, block, or count web requests based on various criteria such as IP addresses, HTTP headers, query string parameters, and more.
+
+Managed Rules: AWS WAF offers managed rule groups from AWS and third-party vendors, which can be customized further to suit your specific application needs.
+
+Real-time Monitoring: AWS WAF integrates with AWS CloudWatch to provide near real-time visibility into web traffic and security events.
+
+CAPTCHA and Challenge Checks: AWS WAF can implement CAPTCHA and silent challenge controls to help reduce bot traffic to your protected resources.
+
+### AWS Shield
+
+AWS Shield is a managed Distributed Denial of Service (DDoS) protection service. It operates primarily at the network (Layer 3) and transport (Layer 4) layers and provides protection against large-scale, network-level attacks such as SYN/ACK floods, UDP reflection attacks, and volumetric attacks.
+
+AWS Shield comes in two tiers:
+
+AWS Shield Standard: Automatically included at no extra cost with all AWS accounts, providing basic DDoS protection for resources like Amazon EC2, Elastic Load Balancing (ELB), Amazon CloudFront, and Route 53.
+
+AWS Shield Advanced: Offers enhanced DDoS protection with features such as automatic application layer DDoS mitigation, advanced event visibility, and dedicated support from the AWS DDoS Response Team (DRT). Shield Advanced incurs additional charges.
+
+#### Key features of AWS Shield include:
+
+Automatic Mitigation: AWS Shield provides always-on detection and automatic mitigations to protect against common DDoS attacks.
+
+Advanced Metrics and Alerts: AWS Shield Advanced offers detailed reports and visibility into attack vectors and scales automatically in response to threats.
+
+DDoS Response Team (DRT): AWS Shield Advanced includes access to the AWS DDoS Response Team for real-time attack mitigation and response.
+
+Comparison and Use Cases
+
+While AWS WAF focuses on protecting your web applications from common web exploits at the application layer, AWS Shield is designed to defend against large-scale DDoS attacks at the network and transport layers. For comprehensive protection, you can use both services together to create a multi-layered defense strategy.
+
+Use AWS WAF if you need granular control over web traffic and protection against specific web application vulnerabilities.
+
+Use AWS Shield if you need robust protection against DDoS attacks and want to ensure the availability of your AWS resources under attack.
+
+---
+
+## AWS CodePipeline
+
+AWS CodePipeline is a continuous integration and continuous delivery (CI/CD) service that automates the build, test, and deployment phases of software release processes. It enables developers to model and visualize their release workflows, ensuring faster and more reliable updates. By integrating with other AWS services like CodeCommit, CodeBuild, and CodeDeploy, CodePipeline streamlines the entire CI/CD pipeline.
+
+### Key Features and Benefits
+
+AWS CodePipeline eliminates the need for manual server setup, allowing developers to focus on delivering high-quality code. It supports automated workflows, reducing repetitive tasks and enhancing productivity. The service integrates seamlessly with AWS tools and third-party platforms like GitHub and Jenkins, offering flexibility in managing resources and maintaining security.
+
+CodePipeline supports multi-environment deployments, enabling teams to deploy to development, staging, and production environments in a streamlined process. It also provides rollback capabilities, ensuring quick recovery in case of deployment issues.
+
+### Use Cases
+
+AWS CodePipeline is ideal for implementing CI/CD workflows, enabling rapid and frequent software releases. It supports automated testing and quality assurance, helping teams catch issues early in the pipeline. The service is particularly beneficial for microservices architectures, as each microservice can have its own dedicated pipeline.
+
+CodePipeline is also valuable for compliance and auditing, as it logs every step in the deployment process, ensuring accountability and traceability. Additionally, it facilitates rapid feature development and deployment, making it a preferred choice for agile teams.
+
+### Example Workflow
+
+Source Stage: Integrate with AWS CodeCommit or third-party repositories like GitHub to detect code changes.
+
+Build Stage: Use AWS CodeBuild to compile and package the application, guided by a buildspec.yml file.
+
+Test Stage: Integrate automated testing tools to validate the build.
+
+Deploy Stage: Use AWS CodeDeploy to deploy the application to EC2 instances, Lambda, or other environments.
+
+### Pricing
+
+AWS CodePipeline offers a free tier for one active pipeline per month. Additional charges may apply for storing artifacts in Amazon S3 or triggering actions from other AWS services. For pipelines with frequent action executions, pricing is based on execution minutes.
+
+AWS CodePipeline simplifies the CI/CD process, making it an essential tool for teams aiming to deliver high-quality software efficiently and reliably.
+
+---
+
+## AWS CodeBuild
+
+AWS CodeBuild is a fully managed continuous integration (CI) service that compiles source code, runs tests, and produces deployment-ready artifacts without requiring you to manage build servers. It supports prepackaged environments for popular languages and tools like Maven, Gradle, and npm, while also allowing custom build environments. CodeBuild scales automatically, processes multiple builds concurrently, and integrates seamlessly with AWS services like S3, CodePipeline, and Secrets Manager.
+
+### Key benefits include:
+
+Fully managed: No server provisioning or maintenance.
+
+On-demand scaling: Pay only for build minutes used.
+
+Out-of-the-box environments: Quick setup with preconfigured runtimes.
+
+Security: IAM-based access control and KMS encryption for artifacts.
+
+Example Buildspec File
+
+### Typical Workflow
+
+Prepare source code in GitHub, CodeCommit, or S3.
+
+Create buildspec.yml to define install, test, build, and post-build steps.
+
+Set up S3 buckets for input and output artifacts.
+
+Create a build project in the CodeBuild console, specifying source location, environment, and compute type.
+
+Run the build via console, AWS CLI, SDK, or integrate with CodePipeline for CI/CD automation.
+
+Monitor logs in CloudWatch for real-time troubleshooting.
+
+Retrieve artifacts from S3 for deployment.
+
+---
+
+## AWS CodeDeploy
+
+AWS CodeDeploy is a fully managed deployment service that automates the process of deploying applications to various compute services such as Amazon EC2 instances, on-premises instances, AWS Lambda functions, and Amazon ECS services. It helps you release new features quickly, avoid downtime during application deployment, and handle the complexity of updating your applications without the risks associated with manual deployments.
+
+### Key Features and Benefits
+
+Automated Deployments: CodeDeploy automates application deployments across your development, test, and production environments. This ensures consistency and reduces the chances of human error.
+
+Support for Multiple Compute Platforms: CodeDeploy supports deployments to EC2/On-Premises instances, AWS Lambda functions, and Amazon ECS services. Each platform has specific deployment configurations and strategies.
+
+Deployment Types: CodeDeploy offers two main deployment types:
+
+In-place Deployment: The application on each instance in the deployment group is stopped, the latest application revision is installed, and the new version is started and validated.
+
+Blue/Green Deployment: This deployment type provisions new instances or containers, installs the new application version, and reroutes traffic to the new instances or containers. This minimizes downtime and allows for easy rollback if needed.
+
+Monitoring and Rollback: CodeDeploy monitors the health of your application during the deployment process and can automatically or manually stop and roll back deployments if there are errors.
+
+Centralized Control: You can launch and track the status of your deployments through the CodeDeploy console or the AWS CLI. This provides a centralized view of your deployment history and status.
+
+---
+
 *Documentation prepared as an AWS interview reference — covering IAM, VPC, EKS, RDS, KMS, Secrets Manager, CloudWatch, S3, compute services, load balancing, Lambda, SQS/SNS, API Gateway, DynamoDB, CloudFront, Route 53, disaster recovery, security frameworks, and cost optimization.*
