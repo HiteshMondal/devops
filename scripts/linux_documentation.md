@@ -766,27 +766,52 @@ Both are ways to **reference a file**, but they work very differently under the 
 ### Create links:
 
 ```bash
-ln -s /path/to/original link_name     # Create soft link
-ln /path/to/original link_name        # Create hard link
+# Soft Link (Symbolic Link)
+ln -s /path/to/original link_name
+
+# Hard Link
+ln /path/to/original link_name
+```
 
 # Examples
-ln -s /var/www/html /home/hitesh/www   # Soft link to directory
-ln -s /usr/bin/python3 /usr/bin/python # Alias command
-ln important.txt backup_link.txt       # Hard link to file
+
+```bash
+ln -s /var/www/html /home/hitesh/www
+# Creates a shortcut named 'www' pointing to /var/www/html.
+# Opening /home/hitesh/www actually accesses /var/www/html.
+
+ln -s /usr/bin/python3 /usr/bin/python
+# Creates another name (alias) for the python3 executable.
+
+ln important.txt backup_link.txt
+# Creates a hard link.
+# Both filenames point to the same file (same inode).
+# Editing either file changes the same data.
 ```
 
 ### View links:
 
 ```bash
-ls -l        # Soft links show: link_name -> /original/path
-ls -li       # Shows inode numbers (hard links share same inode)
-readlink -f link_name   # Show absolute path of soft link target
+ls -l
+# Soft links are displayed with -> showing the target path.
+# Example:
+# mysyslog -> /var/log/syslog
+
+ls -li
+# Displays inode numbers.
+# Hard-linked files have exactly the same inode number,
+# proving they are the same file with different names.
+
+readlink -f link_name
+# Prints the final absolute path that a soft link points to.
 ```
 
 ### Soft link example:
 
 ```bash
 $ ln -s /var/log/syslog mysyslog
+# Creates a symbolic link named "mysyslog".
+
 $ ls -l mysyslog
 lrwxrwxrwx 1 hitesh hitesh 15 Jun 10 10:00 mysyslog -> /var/log/syslog
 ```
