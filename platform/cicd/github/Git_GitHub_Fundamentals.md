@@ -91,17 +91,469 @@ A branch is an independent, movable pointer to a line of commits — it lets you
 - `git checkout -b <name>` / `git switch -c <name>` — create and switch in one step.
 - `git branch -d <name>` — delete a branch (safe — only if merged).
 
-**Q15: What is `git merge`, and what is a "fast-forward" merge?**
+## **Q15: What is `git merge`, and what is a "fast-forward" merge?**
 
-`git merge <branch>` combines the history of another branch into your current branch. A **fast-forward merge** happens when the current branch has no new commits since the other branch diverged — Git simply moves the pointer forward, with no new merge commit needed. If both branches have diverged (new commits on each side), Git creates a **merge commit** with two parents to combine them.
+`git merge <branch>` combines the history of another branch into your **current branch**.
 
-**Q16: What is a merge conflict, and how do you resolve one?**
+### Example
 
-A merge conflict occurs when Git can't automatically reconcile changes because **the same lines in the same file** were modified differently on both branches. Git marks the conflicting sections directly in the file with `<<<<<<<`, `=======`, and `>>>>>>>` markers. To resolve: open the file, manually edit it to keep the correct/combined content, remove the conflict markers, then `git add <file>` and `git commit` (or `git merge --continue`) to finalize.
+Suppose you have two branches:
 
-**Q17: What is `git rebase`, and how is it different from `git merge`?**
+```bash
+git checkout main
+git log --oneline
+```
 
-`git merge` combines two branches' histories by creating a new merge commit that preserves both branches' original commit history exactly as it happened. `git rebase` instead **replays** your branch's commits one by one on top of the target branch, producing a **linear, cleaner history** with no merge commit — but it rewrites commit hashes, so it should be avoided on commits that have already been pushed and shared with others (rewriting shared history causes confusion for collaborators).
+```
+A --- B   (main)
+```
+
+Now create a feature branch:
+
+```bash
+git checkout -b feature
+```
+
+Make two commits:
+
+```bash
+echo "Feature 1" >> app.txt
+git add app.txt
+git commit -m "Feature commit 1"
+
+echo "Feature 2" >> app.txt
+git add app.txt
+git commit -m "Feature commit 2"
+```
+
+History becomes:
+
+```
+A --- B  (main)
+       \
+        C --- D  (feature)
+```
+
+Switch back to `main`:
+
+```bash
+git checkout main
+```
+
+Merge the feature branch:
+
+```bash
+git merge feature
+```
+
+Since **main has not changed after branch creation**, Git performs a **Fast-Forward Merge**.
+
+### Fast-Forward Merge Diagram
+
+```
+Before Merge
+
+main
+  |
+  v
+A --- B
+
+feature
+         |
+         v
+         C --- D
+```
+
+After Merge
+
+```
+A --- B --- C --- D
+                  ^
+                  |
+                main
+                feature
+```
+
+✅ No new merge commit is created.
+
+Git simply moves the `main` pointer forward to the latest commit.
+
+---
+
+### Normal Merge (Three-Way Merge)
+
+Suppose both branches have new commits.
+
+```
+A --- B --- E      (main)
+       \
+        C --- D    (feature)
+```
+
+Now run:
+
+```bash
+git checkout main
+git merge feature
+```
+
+Git creates a new **merge commit**.
+
+```
+          E
+         /
+A --- B ------- M
+       \       /
+        C --- D
+```
+
+Here:
+
+- `M` is a **merge commit**
+- It has **two parent commits**
+- Git preserves the complete history of both branches
+
+Example output:
+
+```bash
+Merge made by the 'ort' strategy.
+```
+
+---
+
+### Summary
+
+| Fast-Forward Merge | Normal Merge |
+|--------------------|-------------|
+| No merge commit | Creates a merge commit |
+| Branch history is linear | Branch history is preserved |
+| Happens when current branch has no new commits | Happens when both branches have diverged |
+
+---
+
+## **Q16: What is a merge conflict, and how do you resolve one?**
+
+A **merge conflict** occurs when Git cannot automatically combine changes because **both branches modified the same lines in the same file differently**.
+
+### Example
+
+Initial file:
+
+```text
+Hello World
+```
+
+---
+
+### main branch
+
+```text
+Hello from Main
+```
+
+Commit:
+
+```bash
+git add app.txt
+git commit -m "Updated greeting in main"
+```
+
+---
+
+### feature branch
+
+```text
+Hello from Feature
+```
+
+Commit:
+
+```bash
+git add app.txt
+git commit -m "Updated greeting in feature"
+```
+
+---
+
+Now merge:
+
+```bash
+git checkout main
+git merge feature
+```
+
+Git outputs:
+
+```text
+Auto-merging app.txt
+CONFLICT (content): Merge conflict in app.txt
+Automatic merge failed.
+```
+
+---
+
+### Conflict Markers
+
+Git modifies the file like this:
+
+```text
+<<<<<<< HEAD
+Hello from Main
+=======
+Hello from Feature
+>>>>>>> feature
+```
+
+Meaning:
+
+```
+<<<<<<< HEAD
+Current branch (main)
+
+=======
+
+Other branch (feature)
+
+>>>>>>> feature
+```
+
+---
+
+### Resolve the Conflict
+
+Choose one version:
+
+```text
+Hello from Main
+```
+
+or
+
+```text
+Hello from Feature
+```
+
+or combine both:
+
+```text
+Hello from Main
+Hello from Feature
+```
+
+Remove the conflict markers.
+
+---
+
+### Complete the Merge
+
+```bash
+git add app.txt
+git commit
+```
+
+or, if Git requests it:
+
+```bash
+git merge --continue
+```
+
+---
+
+### Merge Conflict Workflow
+
+```
+main
+A ---- B ---- C
+        \
+feature  D ---- E
+```
+
+Both modify the same line.
+
+```
+git merge feature
+        │
+        ▼
+
+   Conflict Detected
+        │
+        ▼
+
+Edit the file manually
+        │
+        ▼
+
+git add app.txt
+        │
+        ▼
+
+git commit
+```
+
+---
+
+### Summary
+
+- Git cannot decide which change is correct.
+- You must manually edit the file.
+- Remove conflict markers.
+- Stage the resolved file.
+- Commit to finish the merge.
+
+---
+
+## **Q17: What is `git rebase`, and how is it different from `git merge`?**
+
+`git rebase` **moves (replays)** your branch's commits onto another branch, creating a **linear commit history**.
+
+Unlike `git merge`, **no merge commit is created**.
+
+---
+
+### Initial History
+
+```
+main
+A --- B --- C
+
+feature
+         \
+          D --- E
+```
+
+---
+
+### Using Merge
+
+```bash
+git checkout main
+git merge feature
+```
+
+History:
+
+```
+          D --- E
+         /       \
+A --- B --- C ---- M
+```
+
+Git creates a merge commit **M**.
+
+History preserves the exact branching.
+
+---
+
+### Using Rebase
+
+```bash
+git checkout feature
+git rebase main
+```
+
+Git takes commits `D` and `E`, temporarily removes them, updates the branch to `C`, then reapplies them.
+
+```
+Before Rebase
+
+A --- B --- C (main)
+       \
+        D --- E (feature)
+```
+
+After Rebase
+
+```
+A --- B --- C --- D' --- E'
+```
+
+Notice:
+
+- `D'` and `E'` are **new commits**
+- Their commit hashes change
+- The old `D` and `E` are replaced
+
+---
+
+### Rebase Workflow
+
+```
+Take commits
+
+D
+E
+
+↓
+
+Move to latest main
+
+A --- B --- C
+
+↓
+
+Replay commits
+
+A --- B --- C --- D' --- E'
+```
+
+---
+
+### Example
+
+Update your feature branch with the latest `main` changes:
+
+```bash
+git checkout feature
+git fetch origin
+git rebase origin/main
+```
+
+If conflicts occur:
+
+```bash
+# Fix the files
+
+git add .
+
+git rebase --continue
+```
+
+To cancel the rebase:
+
+```bash
+git rebase --abort
+```
+
+---
+
+### Merge vs Rebase
+
+| Feature | Merge | Rebase |
+|----------|--------|---------|
+| Creates merge commit | ✅ Yes | ❌ No |
+| Keeps original history | ✅ Yes | ❌ No |
+| Linear history | ❌ No | ✅ Yes |
+| Rewrites commit hashes | ❌ No | ✅ Yes |
+| Safe for shared branches | ✅ Yes | ❌ No |
+| Best use case | Team collaboration | Cleaning up local commits before pushing |
+
+---
+
+### When Should You Use Rebase?
+
+✅ Good for:
+- Updating your local feature branch before opening a Pull Request
+- Keeping commit history clean
+- Working on your own local commits
+
+❌ Avoid:
+- Rebasing commits that have already been pushed and shared with teammates
+- Rewriting public/shared branch history
+
+**Rule of Thumb:**
+
+- **Merge** → Safe for collaboration and preserving history.
+- **Rebase** → Great for a clean, linear history on your own local work before sharing.
 
 **Q18: What is `git stash` used for?**
 
