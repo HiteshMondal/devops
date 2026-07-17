@@ -294,14 +294,23 @@ ps aux | grep node | awk '{print $2}' | xargs kill -9
 
 ## `.bashrc` vs `.bash_profile` vs `.profile`
 
-The difference depends on **login shell vs. interactive non-login shell**.
+These three files are shell startup files used by Bash (and other POSIX shells) to configure your shell environment. The main difference is when they are executed and depends on **login shell vs. interactive non-login shell**.
 
-**The core distinction:**
-| Shell type | When it happens | File read |
-|---|---|---|
-| **Login shell** | SSH login, switching user with `su -`, TTY console login | `.bash_profile` (or `.profile` if that doesn't exist) |
-| **Interactive non-login shell** | Opening a new terminal window/tab on your desktop | `.bashrc` |
-| **Non-interactive shell** | Running a script (`./script.sh`) | Neither is read automatically |
+### The core distinction
+
+| Shell Type | When It Happens | Startup File Read | Examples | Typical Use Cases |
+|------------|-----------------|-------------------|-----------|-------------------|
+| **Login shell** | When you log into a system for the first time | `.bash_profile` (or `.bash_login`, or `.profile` if neither exists) | SSH login (`ssh user@host`), Linux TTY login (`Ctrl + Alt + F3`), `su - user`, `sudo -i`, macOS Terminal (default) | Set environment variables (`PATH`, `JAVA_HOME`, `EDITOR`, `LANG`), initialize login-specific settings, then source `.bashrc` |
+| **Interactive non-login shell** | Every time a new interactive Bash session starts after login | `.bashrc` | Opening a new Terminal window or tab on most Linux desktops, VS Code integrated terminal, GNOME Terminal, Konsole, running `bash` | Configure aliases, shell prompt (`PS1`), shell options (`shopt`), history settings, functions, tab completion, Git shortcuts |
+| **Non-interactive shell** | When Bash executes a script without user interaction | None (unless `BASH_ENV` is set) | `./script.sh`, `bash script.sh`, scripts executed by CI/CD pipelines, cron jobs | Scripts should define everything they need themselves; do not rely on `.bashrc` or `.bash_profile` being loaded automatically |
+
+### Startup file comparison
+
+| File | Executed When | Shell Specific | Common Contents | Should Contain |
+|------|---------------|----------------|-----------------|----------------|
+| **`.bashrc`** | Every interactive **non-login** Bash shell | Bash only | Aliases, functions, prompt customization, history settings, shell options, command completion | Interactive shell customizations that you want available in every terminal |
+| **`.bash_profile`** | Login Bash shell only | Bash only | Environment variables, startup commands, login-specific initialization | `export` statements and a command to source `.bashrc` |
+| **`.profile`** | Login shell if `.bash_profile` and `.bash_login` do not exist | POSIX-compliant shells (`sh`, `dash`, `bash`, `ksh`, etc.) | Generic environment variables and shell-independent settings | Portable login configuration that works across different shells |
 
 ```bash
 # Typical flow when you SSH into a server:
