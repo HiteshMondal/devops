@@ -606,13 +606,24 @@ A few other ordering pitfalls:
 
 `RUN` executes during **image build** (e.g. `RUN pip install flask`) and runs once. `CMD` executes during **container start** (e.g. `CMD ["python", "app.py"]`) and runs every time the container starts.
 
+| Feature | `docker run` | `CMD` | `RUN` |
+| :--- | :--- | :--- | :--- |
+| **Where it lives** | Host Terminal / CLI | Inside a `Dockerfile` | Inside a `Dockerfile` |
+| **Phase** | Runtime (Launches container) | Runtime Configuration | Build time (Creates image layers) |
+| **Purpose** | Creates and starts a container | Sets default command for container | Installs software / sets up files |
+| **Overridable?** | N/A | Yes, by adding arguments to `docker run` | No, it is baked into the image |
+
+
 ### CMD vs ENTRYPOINT
 
-| | `CMD` | `ENTRYPOINT` |
-|---|---|---|
-| Overridable by `docker run <args>` | ✅ Yes, entirely replaced | ❌ No (only with `--entrypoint`) |
-| Purpose | Default command/args | Fixed executable |
-| Combine | `ENTRYPOINT` = binary, `CMD` = default args to it | — |
+| Feature | `CMD` | `ENTRYPOINT` |
+| :--- | :--- | :--- |
+| **Main Purpose** | Sets **default arguments** that are easily overridden. | Sets the **main executable** that always runs. |
+| **Overriding** | Easily replaced by appending text to `docker run`. | Requires the explicit `--entrypoint` flag to change. |
+| **Behavior** | Acts as an argument list for `ENTRYPOINT` if both exist. | Treats any `docker run` arguments as parameters for itself. |
+| **Best Used For** | Optional default flags, or optional commands like shells. | Making a container behave like a single, dedicated tool. |
+| **Example Use Case** | `CMD ["--help"]` | `ENTRYPOINT ["git"]` |
+
 
 ```dockerfile
 ENTRYPOINT ["python", "app.py"]
@@ -629,6 +640,15 @@ ENTRYPOINT ["python", "app.py"]  # PID 1 = python — correct
 ### `COPY` vs `ADD`
 
 Prefer `COPY`. `ADD` has extra "magic" — automatic tar extraction and remote URL support — that can create unexpected behavior. Use `ADD` only when that specific behavior is needed.
+
+| Feature | `COPY` | `ADD` |
+| :--- | :--- | :--- |
+| **Main Purpose** | Copies local files from host to container. | Copies local files, downloads URLs, and extracts tars. |
+| **Local Files** | Yes, copies files and folders. | Yes, copies files and folders. |
+| **Remote URLs** | No, cannot download from URLs. | Yes, downloads files directly from remote URLs. |
+| **Tar Extraction** | No, copies compressed files as-is. | Yes, automatically extracts local `.tar` archives. |
+| **Best Practice** | **Highly Recommended** for daily use (clean and clear). | Use only when you *need* auto-extraction or URLs. |
+| **Example Code** | `COPY package.json /app/` | `ADD https://example.com /app/` |
 
 ### Final Runtime Result
 
