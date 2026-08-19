@@ -44,6 +44,7 @@ Before containers, "it works on my machine" was a real problem — an app might 
 | `docker run --name web <image>` | Give the container a name |
 | `docker run -e KEY=value <image>` | Pass an environment variable |
 | `docker run --rm <image>` | Auto-remove container when it exits |
+| `docker run --restart=on-failure:5 <image>` | Restart up to 5 times only on non-zero exit |
 | `docker ps` | List running containers |
 | `docker ps -a` | List ALL containers (including stopped) |
 | `docker stop <container>` | Gracefully stop (SIGTERM → SIGKILL) |
@@ -55,6 +56,9 @@ Before containers, "it works on my machine" was a real problem — an app might 
 | `docker logs -f <container>` | Stream container logs |
 | `docker cp file.txt <container>:/path` | Copy a file into/out of a container |
 | `docker tag <image> newname:tag` | Add a new tag to an existing image |
+| `docker version` | Client + daemon version, API version |
+| `docker info` | Daemon-wide state: storage driver, containers running, root dir 
+| `docker commit <container> newimage:tag` | Create a new image from a container's current state |
 
 ### `-d` vs `-it` (a very common beginner confusion)
 
@@ -81,9 +85,16 @@ docker load -i myimage.tar                  # import it on another machine
 
 docker export <container> -o container.tar  # export a CONTAINER's filesystem (no history/layers)
 docker import container.tar newimage:latest # import as a flattened image
+
+`docker commit <container> newimage:tag`    # Create a new image from a container's current state
 ```
 
-`save`/`load` preserve image layers and history. `export`/`import` flatten everything into a single layer and lose metadata like `CMD`/`ENV` — this distinction is a favorite interview trap.
+### `docker commit` (and why it's an anti-pattern)
+
+`docker commit` snapshots a running container's writable layer into a new
+image. It technically works but is considered bad practice because it's not
+reproducible — there's no Dockerfile recording *how* the image was made.
+Use it only for quick debugging snapshots, never for real builds.
 
 ---
 
@@ -206,6 +217,33 @@ Docker uses a **client-server architecture**. The Docker client communicates wit
 
 The Docker daemon (`dockerd`) is the central server-side process in Docker — everything flows through it. Here's a structural breakdown of what lives inside it, followed by the most critical path inside the daemon: what actually happens when a container is created.
 
+### Docker Contexts (Managing Multiple Daemons)
+
+```bash
+docker context create remote-prod --docker "host=ssh://user@remote-host"
+docker context use remote-prod
+docker ps   # now runs against the remote daemon
+docker context use default   # switch back to local
+```
+
+Lets a single Docker CLI target different daemons (local, remote VM, CI
+runner) without changing `DOCKER_HOST` manually each time.
+
+### `/etc/docker/daemon.json`
+
+Persistent daemon-wide configuration (survives restarts, avoids repeating flags on every container):
+
+```json
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" },
+  "default-address-pools": [{ "base": "172.30.0.0/16", "size": 24 }],
+  "insecure-registries": ["myregistry.local:5000"]
+}
+```
+
+Requires `sudo systemctl restart docker` to apply. Interview point: setting `log-opts` here applies the size limit globally, instead of adding `--log-opt` to every `docker run`.
+
 ### Component-by-Component Breakdown
 
 **REST API server** is the daemon's front door. It listens on `/var/run/docker.sock` (Unix socket, default) or optionally on a TCP port for remote access. Every CLI command you run is serialized into an HTTP request to this server. The API follows REST conventions — `POST /containers/create`, `POST /containers/{id}/start`, etc.
@@ -261,6 +299,21 @@ export CONTAINER_RUNTIME
 | **Registry** | Storage and distribution for images (DockerHub, ECR, GCR) | npm registry |
 | **Dockerfile** | Instructions to build an image | Recipe |
 | **Layer** | One instruction's filesystem change, cached independently | Git commit |
+
+### What's Actually Inside an Image (OCI Spec)
+
+A Docker image is not a single file — it's three JSON-described pieces per the OCI Image Spec:
+
+- **Manifest** — lists the layers (as content-addressable digests) and points to the config
+- **Config** — the `CMD`, `ENV`, `ENTRYPOINT`, exposed ports, etc. (metadata, not files)
+- **Layers** — tarballs of filesystem diffs, each identified by a SHA256 digest
+
+```bash
+docker manifest inspect python:3.11-slim   # see the manifest for a tag
+docker inspect python:3.11-slim            # see the merged config
+```
+
+This is why `docker save`/`load` preserve everything — they're just moving these JSON files + layer tarballs — and why image digests (`@sha256:...`) are immutable: the digest is a hash of the manifest itself.
 
 ### The Container Lifecycle
 
@@ -412,6 +465,18 @@ Copies the installed Python packages. Python automatically searches `/usr/local/
 
 Copies the local source folder. This happens *after* dependencies for caching optimization: dependencies change less frequently than code, so if only app code changes, only this layer rebuilds — dependencies stay cached.
 
+#### `COPY --chown` shortcut
+
+Instead of copying as root then `RUN chown -R appuser:appgroup /app` as a
+separate layer, `COPY` supports setting ownership inline:
+
+```dockerfile
+COPY --chown=appuser:appgroup src/ ./src/
+```
+
+This avoids an extra layer and extra `find`/`chown` filesystem walk at build
+time — meaningfully faster on large source trees.
+
 #### `USER appuser`
 
 All future commands (including `CMD` and the application process) run as non-root. This means the app cannot modify system files, install packages, or access privileged resources.
@@ -458,6 +523,23 @@ ARG APP_VERSION=1.0.0
 ENV APP_VERSION=$APP_VERSION
 ```
 This makes the value both a build-time input AND visible to the running app via `os.getenv()`.
+
+#### Environment Variable Precedence
+
+When the same variable is set in multiple places, this is the resolution order
+(highest wins):
+
+1. `docker run -e KEY=value` (or Compose `environment:`) — explicit runtime override
+2. Compose `env_file:` — loaded into the container's environment
+3. `.env` file in the Compose project directory — used for **variable substitution
+   inside docker-compose.yml itself** (e.g. `${APP_PORT}`), NOT injected into the
+   container automatically
+4. Dockerfile `ENV` — baked-in default
+
+**Common confusion:** a `.env` file next to `docker-compose.yml` does NOT
+automatically become container environment variables — it only substitutes
+`${VAR}` placeholders in the compose file. To inject it into the container you
+still need `env_file: .env` under the service.
 
 #### `EXPOSE 3000`
 
@@ -524,6 +606,26 @@ A few other ordering pitfalls:
 
 `RUN` executes during **image build** (e.g. `RUN pip install flask`) and runs once. `CMD` executes during **container start** (e.g. `CMD ["python", "app.py"]`) and runs every time the container starts.
 
+### CMD vs ENTRYPOINT
+
+| | `CMD` | `ENTRYPOINT` |
+|---|---|---|
+| Overridable by `docker run <args>` | ✅ Yes, entirely replaced | ❌ No (only with `--entrypoint`) |
+| Purpose | Default command/args | Fixed executable |
+| Combine | `ENTRYPOINT` = binary, `CMD` = default args to it | — |
+
+```dockerfile
+ENTRYPOINT ["python", "app.py"]
+CMD ["--env=production"]
+```
+`docker run myimage --env=staging` → runs `python app.py --env=staging` (CMD args replaced, ENTRYPOINT stays fixed).
+
+**Shell form pitfall applies to ENTRYPOINT too:**
+```dockerfile
+ENTRYPOINT python app.py     # PID 1 = /bin/sh — SIGTERM may not propagate
+ENTRYPOINT ["python", "app.py"]  # PID 1 = python — correct
+```
+
 ### `COPY` vs `ADD`
 
 Prefer `COPY`. `ADD` has extra "magic" — automatic tar extraction and remote URL support — that can create unexpected behavior. Use `ADD` only when that specific behavior is needed.
@@ -580,6 +682,12 @@ Each `RUN`, `COPY`, and `ADD` instruction creates a new read-only layer. Layers 
 ```
 
 **Layer sharing:** If 10 different images all use `FROM node:18-alpine`, the base layer is stored once on disk and shared. This is why pulling a second Node.js image is fast — the base is already cached.
+**Pull mechanics:** when you `docker pull`, Docker checks each layer's
+digest against what's already cached locally and only downloads layers it
+doesn't already have — this is why pulling a new tag of an image you already
+have (e.g. `myapp:v2` after having `myapp:v1`) is often fast: only the
+changed top layers transfer.
+> Interview trivia: Docker images have a hard limit of **127 layers** (AUFS storage driver historical limit, still enforced). Excessive `RUN` instructions without chaining (`&&`) is the usual cause of hitting it in practice.
 
 ### Image Tags and Digests
 
@@ -624,6 +732,64 @@ CMD ["node", "dist/index.js"]
 ```
 
 The final image contains zero build tools or dev dependencies.
+
+### Building Only One Stage with `--target`
+
+```bash
+docker build --target builder -t myapp:debug .
+```
+
+Stops the build at the named stage instead of running through to the final
+stage — useful for debugging the builder stage directly, or for CI jobs that
+only need to run tests inside the build-tools stage without producing the
+slim runtime image.
+
+### Checklist: Reducing Image Size
+
+- Use `-slim` / `-alpine` / distroless base images instead of full OS images
+- Use multi-stage builds — discard compilers/build tools in the final stage
+- Combine `RUN` commands with `&&` to avoid extra layers
+- Clean package manager caches in the **same** `RUN` layer they were created in (`rm -rf /var/lib/apt/lists/*` in the same line as `apt-get install`, not a later layer — a later layer doesn't shrink earlier ones)
+- Use `.dockerignore` to keep build context small
+- Install only production dependencies (`pip install --no-dev`, `npm install --production`)
+- Prefer `COPY` over `ADD` (no tar-extraction surprises, same size either way but clearer intent)
+
+### BuildKit — Docker's Modern Build Engine
+
+Since Docker 23+, BuildKit is the default builder (`DOCKER_BUILDKIT=1`, or via `docker buildx`). It offers:
+
+- **Parallel stage execution** — independent build stages run concurrently, not sequentially
+- **Better caching** — cache is content-addressed, not just layer-order-based
+- **Cache mounts** — persist a cache directory across builds without baking it into a layer:
+```dockerfile
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
+```
+- **Secret mounts** — pass secrets into a build without leaving them in any layer (unlike `ARG`/`ENV`, which persist in history):
+```dockerfile
+RUN --mount=type=secret,id=npmrc,target=/root/.npmrc \
+    npm install
+```
+```bash
+docker build --secret id=npmrc,src=$HOME/.npmrc .
+```
+- **Multi-platform builds** — build one image for multiple CPU architectures:
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 -t user/app:tag --push .
+```
+
+**Interview point:** `ARG`/`ENV` secrets are visible forever via `docker history`; BuildKit secret mounts never touch a layer at all — this is the correct answer to "how do you pass a private npm token into a build safely."
+
+### Inspecting Multi-Platform Images
+
+```bash
+docker manifest inspect node:18-alpine
+```
+
+Shows the manifest list — every OS/architecture variant a tag actually
+provides (e.g. `linux/amd64`, `linux/arm64`, `linux/arm/v7`). Useful to
+confirm a base image genuinely supports the architecture you're deploying to
+before you find out at `docker pull` time on an ARM node.
 
 ---
 
@@ -731,6 +897,38 @@ Containers do not copy an entire filesystem for each instance. Instead they use 
 | `docker kill` | Sends specified signal immediately (default `SIGKILL`) |
 | `docker rm` | Deletes the container's writable layer and metadata |
 
+### Other Storage Drivers (context beyond overlay2)
+
+| Driver | Status |
+|---|---|
+| `overlay2` | Default on modern Linux, uses native kernel OverlayFS |
+| `aufs` | Legacy, mostly unsupported now |
+| `devicemapper` | Legacy, used on old CentOS/RHEL setups |
+| `btrfs` / `zfs` | Used when the host filesystem itself is btrfs/zfs |
+| `vfs` | No CoW at all, extremely slow, mainly for testing |
+
+Interview point: almost every modern host uses `overlay2` — check with
+`docker info | grep "Storage Driver"`.
+
+### Exit Code Reference
+
+| Code | Meaning |
+|---|---|
+| 0 | Clean exit — process completed successfully |
+| 1 | General application error (uncaught exception) |
+| 125 | Docker daemon itself failed to run the container (bad flag, etc.) |
+| 126 | Command found but not executable (permissions issue) |
+| 127 | Command not found (typo in CMD/ENTRYPOINT, missing binary) |
+| 137 | SIGKILL (128+9) — often OOMKilled, or `docker kill` |
+| 139 | SIGSEGV (128+11) — segmentation fault |
+| 143 | SIGTERM (128+15) — graceful `docker stop` |
+
+Check the real reason, not just the code:
+```bash
+docker inspect <container> --format='{{.State.OOMKilled}}'
+docker inspect <container> --format='{{.State.ExitCode}}'
+```
+
 ### Container Networking
 
 Each container gets its own network namespace. Docker connects containers to the outside world via **network drivers**.
@@ -755,6 +953,22 @@ Containers on the same bridge can reach each other by IP. Outbound traffic is NA
 | `none` | No network interface except loopback |
 | `overlay` | Cross-host networking for Docker Swarm (VXLAN encapsulation) |
 | `macvlan` | Container gets its own MAC address, appears as a physical device on the LAN |
+
+### Reaching the Host Machine From a Container
+
+`localhost` inside a container refers to the container itself, not the host.
+To reach a service running on the host (e.g. a local Postgres on your laptop):
+
+```bash
+# Mac/Windows Docker Desktop — works out of the box
+curl http://host.docker.internal:5432
+
+# Linux — not automatic, add manually:
+docker run --add-host=host.docker.internal:host-gateway myimage
+```
+
+This is a very common "why can't my container reach my host app" interview
+and real-world debugging question.
 
 ### Container Storage
 
@@ -855,7 +1069,36 @@ docker exec -it <container> /bin/sh
 
 # Export container filesystem as tar
 docker export <container> -o container.tar
+
+# Stream real-time daemon events (container start/stop/die, image pull, etc.)
+docker events
+docker events --filter 'type=container' --filter 'event=die'
 ```
+
+### Logging Drivers
+
+By default, Docker captures stdout/stderr via the `json-file` driver, written
+to `/var/lib/docker/containers/<id>/<id>-json.log`. `docker logs` reads from
+this file.
+
+| Driver | Use case |
+|---|---|
+| `json-file` (default) | Local disk, works with `docker logs` |
+| `local` | Newer default-alternative, better compression, still supports `docker logs` |
+| `syslog` | Forward to syslog daemon |
+| `journald` | Forward to systemd journal |
+| `fluentd` | Forward to Fluentd for aggregation |
+| `awslogs` | Forward directly to CloudWatch |
+| `none` | Disable logging entirely |
+
+```bash
+docker run --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3 myapp
+```
+
+**Interview point:** without `max-size`/`max-file` limits, `json-file` logs grow
+unbounded and can fill a host's disk — a real production incident cause. In
+Kubernetes, this project's clusters offload log rotation to the kubelet/container
+runtime config instead of per-container flags.
 
 ---
 
@@ -870,6 +1113,59 @@ docker export <container> -o container.tar
 | **none** | No networking |
 | **overlay** | Multi-host networking (Docker Swarm / Kubernetes) |
 | **macvlan** | Container gets its own MAC address on the physical network |
+
+### Default Bridge vs User-Defined Bridge (DNS Resolution)
+
+```bash
+docker network create mynet
+docker run -d --name db --network mynet postgres
+docker run -it --network mynet myapp   # can resolve "db" by name
+```
+
+| | Default `bridge` | User-defined bridge |
+|---|---|---|
+| DNS resolution by container name | ❌ No (must use `--link`, deprecated) | ✅ Yes, automatic |
+| Isolation | All containers share it | Only containers explicitly attached |
+| Recommended | ❌ Legacy | ✅ Best practice |
+
+This is why Compose works "by service name" out of the box — Compose always creates a user-defined network, never uses the default `bridge`.
+
+### How Container Name Resolution Actually Works
+
+On a user-defined bridge, Docker runs an internal DNS server at `127.0.0.11`
+inside each container's `/etc/resolv.conf`. When you `curl http://db`, the
+container's resolver queries `127.0.0.11`, which looks up the name against
+Docker's internal service discovery — not a real DNS server on the network.
+This is why container-name resolution only works on user-defined networks,
+never on the legacy default `bridge`.
+
+### Custom Subnets
+
+```bash
+docker network create \
+  --driver bridge \
+  --subnet 172.28.0.0/16 \
+  --gateway 172.28.0.1 \
+  mynet
+```
+
+Useful when the default Docker subnet ranges (172.17.0.0/16 and up) collide
+with a corporate VPN or existing internal network — a genuinely common
+real-world debugging scenario ("I can't reach my container, but only when
+connected to the office VPN").
+
+### Network Management Commands
+
+| Command | Purpose |
+|---|---|
+| `docker network ls` | List all networks |
+| `docker network create <name>` | Create a user-defined bridge |
+| `docker network inspect <name>` | Show connected containers, subnet, gateway |
+| `docker network connect <net> <container>` | Attach a running container to another network |
+| `docker network disconnect <net> <container>` | Detach without stopping the container |
+| `docker network rm <name>` | Remove an unused network |
+
+A container can be attached to multiple networks simultaneously — useful for a container that needs to reach both a public-facing network and an isolated database network.
 
 ### Docker Compose Networking
 
@@ -958,6 +1254,26 @@ services:
       timeout: 10s
       retries: 3
 ```
+
+### `depends_on` Is Not a Readiness Check
+
+```yaml
+services:
+  app:
+    depends_on:
+      db:
+        condition: service_healthy   # waits for db's healthcheck to pass
+  db:
+    image: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+```
+
+Plain `depends_on: [db]` only waits for the container to **start**, not for
+the database inside it to be ready to accept connections — a classic source
+of "connection refused" errors on first `docker compose up`. The
+`condition: service_healthy` form (requires a `healthcheck:` on the
+dependency) is the fix.
 
 ### Restart Policies
 
@@ -1098,6 +1414,9 @@ securityContext:
   allowPrivilegeEscalation: false
   capabilities:
     drop: [ALL]              # Drop all Linux capabilities
+securityContext:
+  readOnlyRootFilesystem: true   # container FS is read-only; app can only
+                                  # write to explicitly mounted volumes (e.g. /tmp)
 ```
 
 **Layer 6 — Trivy scanning (CI/CD)**
@@ -1170,6 +1489,14 @@ fi
 - **Drop-in replacement** — `alias docker=podman` often just works
 - **Kubernetes YAML** — `podman generate kube` can generate K8s manifests
 
+### cgroups v1 vs v2
+
+Modern Linux distros (Ubuntu 22.04+, Fedora, most current kernels) default to **cgroups v2** (unified hierarchy). Docker auto-detects and uses whichever is available. v2 offers better resource accounting and is required for some newer features like rootless cgroup delegation. Interview point: if `docker stats` shows odd memory numbers on an older host, cgroups v1 vs v2 mismatch is a common cause.
+
+### Rootless Docker
+
+Beyond Podman's rootless-by-default model, Docker itself supports a rootless mode (`dockerd-rootless-setuptool.sh install`), running the daemon as a non-root user and mapping container UID 0 to an unprivileged host UID via user namespaces — closing the gap with Podman's default security posture.
+
 ---
 
 ## Docker in CI/CD
@@ -1219,6 +1546,17 @@ This means on code-only changes (no dependency changes), the `npm install` layer
 ## Interview Questions & Answers
 
 ### Docker Fundamentals
+
+#### Walk through exactly what happens when you run `docker run nginx`
+
+1. Docker CLI sends a `POST /containers/create` request to the daemon over the Unix socket.
+2. Daemon checks if the `nginx` image exists locally; if not, pulls it layer-by-layer from the registry.
+3. Daemon delegates to `containerd`, which creates an OCI bundle (rootfs + `config.json`).
+4. `containerd` spawns a `containerd-shim` process for this container.
+5. The shim invokes `runc`, which calls `clone()` with namespace flags (pid, net, mnt, uts, ipc, user), sets up cgroups, drops capabilities, applies seccomp, and `exec`s the container's PID 1.
+6. `runc` exits after handoff — the shim becomes the parent, keeping stdio open even if `containerd` restarts.
+7. The daemon connects the container's `veth` interface to the `docker0` bridge and assigns an IP.
+8. PID 1 (`nginx`) starts running inside its isolated namespaces, backed by the OverlayFS union of image layers + a fresh writable layer.
 
 #### What is the difference between `CMD` and `ENTRYPOINT` in a Dockerfile?
 
@@ -1628,6 +1966,22 @@ LABEL maintainer="team@example.com" \
       git-commit="abc1234"
 ```
 It doesn't affect runtime behavior — it's used for organization, automated tooling (like cleanup scripts filtering by label), and traceability, viewable via `docker inspect`.
+
+#### What's the difference between an image's REPOSITORY and TAG in `docker images`?
+
+`REPOSITORY` is the image name (e.g. `nginx`); `TAG` is a mutable pointer to a specific build (e.g. `1.25`, `latest`). Multiple tags can point to the same image digest; `latest` is just a convention, not automatically "the newest."
+
+#### What is a distroless image?
+
+A base image (from Google's `gcr.io/distroless`) containing only the application and its runtime dependencies — no shell, no package manager, no OS utilities. Smaller attack surface than even Alpine, but harder to debug since you can't `docker exec ... sh` into it.
+
+#### What does `VOLUME` do inside a Dockerfile, vs `-v` at runtime?
+
+`VOLUME /data` in a Dockerfile marks a path as **always** getting an anonymous volume, even if the user doesn't pass `-v` — useful for enforcing that a path is never written to the container's writable layer. It can surprise users who expected data to persist only when they explicitly request it.
+
+#### What's the difference between `docker-compose up` and `docker-compose up -d --build`?
+
+`up` uses existing images and runs in the foreground (attached, streaming logs). `-d` detaches (background). `--build` forces a rebuild of any service with a `build:` key first, even if an image already exists — needed after Dockerfile or source changes, since Compose won't rebuild automatically otherwise.
 
 ---
 
