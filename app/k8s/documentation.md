@@ -36,6 +36,74 @@ Production clusters should be managed declaratively (GitOps) — this project's 
 ## Kubernetes Architecture
 
 Kubernetes is a container orchestration platform that automates deployment, scaling, and management of containerized applications. It follows a master-worker (control plane + data plane) architecture.
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          KUBERNETES CLUSTER                                  │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐  │
+│  │                         CONTROL PLANE (Master)                         │  │
+│  │                                                                        │  │
+│  │  ┌───────────────┐  ┌────────────────┐  ┌──────────────────────────┐   │  │
+│  │  │  kube-api-    │  │ kube-scheduler │  │ kube-controller-manager  │   │  │
+│  │  │  server       │  │                │  │                          │   │  │
+│  │  │               │  │ - Watches for  │  │ - Node Controller        │   │  │
+│  │  │ - REST API    │  │   unscheduled  │  │ - Replication Controller │   │  │
+│  │  │ - Auth/Authz  │  │   Pods         │  │ - Endpoints Controller   │   │  │
+│  │  │ - Validation  │  │ - Assigns node │  │ - Service Account Ctrl   │   │  │
+│  │  │ - Frontend    │  │   based on     │  │                          │   │  │
+│  │  │   for etcd    │  │   resources &  │  └──────────────────────────┘   │  │
+│  │  └───────┬───────┘  │   constraints  │                                 │  │
+│  │          │          └────────────────┘  ┌──────────────────────────┐   │  │
+│  │          │                              │   cloud-controller-mgr   │   │  │
+│  │  ┌───────▼───────┐                      │ (optional, cloud-specific)   │  │
+│  │  │     etcd      │                      └──────────────────────────┘   │  │
+│  │  │               │                                                     │  │
+│  │  │ - Consistent  │                                                     │  │
+│  │  │   key-value   │                                                     │  │
+│  │  │   store       │                                                     │  │
+│  │  │ - Cluster     │                                                     │  │
+│  │  │   state/config│                                                     │  │
+│  │  └───────────────┘                                                     │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                    │  API calls                              │
+│           ┌────────────────────────┼──────────────────────┐                  │
+│           │                        │                      │                  │
+│  ┌────────▼────────┐    ┌──────────▼──────┐    ┌──────────▼──────┐           │
+│  │   WORKER NODE 1 │    │  WORKER NODE 2  │    │  WORKER NODE 3  │           │
+│  │                 │    │                 │    │                 │           │
+│  │ ┌─────────────┐ │    │ ┌─────────────┐ │    │ ┌─────────────┐ │           │
+│  │ │   kubelet   │ │    │ │   kubelet   │ │    │ │   kubelet   │ │           │
+│  │ │             │ │    │ │             │ │    │ │             │ │           │
+│  │ │ - Node agent│ │    │ │ - Node agent│ │    │ │ - Node agent│ │           │
+│  │ │ - Manages   │ │    │ │ - Manages   │ │    │ │ - Manages   │ │           │
+│  │ │   Pod life- │ │    │ │   Pod life- │ │    │ │   Pod life- │ │           │
+│  │ │   cycle     │ │    │ │   cycle     │ │    │ │   cycle     │ │           │
+│  │ └─────────────┘ │    │ └─────────────┘ │    │ └─────────────┘ │           │
+│  │ ┌─────────────┐ │    │ ┌─────────────┐ │    │ ┌─────────────┐ │           │
+│  │ │ kube-proxy  │ │    │ │ kube-proxy  │ │    │ │ kube-proxy  │ │           │
+│  │ │             │ │    │ │             │ │    │ │             │ │           │
+│  │ │ - Network   │ │    │ │ - Network   │ │    │ │ - Network   │ │           │
+│  │ │   rules     │ │    │ │   rules     │ │    │ │   rules     │ │           │
+│  │ │ - iptables/ │ │    │ │   iptables/ │ │    │ │   iptables/ │ │           │
+│  │ │   ipvs      │ │    │ │   ipvs      │ │    │ │   ipvs      │ │           │
+│  │ └─────────────┘ │    │ └─────────────┘ │    │ └─────────────┘ │           │
+│  │ ┌─────────────┐ │    │ ┌─────────────┐ │    │ ┌─────────────┐ │           │
+│  │ │  Container  │ │    │ │  Container  │ │    │ │  Container  │ │           │
+│  │ │  Runtime    │ │    │ │  Runtime    │ │    │ │  Runtime    │ │           │
+│  │ │ (containerd │ │    │ │ (containerd │ │    │ │ (containerd │ │           │
+│  │ │  / CRI-O)   │ │    │ │  / CRI-O)   │ │    │ │  / CRI-O)   │ │           │
+│  │ └──────┬──────┘ │    │ └──────┬──────┘ │    │ └──────┬──────┘ │           │
+│  │        │        │    │        │        │    │        │        │           │
+│  │ ┌──────▼──────┐ │    │ ┌──────▼──────┐ │    │ ┌──────▼──────┐ │           │
+│  │ │  Pod  Pod   │ │    │ │  Pod  Pod   │ │    │ │  Pod  Pod   │ │           │
+│  │ │ ┌──┐ ┌──┐   │ │    │ │ ┌──┐ ┌──┐   │ │    │ │ ┌──┐ ┌──┐   │ │           │
+│  │ │ │C1│ │C1│   │ │    │ │ │C1│ │C1│   │ │    │ │ │C1│ │C1│   │ │           │
+│  │ │ │C2│ │  │   │ │    │ │ │  │ │  │   │ │    │ │ │  │ │  │   │ │           │
+│  │ │ └──┘ └──┘   │ │    │ │ └──┘ └──┘   │ │    │ │ └──┘ └──┘   │ │           │
+│  │ └─────────────┘ │    │ └─────────────┘ │    │ └─────────────┘ │           │
+│  └─────────────────┘    └─────────────────┘    └─────────────────┘           │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
 
 **Control plane (master node)** runs the components that make global decisions about the cluster: the API server, scheduler, controller manager, etcd, and (on cloud platforms) the cloud controller manager.
 
