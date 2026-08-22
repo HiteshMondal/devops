@@ -1232,6 +1232,77 @@ A breaking change needs old and new versions running simultaneously during the t
 
 The existing `maxUnavailable: 0` rolling update handles non-breaking changes; breaking changes need blue-green or canary instead. The existing HPA and PDB keep traffic stable throughout.
 
+**A Pod is stuck in Pending — how do you debug it?**
+
+kubectl describe pod and look at the Events section:
+
+FailedScheduling with "Insufficient cpu/memory" — no node has room; check kubectl describe nodes for allocatable vs allocated
+FailedScheduling with taint/toleration mismatch — the Pod needs a toleration for a tainted node, or the nodeSelector/affinity rule can't be satisfied
+PVC not bound — check kubectl get pvc; if a StorageClass doesn't exist or the provisioner is misbehaving, the Pod waits forever
+If none of the above, check kubectl get events -n <namespace> --sort-by=.lastTimestamp for a broader picture, since the Pod's own events can be sparse before it's even scheduled
+
+**A Service exists and Endpoints are populated, but requests time out — where do you look?**
+
+Work outward from the Pod:
+
+kubectl exec into another Pod and curl the Pod IP directly (bypassing the Service) — isolates whether it's the app or the Service/networking layer
+Check the container's actual listening port matches containerPort and the Service's targetPort — a common mismatch
+Check NetworkPolicy — an overly strict egress/ingress rule can silently drop traffic with no error in the app logs
+Check kube-proxy logs/mode (iptables vs IPVS) on the node if the above all look correct — rare, but a stale iptables rule after a CNI issue can cause this
+
+**How do you safely drain a node for maintenance without causing an outage?**
+
+kubectl drain <node> --ignore-daemonsets --delete-emptydir-data — this cordons the node (no new Pods scheduled) and evicts existing Pods respecting PodDisruptionBudgets. If a PDB would be violated, the drain blocks on that Pod until capacity allows eviction. With replicas: 3 and minAvailable: 1 from the earlier example, drain evicts at most 2 Pods at once and waits for replacements to be Ready elsewhere before continuing. Always run kubectl cordon first if you want to inspect what's running before evicting.
+
+**A rollout succeeded, but the new version is silently broken (wrong config, bad env var) — how do you roll back fast?**
+
+kubectl rollout undo deployment/<name> reverts to the previous ReplicaSet's Pod template immediately — no rebuild needed since old ReplicaSets are kept (revisionHistoryLimit, default 10). kubectl rollout history deployment/<name> shows past revisions if you need to go back further than one step. This is faster than redeploying a fixed image because Kubernetes just scales the old ReplicaSet back up and the broken one down — same maxSurge/maxUnavailable guarantees apply in reverse.
+
+**How would you handle a secret that was accidentally committed to Git and needs rotating?**
+
+Rotate the credential at the source first (DB password, API key) — invalidate the old one, since removing it from Git history doesn't un-leak it
+Update the Secret in-cluster: kubectl create secret generic <name> --from-literal=key=<new-value> --dry-run=client -o yaml | kubectl apply -f -
+Restart Pods to pick up the new value, since env-var-mounted Secrets aren't updated live: kubectl rollout restart deployment/<name> (volume-mounted Secrets do update live after a short sync delay, but most apps only read env vars once at startup)
+Scrub Git history (git filter-repo or BFG) and force-push, understanding any existing clones/forks still have it
+Going forward: move to a secrets manager (Vault, AWS Secrets Manager) with an External Secrets Operator so raw values never touch Git at all
+
+**During a traffic spike, HPA scales up but new Pods take 90 seconds to become Ready — users still see errors. What do you tune?**
+
+A few independent levers, roughly in order of impact:
+
+Lower readinessProbe.initialDelaySeconds/periodSeconds if the app is actually ready sooner than the probe currently allows
+Set behavior.scaleUp to add more Pods per step (e.g. percent: 100 or a higher pods value) so HPA overshoots slightly rather than trickling up
+Reduce the app's own startup time (lazy-load less at boot) — often the real bottleneck, not the Kubernetes config
+Pre-provision headroom with a slightly higher minReplicas, or use behavior.scaleUp.stabilizationWindowSeconds: 0 (already the default) so scaling reacts instantly to the metric crossing threshold, rather than only fixing it after the fact
+If startup is unavoidably slow, a startupProbe prevents the liveness probe from killing a legitimately-still-booting Pod during that window
+
+**Two teams share a cluster and one team's batch Jobs are starving the other team's latency-sensitive Deployment of resources — how do you fix it?**
+
+Namespace the two teams separately and apply a ResourceQuota per namespace so batch jobs can't consume the whole cluster
+Give the latency-sensitive Deployment a higher PriorityClass so the scheduler preempts lower-priority batch Pods under pressure
+Set a LimitRange in the batch namespace so no single Job Pod can request unreasonably large resources
+Longer-term: taint dedicated "batch" nodes and give batch Jobs a matching toleration, physically separating the two workloads so contention can't happen at all
+
+**A CronJob is supposed to run every 5 minutes but you find 40 completed Job objects piling up and eating etcd space — what's wrong and how do you fix it?**
+
+successfulJobsHistoryLimit and failedJobsHistoryLimit default to 3 and 1 in the CronJob spec — if unset explicitly to something higher, or if a controller issue is preventing cleanup, old Jobs (and their Pods) accumulate. Set both explicitly, and clean up existing ones with kubectl delete job -l <label-selector>. If runs are also overlapping and stacking up, check concurrencyPolicy — Forbid skips a new run if the previous one hasn't finished, Replace kills the old one and starts fresh.
+
+**What's an init container, and how is it different from a regular sidecar?**
+
+Init containers run sequentially before any app container starts, and must exit successfully (or the Pod restarts them per restartPolicy) — used for one-time setup like waiting on a dependency or running a migration. A sidecar runs alongside the app container for the Pod's whole lifetime, sharing its network/volumes — used for ongoing work like log shipping or a service mesh proxy. Since Kubernetes 1.28, sidecars can be declared as initContainers with restartPolicy: Always, so they start before the app and are properly ordered on shutdown too.
+
+**When would you use the sidecar pattern vs. building functionality directly into your app image?**
+
+Sidecars decouple cross-cutting concerns (log shipping, TLS termination, config reloading) from the app so they can be updated, versioned, and reused independently of application code — this is how service meshes like Istio inject Envoy without touching app images. The trade-off is more containers per Pod to reason about, shared fate (if the sidecar OOMs, it can affect the Pod's resource accounting), and slightly more complex startup ordering.
+
+**What's the difference between nodeSelector, nodeAffinity, and taints/tolerations?**
+
+nodeSelector is a simple equality match on node labels — a Pod either matches or doesn't get scheduled. nodeAffinity does the same job with much richer expressions (In, NotIn, Exists) and can be "preferred" (best-effort) rather than "required" (hard constraint). Taints and tolerations work the opposite direction: a taint on a node repels Pods unless they carry a matching toleration — used to reserve nodes (e.g. GPU nodes) for specific workloads rather than just attracting Pods to them.
+
+**What's Pod anti-affinity useful for, and where's it used in a production-grade Deployment?**
+
+It keeps replicas of the same app spread across different nodes (or zones), so a single node failure doesn't take down every replica at once. A typical rule: podAntiAffinity with topologyKey: kubernetes.io/hostname and preferredDuringSchedulingIgnoredDuringExecution so the scheduler tries to spread Pods but doesn't refuse to schedule if it can't. Combined with a PDB, this is what actually gives HA — replicas alone don't help if they can all land on the same node.
+
 ---
 
 *This document covers the Kubernetes architecture and implementation details as used in a real-world multi-environment DevOps project. For further reading, see the official Kubernetes documentation at kubernetes.io.*
