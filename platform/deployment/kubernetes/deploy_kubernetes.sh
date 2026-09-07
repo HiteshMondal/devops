@@ -127,13 +127,25 @@ build_and_load_image() {
 
     case "${K8S_DISTRIBUTION}" in
         minikube)
-            print_step "Building image for Minikube..."
+        print_step "Building image for Minikube..."
+        local mk_runtime
+        mk_runtime="$(minikube profile list -o json 2>/dev/null \
+            | grep -o '"ContainerRuntime":"[^"]*"' \
+            | head -1 \
+            | cut -d'"' -f4)"
+        mk_runtime="${mk_runtime:-docker}"
+
+        if [[ "${mk_runtime}" == "docker" ]]; then
             # eval is required here: minikube docker-env prints shell exports
             eval "$(minikube docker-env)"
             "${CONTAINER_ENGINE}" build -t "${image}" "${PROJECT_ROOT}/app"
-            # Tag as latest so imagePullPolicy: IfNotPresent can find it locally
             "${CONTAINER_ENGINE}" tag "${image}" "${DOCKERHUB_USERNAME}/${APP_NAME}:latest"
-            ;;
+        else
+            # containerd/cri-o runtime — docker-env's buildkit socket doesn't work here
+            "${CONTAINER_ENGINE}" build -t "${image}" "${PROJECT_ROOT}/app"
+            minikube image load "${image}"
+        fi
+        ;;
         kind)
             require_cmd kind
             print_step "Building image for Kind..."
@@ -404,25 +416,62 @@ deploy() {
     )
     SERVICE_PORT="${SERVICE_PORT:-80}"
 
-    case "$app_url" in
-        port-forward:*)
-            port="${app_url#port-forward:}"
+    is_wsl=false
+    if grep -qi microsoft /proc/version 2>/dev/null; then
+        is_wsl=true
+    fi
+
+    if [[ "${is_wsl}" == true && "${K8S_DISTRIBUTION}" == "minikube" ]]; then
+        print_step "WSL detected — starting background port-forward for browser access..."
+
+        nohup kubectl port-forward svc/"${SERVICE_NAME}" "${APP_PORT}:${SERVICE_PORT}" \
+            -n "${NAMESPACE}" --address 127.0.0.1 \
+            >/tmp/devops-app-portforward.log 2>&1 &
+        local pf_pid=$!
+        disown "$pf_pid" 2>/dev/null || true
+
+        local pf_ready=false
+        for i in {1..10}; do
+            if curl -sf "http://localhost:${APP_PORT}" >/dev/null 2>&1; then
+                pf_ready=true
+                break
+            fi
+            sleep 1
+        done
+
+        if [[ "$pf_ready" == true ]]; then
             print_access_box "APPLICATION" ">" \
-                "NOTE:Application service is ClusterIP — expose using port-forward" \
+                "URL:Application UI:http://localhost:${APP_PORT}" \
                 "SEP:" \
-                "CMD:Step 1  --  Start port-forward:|kubectl port-forward svc/${SERVICE_NAME} ${port}:${SERVICE_PORT} -n ${NAMESPACE}" \
-                "URL:Step 2  --  Open Application:http://localhost:${port}"
-            ;;
-        pending-loadbalancer)
+                "NOTE:Port-forward running in background (PID ${pf_pid})" \
+                "CMD:Stop it later with:|kill ${pf_pid}"
+        else
             print_access_box "APPLICATION" ">" \
-                "NOTE:LoadBalancer provisioning in progress" \
-                "CMD:Check status:|kubectl get svc ${SERVICE_NAME} -n ${NAMESPACE}"
-            ;;
-        *)
-            print_access_box "APPLICATION" ">" \
-                "URL:Application UI:${app_url}"
-            ;;
-    esac
+                "NOTE:Port-forward started (PID ${pf_pid}) but did not respond yet — try the URL shortly" \
+                "URL:Application UI:http://localhost:${APP_PORT}" \
+                "CMD:Stop it later with:|kill ${pf_pid}"
+        fi
+    else
+        case "$app_url" in
+            port-forward:*)
+                port="${app_url#port-forward:}"
+                print_access_box "APPLICATION" ">" \
+                    "NOTE:Application service is ClusterIP — expose using port-forward" \
+                    "SEP:" \
+                    "CMD:Step 1  --  Start port-forward:|kubectl port-forward svc/${SERVICE_NAME} ${port}:${SERVICE_PORT} -n ${NAMESPACE}" \
+                    "URL:Step 2  --  Open Application:http://localhost:${port}"
+                ;;
+            pending-loadbalancer)
+                print_access_box "APPLICATION" ">" \
+                    "NOTE:LoadBalancer provisioning in progress" \
+                    "CMD:Check status:|kubectl get svc ${SERVICE_NAME} -n ${NAMESPACE}"
+                ;;
+            *)
+                print_access_box "APPLICATION" ">" \
+                    "URL:Application UI:${app_url}"
+                ;;
+        esac
+    fi
     print_success "Deployment succeeded!"
 }
 

@@ -118,7 +118,6 @@ install_base_dependencies() {
                 curl \
                 wget \
                 gnupg2 \
-                redhat-lsb-core \
                 git \
                 gettext \
                 jq \

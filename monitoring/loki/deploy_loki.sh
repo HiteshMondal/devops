@@ -107,8 +107,11 @@ verify_loki_endpoint() {
 
     _LOKI_PF_PID=$!
 
+    # Ensure the port-forward is killed even if this function exits early,
+    # without touching any trap the caller may already have registered.
+    trap '_stop_loki_pf' RETURN
+
     sleep 3
-    
 
     local attempts=0
     local ready=false
@@ -125,11 +128,6 @@ verify_loki_endpoint() {
     if [[ $attempts -lt 24 ]]; then
         ready=true
     fi
-
-    _stop_loki_pf
-
-    # Reset trap to default after cleanup so parent traps are unaffected
-    trap - EXIT INT TERM
 
     if [[ "$ready" == "true" ]]; then
         print_success "Loki HTTP endpoint confirmed reachable"

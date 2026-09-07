@@ -258,6 +258,39 @@ print_monitoring_access() {
     node_port=$(kubectl get svc "$svc" -n "$namespace" \
         -o jsonpath="{.spec.ports[0].nodePort}" 2>/dev/null || true)
 
+    local is_wsl=false
+    if grep -qi microsoft /proc/version 2>/dev/null; then
+        is_wsl=true
+    fi
+
+    if [[ "$is_wsl" == true && "$K8S_DISTRIBUTION" == "minikube" ]]; then
+        print_step "WSL detected — starting background port-forward for ${label}..."
+
+        nohup kubectl port-forward svc/"${svc}" "${port}:${port}" \
+            -n "${namespace}" --address 127.0.0.1 \
+            >/tmp/devops-"${label,,}"-portforward.log 2>&1 &
+        local pf_pid=$!
+        disown "$pf_pid" 2>/dev/null || true
+
+        local pf_ready=false
+        for i in {1..10}; do
+            if curl -sf "http://localhost:${port}" >/dev/null 2>&1; then
+                pf_ready=true
+                break
+            fi
+            sleep 1
+        done
+
+        if [[ "$pf_ready" == true ]]; then
+            print_url "${label} URL" "http://localhost:${port}"
+        else
+            print_warning "${label} port-forward started (PID ${pf_pid}) but not responding yet"
+            print_url "${label} URL (should be ready shortly)" "http://localhost:${port}"
+        fi
+        print_info "Stop it later with: kill ${pf_pid}"
+        return
+    fi
+
     case "$K8S_DISTRIBUTION" in
         minikube)
             local svc_url
@@ -285,7 +318,7 @@ print_monitoring_access() {
 
     print_warning "Could not determine automatic access URL for ${label}"
     print_info "Use port-forward manually:"
-    log_url "${label}" "kubectl port-forward svc/${svc} -n ${namespace} ${port}:${port}"
+    print_cmd "${label}" "kubectl port-forward svc/${svc} -n ${namespace} ${port}:${port}"
 }
 
 resolve_k8s_service_config() {

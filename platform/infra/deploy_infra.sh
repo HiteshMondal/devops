@@ -117,6 +117,7 @@ deploy_terraform() {
     print_subsection "AWS Troubleshooting Commands"
     cat <<'EOF'
 Run manually if AWS authentication fails:
+aws configure
 date -u
 timedatectl status
 systemctl status chrony
