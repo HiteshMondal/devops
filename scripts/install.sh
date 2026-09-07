@@ -469,4 +469,3 @@ echo "  2. Verify Docker access after logging in again."
 echo "  3. Ensure a supported Kubernetes cluster is available."
 echo "  4. Run ./run.sh to start the deployment workflow."
 echo ""
-```

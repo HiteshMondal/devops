@@ -17,7 +17,7 @@ IFS=$'\n\t'
 # INLINE COLORS (standalone script — does not source lib/colors.sh)
 if [[ -t 1 ]]; then
     RESET=$'\e[0m';        BOLD=$'\e[1m';         DIM=$'\e[2m'
-    RED=$'\e[38;5;196m';   GREEN=$'\e[38;5;82m';  YELLOW=$'\e[38;5;220m'
+    RED=$'\e[38;5;196m';   YELLOW=$'\e[38;5;220m'
     CYAN=$'\e[38;5;51m';   BRIGHT_WHITE=$'\e[38;5;231m'
     BRIGHT_CYAN=$'\e[38;5;87m'; BRIGHT_GREEN=$'\e[38;5;46m'
     ORANGE=$'\e[38;5;208m'
@@ -71,8 +71,6 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     echo "ERROR: Do not source this script — execute it directly."
     return 1 2>/dev/null || exit 1
 fi
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 # SELECTION STATE — all off by default
 SEL_APP=false
@@ -131,7 +129,6 @@ show_menu() {
         local var="${items[$idx]}"
         local label="${items[$((idx+1))]}"
         local state="${!var}"
-        local mark pad
         if [[ "$state" == "true" ]]; then
             mark="${BOLD}${BRIGHT_GREEN}[+]${RESET}"
         else

@@ -26,7 +26,6 @@ readonly PROJECT_ROOT
 source "${PROJECT_ROOT}/platform/lib/colors.sh"
 source "${PROJECT_ROOT}/platform/lib/logging.sh"
 
-CI_MODE="$(detect_ci_mode)"
 
 #  PROMETHEUS / GRAFANA 
 : "${PROMETHEUS_ENABLED:=true}"
@@ -349,7 +348,6 @@ deploy_monitoring() {
     resolve_k8s_service_config
 
     local namespace="${PROMETHEUS_NAMESPACE:-monitoring}"
-    local loki_namespace="${LOKI_NAMESPACE:-monitoring}"
     local service_type="${MONITORING_SERVICE_TYPE}"
 
     print_kv "Cluster Type" "$K8S_DISTRIBUTION"
