@@ -16,24 +16,28 @@ from typing import Annotated
 
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .config import config
 from .database import get_session, init_db
-from .models import ContactMessage, Project
 
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
- 
+
 from .auth import create_access_token, hash_password, make_get_current_user, verify_password
+from .metrics import PrometheusMiddleware, metrics_response
+from .middleware import RequestContextLogMiddleware
 from .models import ContactMessage, Project, User
 
 logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI(title=config.APP_NAME)
+app.add_middleware(PrometheusMiddleware)
+app.add_middleware(RequestContextLogMiddleware)
 
 STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -78,7 +82,9 @@ def index():
 @app.get("/health")
 @app.get("/api/v1/health")
 def health():
-    """Liveness probe — is the process up?"""
+    """Liveness probe — is the process up? Deliberately no dependency
+    checks here so a slow/down DB doesn't take down liveness (which
+    would cause Kubernetes to restart a pod that's otherwise fine)."""
     return {
         "status": "ok",
         "app": config.APP_NAME,
@@ -87,12 +93,28 @@ def health():
 
 
 @app.get("/ready")
-def ready():
-    """Readiness probe — is the app ready to serve traffic?"""
-    return {"status": "ready"}
+@app.get("/api/v1/ready")
+def ready(session: DBSession):
+    """Readiness probe — deep-checks the database connection so
+    Kubernetes stops routing traffic here if the DB is unreachable."""
+    checks = {}
+    overall_ok = True
+
+    try:
+        session.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception as exc:  # noqa: BLE001 — any failure means "not ready"
+        checks["database"] = "unreachable"
+        overall_ok = False
+        logger.warning("Readiness DB check failed: %s", exc)
+
+    status_code = 200 if overall_ok else 503
+    body = {"status": "ready" if overall_ok else "not_ready", "checks": checks}
+    return JSONResponse(status_code=status_code, content=body)
 
 
 @app.get("/config")
+@app.get("/api/v1/config")
 def get_config():
     """Non-sensitive runtime configuration (secrets are never returned)."""
     return {
@@ -102,12 +124,23 @@ def get_config():
         "log_level": config.LOG_LEVEL,
     }
 
+@app.get("/metrics")
+def metrics():
+    return metrics_response()
+
 
 # Projects
 
 class SignupIn(BaseModel):
     email: EmailStr
     password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_within_bcrypt_limit(cls, v: str) -> str:
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("Password must be 72 bytes or fewer")
+        return v
  
  
 class LoginIn(BaseModel):

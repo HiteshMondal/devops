@@ -32,9 +32,13 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(user_id: int, email: str) -> str:
     if not config.JWT_SECRET:
-        # Fail loudly rather than issuing a token nobody can trust —
-        # JWT_SECRET must be set via the platform's secrets contract.
-        raise RuntimeError("JWT_SECRET is not configured")
+        # Fail loudly with a proper HTTP error rather than an unhandled
+        # RuntimeError, which FastAPI serializes as a raw plaintext 500 —
+        # that breaks any client doing res.json() on the response.
+        raise HTTPException(
+            status_code=500,
+            detail="Authentication is not configured on this server (JWT_SECRET missing).",
+        )
 
     now = datetime.now(timezone.utc)
     payload = {

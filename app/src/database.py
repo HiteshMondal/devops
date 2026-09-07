@@ -32,8 +32,11 @@ def _build_postgres_url() -> str | None:
         # Postgres instance falls back to SQLite instead of trying (and
         # failing) to reach a local Postgres that doesn't exist.
         return None
+    from urllib.parse import quote_plus
+    user = quote_plus(config.DB_USERNAME)
+    pwd = quote_plus(config.DB_PASSWORD)
     return (
-        f"postgresql+psycopg://{config.DB_USERNAME}:{config.DB_PASSWORD}"
+        f"postgresql+psycopg://{user}:{pwd}"
         f"@{config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}"
     )
 
@@ -62,7 +65,9 @@ def _build_engine():
         logger.info("Database backend: Postgres (%s:%s/%s)", config.DB_HOST, config.DB_PORT, config.DB_NAME)
         return pg_engine
 
-    os.makedirs(os.path.dirname(config.DB_SQLITE_PATH), exist_ok=True)
+    dirname = os.path.dirname(config.DB_SQLITE_PATH)
+    if dirname:
+        os.makedirs(dirname, exist_ok=True)
     logger.info("Database backend: SQLite (%s)", config.DB_SQLITE_PATH)
     return create_engine(SQLITE_URL, connect_args={"check_same_thread": False})
 
