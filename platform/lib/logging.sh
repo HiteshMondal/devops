@@ -313,7 +313,8 @@ set_image_tag_from_git() {
         export DOCKER_IMAGE_TAG
         DOCKER_IMAGE_TAG="$(git rev-parse --short HEAD)"
     else
-        export DOCKER_IMAGE_TAG="local-$(date +%s)"
+        DOCKER_IMAGE_TAG="local-$(date +%s)"
+        export DOCKER_IMAGE_TAG
     fi
 }
 

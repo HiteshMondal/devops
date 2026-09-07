@@ -17,7 +17,16 @@ groups:
 - name: kubernetes_alerts
   interval: 30s
   rules:
-  - alert: PodCrashLooping
+    - alert: PodCrashLooping
+      expr: increase(kube_pod_container_status_restarts_total[1h]) > 3
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Pod {{ $labels.pod }} is crash looping"
+        description: |
+          Pod has restarted more than 3 times in the past hour.
+          Current restart count (1h): {{ printf "%.0f" $value }}
     expr: increase(kube_pod_container_status_restarts_total[1h]) > 3
     for: 5m
     labels:

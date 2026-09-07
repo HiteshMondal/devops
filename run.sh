@@ -41,6 +41,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 
 set -a
+# shellcheck source=/dev/null
 source "$ENV_FILE"
 set +a
 
@@ -470,13 +471,17 @@ deploy_infra() {
         print_error "Infrastructure provisioning supported only in production environment"
         exit 1
     fi
+
     print_subsection "Infrastructure — ${CLOUD_PROVIDER^^}"
 
-    INFRA_ACTION="$INFRA_ACTION" \
-    CLOUD_PROVIDER="$CLOUD_PROVIDER" \
+    local infra_action="$INFRA_ACTION"
+    local cloud_provider="$CLOUD_PROVIDER"
+
+    INFRA_ACTION="$infra_action" \
+    CLOUD_PROVIDER="$cloud_provider" \
         bash "$PROJECT_ROOT/platform/infra/deploy_infra.sh" \
-            "$INFRA_ACTION" \
-            "$CLOUD_PROVIDER"
+            "$infra_action" \
+            "$cloud_provider"
 
     print_success "Infrastructure step complete"
     print_divider
@@ -493,6 +498,29 @@ deploy_image() {
     fi
     print_success "Image build & push complete"
     print_divider
+}
+
+deploy_sealed_secrets() {
+    if [[ "${DEPLOY_TARGET:-}" != "prod" ]]; then
+        print_error "Sealed Secrets step is production-only"
+        exit 1
+    fi
+
+    local sealed_secrets_dir="$PROJECT_ROOT/platform/deployment/kubernetes/sealed-secrets"
+
+    # Install the controller only if it isn't already running — safe to
+    # call every run, but skip the network round-trip when possible.
+    if ! kubectl get deployment sealed-secrets-controller -n "${SEALED_SECRETS_NAMESPACE:-kube-system}" >/dev/null 2>&1; then
+        _run_step \
+            "Sealed Secrets Controller (install)" \
+            "$sealed_secrets_dir/install_sealed_secrets.sh"
+    else
+        print_info "Sealed Secrets controller already installed — skipping install"
+    fi
+
+    _run_step \
+        "Sealed Secrets (seal)" \
+        "$sealed_secrets_dir/seal_secrets.sh"
 }
 
 deploy_argo() {
@@ -598,6 +626,7 @@ if [[ "$DEPLOY_MODE" == "gitops" ]]; then
 
     print_section "GITOPS PIPELINE"
 
+    deploy_sealed_secrets
     deploy_argo
 
 else

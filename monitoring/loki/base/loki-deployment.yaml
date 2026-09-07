@@ -167,8 +167,6 @@ spec:
         - name: config
           configMap:
             name: loki-config
-        # "storage" is intentionally omitted here — it is provided either by
-        # volumeClaimTemplates (prod) or by the local overlay's emptyDir patch.
 
 ---
 apiVersion: v1

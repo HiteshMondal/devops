@@ -19,7 +19,7 @@ if [[ -t 1 ]]; then
     RESET=$'\e[0m';        BOLD=$'\e[1m';         DIM=$'\e[2m'
     RED=$'\e[38;5;196m';   YELLOW=$'\e[38;5;220m'
     CYAN=$'\e[38;5;51m';   BRIGHT_WHITE=$'\e[38;5;231m'
-    BRIGHT_CYAN=$'\e[38;5;87m'; BRIGHT_GREEN=$'\e[38;5;46m'
+    BRIGHT_CYAN=$'\e[38;5;87m';
     ORANGE=$'\e[38;5;208m'
     BG_RED=$'\e[48;5;52m'; BG_GREEN=$'\e[48;5;22m'; BG_YELLOW=$'\e[48;5;58m'
 else

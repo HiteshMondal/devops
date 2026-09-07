@@ -62,6 +62,11 @@ if [[ ! -d "${OVERLAYS_DIR}/${environment}" ]]; then
     exit 1
 fi
 
+if [[ "${environment}" == "prod" ]]; then
+    print_error "Direct kubectl deployment does not support 'prod' — prod uses SealedSecrets + ArgoCD via run.sh"
+    exit 1
+fi
+
 # Image pull policy based on environment
 if [[ "$environment" == "prod" ]]; then
     IMAGE_PULL_POLICY="Always"

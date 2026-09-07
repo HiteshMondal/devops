@@ -14,6 +14,8 @@ resources:
   - ../../base
   - network-policy.yaml
   - pod-disruption-budget.yaml
+  - ../../base/devops-app-sealed-secret.yaml
+  - ../../base/postgres-sealed-secret.yaml
 
 namespace: devops-app
 
@@ -196,3 +198,24 @@ patches:
                   name: devops-app-service
                   port:
                     number: 80
+  - target:
+      kind: Secret
+      name: devops-app-secrets
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: devops-app-secrets
+        namespace: devops-app
+
+  - target:
+      kind: Secret
+      name: postgres-secrets
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: postgres-secrets
+        namespace: devops-app
