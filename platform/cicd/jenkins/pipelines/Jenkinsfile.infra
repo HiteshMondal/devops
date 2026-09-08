@@ -39,6 +39,16 @@ pipeline {
 
         stage('Provision Infrastructure') {
             steps {
+                sh '''
+                    set -Eeuo pipefail
+
+                    if [ -f /home/jenkins/.env-host ]; then
+                        cp /home/jenkins/.env-host .env
+                    else
+                        echo "FATAL: /home/jenkins/.env-host not found — is it mounted in docker-compose.yml?"
+                        exit 1
+                    fi
+                '''
                 sh """
                     set -Eeuo pipefail
                     SCRIPT="platform/infra/deploy_infra.sh"

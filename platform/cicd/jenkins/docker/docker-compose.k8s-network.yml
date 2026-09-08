@@ -1,0 +1,26 @@
+# docker-compose.k8s-network.yml — Local Kubernetes network attachment
+#
+# Applied ONLY when deploy_jenkins.sh detects a local cluster running via
+# Docker (Kind or Minikube with the Docker driver). It attaches the Jenkins
+# controller to that cluster's own Docker network so kubectl inside the
+# container can reach the API server's internal address directly, instead
+# of the host-only address a copied kubeconfig would otherwise contain.
+#
+# Not used for K3s-on-host, or remote/cloud clusters (EKS/GKE/AKS) — those
+# don't run their control plane in a local Docker network, so nothing here
+# applies to them; the base docker-compose.yml is sufficient on its own.
+#
+# K8S_DOCKER_NETWORK is exported by deploy_jenkins.sh right before this
+# file is applied — never hardcoded here, so this works whether the
+# detected network is named "kind" or "minikube".
+
+services:
+  jenkins:
+    networks:
+      - jenkins-net
+      - k8s-net
+
+networks:
+  k8s-net:
+    external: true
+    name: ${K8S_DOCKER_NETWORK}

@@ -14,10 +14,9 @@ IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 JENKINS_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
-DOCKER_DIR="$JENKINS_ROOT/docker"
 PROJECT_ROOT="$(cd "$JENKINS_ROOT/../../.." && pwd -P)"
 ENV_FILE="$PROJECT_ROOT/.env"
-readonly SCRIPT_DIR JENKINS_ROOT DOCKER_DIR PROJECT_ROOT ENV_FILE
+readonly SCRIPT_DIR JENKINS_ROOT PROJECT_ROOT ENV_FILE
 
 print_info()    { echo "[INFO] $*"; }
 print_success() { echo "[ OK ] $*"; }

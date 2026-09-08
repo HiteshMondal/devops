@@ -98,18 +98,34 @@ pipeline {
         stage('Deploy (local — direct kubectl)') {
             when { expression { return !params.SKIP_DEPLOY && env.DEPLOY_TARGET == 'local' } }
             steps {
-                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
-                    sh '''
-                        set -Eeuo pipefail
-                        SCRIPT="platform/deployment/kubernetes/deploy_kubernetes.sh"
-                        if [ ! -f "$SCRIPT" ]; then
-                            echo "FATAL: $SCRIPT not found — repo layout may have changed"
-                            exit 1
-                        fi
-                        chmod +x "$SCRIPT"
-                        "./$SCRIPT"
-                    '''
-                }
+                sh '''
+                    set -Eeuo pipefail
+
+                    HOST_KUBECONFIG="/home/jenkins/.kube-host/config"
+                    if [ -f "$HOST_KUBECONFIG" ]; then
+                        cp "$HOST_KUBECONFIG" ./kubeconfig.local
+                        export KUBECONFIG="$(pwd)/kubeconfig.local"
+
+                        for candidate in kind-control-plane minikube; do
+                            if getent hosts "$candidate" >/dev/null 2>&1; then
+                                CURRENT_SERVER="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+                                PORT="${CURRENT_SERVER##*:}"
+                                kubectl config set-cluster "$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')" \
+                                    --server="https://${candidate}:${PORT}"
+                                echo "Rewrote kubeconfig server to https://${candidate}:${PORT} for in-network reachability"
+                                break
+                            fi
+                        done
+                    fi
+
+                    SCRIPT="platform/deployment/kubernetes/deploy_kubernetes.sh"
+                    if [ ! -f "$SCRIPT" ]; then
+                        echo "FATAL: $SCRIPT not found — repo layout may have changed"
+                        exit 1
+                    fi
+                    chmod +x "$SCRIPT"
+                    "./$SCRIPT"
+                '''
             }
         }
 

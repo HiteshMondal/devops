@@ -102,8 +102,34 @@ if [[ -z "${JENKINS_ADMIN_PASSWORD:-}" || "${JENKINS_ADMIN_PASSWORD}" == "change
     exit 1
 fi
 
+print_subsection "Detecting local Kubernetes cluster network"
+
+K8S_DOCKER_NETWORK=""
+if command -v kubectl >/dev/null 2>&1 && kubectl config current-context >/dev/null 2>&1; then
+    CURRENT_CTX="$(kubectl config current-context 2>/dev/null || true)"
+    print_info "Active kubeconfig context: ${CURRENT_CTX:-<none>}"
+
+    for candidate in kind minikube; do
+        if docker network inspect "$candidate" >/dev/null 2>&1; then
+            K8S_DOCKER_NETWORK="$candidate"
+            break
+        fi
+    done
+fi
+
+if [[ -n "$K8S_DOCKER_NETWORK" ]]; then
+    print_success "Found local cluster Docker network: ${K8S_DOCKER_NETWORK}"
+else
+    print_info "No local cluster Docker network detected (Kind/Minikube-with-Docker-driver) — Jenkins will rely on the default bridge network. This is fine for K3s-on-host or remote/cloud clusters (EKS/GKE/AKS), which don't need this."
+fi
+export K8S_DOCKER_NETWORK
+
 print_subsection "Building and starting Jenkins (controller + Docker-in-Docker)"
-"${COMPOSE[@]}" -f "$DOCKER_DIR/docker-compose.yml" up -d --build
+if [[ -n "$K8S_DOCKER_NETWORK" ]]; then
+    "${COMPOSE[@]}" -f "$DOCKER_DIR/docker-compose.yml" -f "$DOCKER_DIR/docker-compose.k8s-network.yml" up -d --build
+else
+    "${COMPOSE[@]}" -f "$DOCKER_DIR/docker-compose.yml" up -d --build
+fi
 
 JENKINS_PORT="${JENKINS_HTTP_PORT:-8090}"
 

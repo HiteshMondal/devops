@@ -23,7 +23,7 @@ if [[ -t 1 ]]; then
     ORANGE=$'\e[38;5;208m'
     BG_RED=$'\e[48;5;52m'; BG_GREEN=$'\e[48;5;22m'; BG_YELLOW=$'\e[48;5;58m'
 else
-    RESET=''; BOLD=''; DIM=''; RED=''; GREEN=''; YELLOW=''; CYAN=''
+    RESET=''; BOLD=''; DIM=''; RED=''; YELLOW=''; CYAN=''
     BRIGHT_WHITE=''; BRIGHT_CYAN=''; BRIGHT_GREEN=''; ORANGE=''
     BG_RED=''; BG_GREEN=''; BG_YELLOW=''
 fi
