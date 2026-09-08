@@ -101,10 +101,13 @@ pipeline {
                 sh '''
                     set -Eeuo pipefail
 
-                    HOST_KUBECONFIG="/home/jenkins/.kube-host/config"
+                HOST_KUBECONFIG="/home/jenkins/.kube-host/config"
                     if [ -f "$HOST_KUBECONFIG" ]; then
                         cp "$HOST_KUBECONFIG" ./kubeconfig.local
                         export KUBECONFIG="$(pwd)/kubeconfig.local"
+
+                        kubectl config view --flatten --raw > ./kubeconfig.flat
+                        mv ./kubeconfig.flat ./kubeconfig.local
 
                         for candidate in kind-control-plane minikube; do
                             if getent hosts "$candidate" >/dev/null 2>&1; then

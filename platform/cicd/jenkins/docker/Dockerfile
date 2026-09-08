@@ -71,6 +71,19 @@ RUN curl -fsSL https://get.pulumi.com | sh -s -- --version "${PULUMI_VERSION}" \
     && mv /root/.pulumi/bin/* /usr/local/bin/ \
     && rm -rf /root/.pulumi
 
+# AWS CLI v2 (AWS pipeline) — uses the same TARGETARCH mapping style as
+# the Docker CLI step above; awscli only ships x86_64/aarch64 zips.
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) AWS_ARCH="x86_64" ;; \
+        arm64) AWS_ARCH="aarch64" ;; \
+        *) echo "Unsupported TARGETARCH for AWS CLI: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}.zip" -o /tmp/awscliv2.zip \
+    && unzip -oq /tmp/awscliv2.zip -d /tmp \
+    && /tmp/aws/install \
+    && rm -rf /tmp/awscliv2.zip /tmp/aws
+
 USER jenkins
 
 # Jenkins plugins, pinned in plugins.txt

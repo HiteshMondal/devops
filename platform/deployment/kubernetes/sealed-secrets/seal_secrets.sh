@@ -71,7 +71,7 @@ load_env() {
 # Wraps `kubeseal --raw` for a single key so each field can be rotated
 # independently later without resealing the whole Secret.
 _seal_value() {
-    local name="$1" namespace="$2" key="$3" value="$4"
+    local name="$1" namespace="$2" value="$4"
 
     kubeseal --raw \
         --controller-name="${SEALED_SECRETS_CONTROLLER_NAME}" \
