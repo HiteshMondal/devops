@@ -22,6 +22,8 @@ pipeline {
     environment {
         AWS_ACCESS_KEY_ID     = credentials('aws-access-key-id')
         AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
+        PROJECT_ROOT          = "${WORKSPACE}"
+        DEPLOY_TARGET         = 'prod'
     }
 
     stages {
@@ -37,16 +39,16 @@ pipeline {
 
         stage('Provision Infrastructure') {
             steps {
-                sh '''
+                sh """
                     set -Eeuo pipefail
                     SCRIPT="platform/infra/deploy_infra.sh"
-                    if [ ! -f "$SCRIPT" ]; then
-                        echo "FATAL: $SCRIPT not found — repo layout may have changed"
+                    if [ ! -f "\$SCRIPT" ]; then
+                        echo "FATAL: \$SCRIPT not found — repo layout may have changed"
                         exit 1
                     fi
-                    chmod +x "$SCRIPT"
-                    "./$SCRIPT" "${INFRA_ACTION}" "${CLOUD_PROVIDER}"
-                '''
+                    chmod +x "\$SCRIPT"
+                    "./\$SCRIPT" "${params.INFRA_ACTION}" "${params.CLOUD_PROVIDER}"
+                """
             }
         }
     }

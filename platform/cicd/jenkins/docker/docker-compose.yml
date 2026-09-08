@@ -17,6 +17,7 @@ services:
   docker-dind:
     image: docker:27-dind
     container_name: ${JENKINS_DIND_CONTAINER_NAME:-jenkins-docker-dind}
+    hostname: docker-dind
     privileged: true
     restart: unless-stopped
     environment:
@@ -47,8 +48,6 @@ services:
       docker-dind:
         condition: service_healthy
     env_file:
-      - path: ./jenkins.env
-        required: false
       - path: ../../../../.env
         required: false
     environment:

@@ -29,7 +29,11 @@ fi
 
 cd "$DOCKER_DIR"
 
+PROJECT_ROOT_ENV="$(cd "$DOCKER_DIR/../../../.." && pwd -P)/.env"
+[[ -f "$PROJECT_ROOT_ENV" ]] && ln -sf "$PROJECT_ROOT_ENV" "$DOCKER_DIR/.env"
+
 print_warning "This will stop and remove the Jenkins controller and Docker-in-Docker containers."
+
 read -r -p "Also delete Jenkins data volumes (jobs, build history, credentials store)? [y/N]: " WIPE || true
 WIPE="${WIPE:-n}"
 

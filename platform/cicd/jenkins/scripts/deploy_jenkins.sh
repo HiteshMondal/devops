@@ -84,28 +84,20 @@ fi
 
 cd "$DOCKER_DIR"
 
-if [[ ! -f "$DOCKER_DIR/jenkins.env" ]]; then
-    print_warning "jenkins.env not found — creating it from jenkins.env.example"
-    cp "$DOCKER_DIR/jenkins.env.example" "$DOCKER_DIR/jenkins.env"
-    print_warning "Edit ${DOCKER_DIR}/jenkins.env and set JENKINS_ADMIN_PASSWORD, then re-run this script."
-    print_info    "Tip: ${SCRIPT_DIR}/configure_jenkins.sh can generate a password and encode a kubeconfig for you."
+if [[ -z "$PROJECT_ROOT" || ! -f "$PROJECT_ROOT/.env" ]]; then
+    print_error "Root .env not found — copy .env.example to .env at the project root and fill in your values"
     exit 1
 fi
 
-# Load jenkins.env, then the optional project-root .env, so required-var
-# checks below see the final resolved values (compose does the same
-# layering at container-start time via env_file).
+ln -sf "$PROJECT_ROOT/.env" "$DOCKER_DIR/.env"
+
 set -a
 # shellcheck disable=SC1091
-source "$DOCKER_DIR/jenkins.env"
-if [[ -n "$PROJECT_ROOT" && -f "$PROJECT_ROOT/.env" ]]; then
-    # shellcheck disable=SC1091
-    source "$PROJECT_ROOT/.env"
-fi
+source "$PROJECT_ROOT/.env"
 set +a
 
 if [[ -z "${JENKINS_ADMIN_PASSWORD:-}" || "${JENKINS_ADMIN_PASSWORD}" == "change-me-strong-password" ]]; then
-    print_error "Set a real JENKINS_ADMIN_PASSWORD in ${DOCKER_DIR}/jenkins.env before deploying"
+    print_error "Set a real JENKINS_ADMIN_PASSWORD in ${PROJECT_ROOT}/.env before deploying"
     print_info  "Run ${SCRIPT_DIR}/configure_jenkins.sh to generate one automatically"
     exit 1
 fi
@@ -136,6 +128,26 @@ for i in $(seq 1 60); do
     sleep 5
 done
 
+if [[ "$READY" == true ]]; then
+    print_subsection "Waiting for JCasC job seeding to finish"
+    JOB_READY=false
+    for i in $(seq 1 36); do
+        if curl -fsS -u "${JENKINS_ADMIN_USER:-admin}:${JENKINS_ADMIN_PASSWORD}" \
+            "http://localhost:${JENKINS_PORT}/job/devops-platform-pipeline/api/json" >/dev/null 2>&1; then
+            JOB_READY=true
+            break
+        fi
+        if (( i % 6 == 0 )); then
+            print_info "Still waiting for jobs to be seeded... ($(( i * 5 ))s elapsed)"
+        fi
+        sleep 5
+    done
+    if [[ "$JOB_READY" != true ]]; then
+        print_warning "devops-platform-pipeline still not found after 3 minutes — JCasC may have failed; check logs:"
+        print_info "${COMPOSE[*]} -f ${DOCKER_DIR}/docker-compose.yml logs jenkins | grep -iE 'casc|jobdsl|error'"
+    fi
+fi
+
 if [[ "$READY" != true ]]; then
     print_warning "Jenkins did not report ready within 5 minutes — checking container status"
     "${COMPOSE[@]}" -f "$DOCKER_DIR/docker-compose.yml" ps jenkins
@@ -145,4 +157,26 @@ if [[ "$READY" != true ]]; then
     print_info "${COMPOSE[*]} -f ${DOCKER_DIR}/docker-compose.yml logs -f jenkins"
 else
     print_success "Jenkins is up"
+
+    print_subsection "Triggering pipeline build"
+    JOB_NAME="devops-platform-pipeline"
+    CRUMB_JSON="$(curl -fsS -u "${JENKINS_ADMIN_USER:-admin}:${JENKINS_ADMIN_PASSWORD}" \
+        "http://localhost:${JENKINS_PORT}/crumbIssuer/api/json" 2>/dev/null || true)"
+
+    if [[ -n "$CRUMB_JSON" ]]; then
+        CRUMB_FIELD="$(echo "$CRUMB_JSON" | grep -o '"crumbRequestField":"[^"]*"' | cut -d'"' -f4)"
+        CRUMB_VALUE="$(echo "$CRUMB_JSON" | grep -o '"crumb":"[^"]*"' | cut -d'"' -f4)"
+
+        if curl -fsS -u "${JENKINS_ADMIN_USER:-admin}:${JENKINS_ADMIN_PASSWORD}" \
+            -H "${CRUMB_FIELD}: ${CRUMB_VALUE}" \
+            -X POST "http://localhost:${JENKINS_PORT}/job/${JOB_NAME}/build?delay=0sec" >/dev/null 2>&1; then
+            print_success "Build triggered for ${JOB_NAME}"
+        else
+            print_warning "Could not trigger ${JOB_NAME} — it may not exist yet (first-ever JCasC seed can take a few extra seconds) or GIT_REPO_URL/GIT_REPO_BRANCH may be unset"
+            print_info "Trigger manually: http://localhost:${JENKINS_PORT}/job/${JOB_NAME}/build"
+        fi
+    else
+        print_warning "Could not reach Jenkins crumb issuer — skipping auto-trigger"
+        print_info "Trigger manually: http://localhost:${JENKINS_PORT}/job/${JOB_NAME}/build"
+    fi
 fi

@@ -28,7 +28,7 @@ USER root
 
 # Base OS tooling
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl gnupg unzip jq git \
+      ca-certificates curl gnupg unzip jq git python3 python3-venv python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
 # Docker CLI only (daemon = docker-dind sidecar service)

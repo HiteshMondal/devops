@@ -15,8 +15,9 @@ IFS=$'\n\t'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 JENKINS_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 DOCKER_DIR="$JENKINS_ROOT/docker"
-ENV_FILE="$DOCKER_DIR/jenkins.env"
-readonly SCRIPT_DIR JENKINS_ROOT DOCKER_DIR ENV_FILE
+PROJECT_ROOT="$(cd "$JENKINS_ROOT/../../.." && pwd -P)"
+ENV_FILE="$PROJECT_ROOT/.env"
+readonly SCRIPT_DIR JENKINS_ROOT DOCKER_DIR PROJECT_ROOT ENV_FILE
 
 print_info()    { echo "[INFO] $*"; }
 print_success() { echo "[ OK ] $*"; }
@@ -24,8 +25,8 @@ print_warning() { echo "[WARN] $*"; }
 print_error()   { echo "[FAIL] $*" >&2; }
 
 if [[ ! -f "$ENV_FILE" ]]; then
-    print_info "jenkins.env not found — creating it from jenkins.env.example"
-    cp "$DOCKER_DIR/jenkins.env.example" "$ENV_FILE"
+    print_error "Root .env not found at ${ENV_FILE} — copy .env.example to .env first"
+    exit 1
 fi
 
 # Portable get/set for KEY=VALUE lines — works with GNU or BSD sed, and

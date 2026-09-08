@@ -111,7 +111,7 @@ jobs:
                   url(System.getenv('GIT_REPO_URL') ?: '')
                   credentials('github-credentials')
                 }
-                branch("*/${System.getenv('GIT_REPO_BRANCH') ?: 'main'}")
+                branch("*/^${System.getenv('GIT_REPO_BRANCH') ?: 'main'}")
               }
             }
             scriptPath('platform/cicd/jenkins/pipelines/Jenkinsfile')
@@ -119,6 +119,7 @@ jobs:
         }
         triggers {
           githubPush()
+          cron('H/2 * * * *')
         }
       }
 
@@ -132,7 +133,7 @@ jobs:
                   url(System.getenv('GIT_REPO_URL') ?: '')
                   credentials('github-credentials')
                 }
-                branch("*/${System.getenv('GIT_REPO_BRANCH') ?: 'main'}")
+                branch("*/^${System.getenv('GIT_REPO_BRANCH') ?: 'main'}")
               }
             }
             scriptPath('platform/cicd/jenkins/pipelines/Jenkinsfile.infra')
