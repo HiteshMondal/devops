@@ -106,7 +106,7 @@ spec:
       - CreateNamespace=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
-      - ApplyOutOfSyncOnly=true     
+      - ApplyOutOfSyncOnly=true
       - Replace=true
     retry:
       limit: 3
@@ -233,4 +233,4 @@ spec:
     - group: networking.k8s.io
       kind: Ingress
       jsonPointers:
-        - /status    
+        - /status

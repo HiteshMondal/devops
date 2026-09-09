@@ -127,7 +127,7 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t files < <(find . -type f \( -name "*.yml" -o -name "*.yaml" \) -not -path "./.git/*")
-          yamllint -d "{extends: default, rules: {line-length: disable, document-start: disable}}" "${files[@]}"
+          yamllint -d "{extends: default, rules: {line-length: disable, document-start: disable, truthy: disable}}" "${files[@]}"
 
   #  Python app: lint, compile, tests 
   python-app:

@@ -210,43 +210,43 @@ data:
     - name: kubernetes_alerts
       interval: 30s
       rules:
-      - alert: PodCrashLooping
-        expr: increase(kube_pod_container_status_restarts_total[1h]) > 3
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Pod {{ $labels.pod }} is crash looping"
-          description: |
-            Pod has restarted more than 3 times in the past hour.
-            Current restart count (1h): {{ printf "%.0f" $value }}
+        - alert: PodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total[1h]) > 3
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pod {{ $labels.pod }} is crash looping"
+            description: |
+              Pod has restarted more than 3 times in the past hour.
+              Current restart count (1h): {{ printf "%.0f" $value }}
 
-      - alert: PodNotReady
-        expr: kube_pod_status_ready{condition="false"} == 1
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Pod {{ $labels.pod }} not ready"
-          description: |
-            Pod has been not ready for more than 5 minutes.
+        - alert: PodNotReady
+          expr: kube_pod_status_ready{condition="false"} == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.pod }} not ready"
+            description: |
+              Pod has been not ready for more than 5 minutes.
 
     # Container Resource Alerts
     - name: container_alerts
       interval: 30s
       rules:
-      - alert: ContainerHighCPU
-        expr: |
-          sum by (namespace, pod) (
-            rate(container_cpu_usage_seconds_total{container!=""}[5m])
-          ) > 0.8
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High CPU usage on {{ $labels.pod }}"
-          description: |
-            Pod is using more than 0.8 CPU cores.
+        - alert: ContainerHighCPU
+          expr: |
+            sum by (namespace, pod) (
+              rate(container_cpu_usage_seconds_total{container!=""}[5m])
+            ) > 0.8
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High CPU usage on {{ $labels.pod }}"
+            description: |
+              Pod is using more than 0.8 CPU cores.
 
       - alert: ContainerHighMemory
         expr: |
@@ -267,36 +267,36 @@ data:
     - name: deployment_alerts
       interval: 30s
       rules:
-      - alert: DeploymentReplicasMismatch
-        expr: |
-          kube_deployment_spec_replicas
-          !=
-          kube_deployment_status_replicas_available
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Deployment replica mismatch"
-          description: |
-            Deployment has unavailable replicas.
+        - alert: DeploymentReplicasMismatch
+          expr: |
+            kube_deployment_spec_replicas
+            !=
+            kube_deployment_status_replicas_available
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Deployment replica mismatch"
+            description: |
+              Deployment has unavailable replicas.
 
     # Application Alerts
     - name: application_alerts
       interval: 30s
       rules:
-      - alert: HighErrorRate
-        expr: |
-          sum by (namespace) (
-            rate(http_requests_total{status=~"5.."}[5m])
-          ) > 0.05
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "High application error rate"
-          description: |
-            High HTTP 5xx error rate detected.
-            Current value: {{ printf "%.2f" $value }}
+        - alert: HighErrorRate
+          expr: |
+            sum by (namespace) (
+              rate(http_requests_total{status=~"5.."}[5m])
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "High application error rate"
+            description: |
+              High HTTP 5xx error rate detected.
+              Current value: {{ printf "%.2f" $value }}
 
       - alert: HighResponseTime
         expr: |
@@ -317,20 +317,20 @@ data:
     - name: node_alerts
       interval: 30s
       rules:
-      - alert: NodeHighCPU
-        expr: |
-          100 - (
-            avg by (instance) (
-              rate(node_cpu_seconds_total{mode="idle"}[5m])
-            ) * 100
-          ) > 80
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Node {{ $labels.instance }} high CPU"
-          description: |
-            CPU usage is above 80%.
+        - alert: NodeHighCPU
+          expr: |
+            100 - (
+              avg by (instance) (
+                rate(node_cpu_seconds_total{mode="idle"}[5m])
+              ) * 100
+            ) > 80
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node {{ $labels.instance }} high CPU"
+            description: |
+              CPU usage is above 80%.
 
       - alert: NodeHighMemory
         expr: |
@@ -362,15 +362,15 @@ data:
     - name: prometheus_alerts
       interval: 30s
       rules:
-      - alert: PrometheusConfigReloadFailed
-        expr: prometheus_config_last_reload_successful == 0
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Prometheus configuration reload failed"
-          description: |
-            Prometheus failed to reload its configuration.
+        - alert: PrometheusConfigReloadFailed
+          expr: prometheus_config_last_reload_successful == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prometheus configuration reload failed"
+            description: |
+              Prometheus failed to reload its configuration.
 
       - alert: PrometheusTooManyRestarts
         expr: changes(process_start_time_seconds{job="prometheus"}[15m]) > 2
@@ -416,21 +416,21 @@ kind: ClusterRole
 metadata:
   name: prometheus
 rules:
-- apiGroups: [""]
-  resources:
-  - nodes
-  - nodes/proxy
-  - services
-  - endpoints
-  - pods
-  verbs: ["get", "list", "watch"]
-- apiGroups:
-  - extensions
-  resources:
-  - ingresses
-  verbs: ["get", "list", "watch"]
-- nonResourceURLs: ["/metrics"]
-  verbs: ["get"]
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs: ["get", "list", "watch"]
+  - apiGroups:
+      - extensions
+    resources:
+      - ingresses
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -447,9 +447,9 @@ roleRef:
   kind: ClusterRole
   name: prometheus
 subjects:
-- kind: ServiceAccount
-  name: prometheus
-  namespace: monitoring
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: monitoring
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -477,58 +477,58 @@ spec:
         runAsNonRoot: true
         runAsUser: 65534
       containers:
-      - name: prometheus
-        image: prom/prometheus:v2.48.0
-        args:
-          - "--config.file=/etc/prometheus/prometheus.yml"
-          - "--storage.tsdb.path=/prometheus"
-          - "--storage.tsdb.retention.time=15d"
-          - "--web.console.libraries=/usr/share/prometheus/console_libraries"
-          - "--web.console.templates=/usr/share/prometheus/consoles"
-          - "--web.enable-lifecycle"
-        ports:
-        - name: web
-          containerPort: 9090
-        resources:
-          requests:
-            cpu: 500m
-            memory: 1Gi
-          limits:
-            cpu: 2000m
-            memory: 4Gi
-        volumeMounts:
-        - name: prometheus-config
-          mountPath: /etc/prometheus
-        - name: prometheus-alerts
-          mountPath: /etc/prometheus/rules
-        - name: prometheus-storage
-          mountPath: /prometheus
-        livenessProbe:
-          httpGet:
-            path: /-/healthy
-            port: 9090
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        readinessProbe:
-          httpGet:
-            path: /-/ready
-            port: 9090
-          initialDelaySeconds: 5
-          periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 3
+        - name: prometheus
+          image: prom/prometheus:v2.48.0
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time=15d"
+            - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+            - "--web.console.templates=/usr/share/prometheus/consoles"
+            - "--web.enable-lifecycle"
+          ports:
+            - name: web
+              containerPort: 9090
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus
+            - name: prometheus-alerts
+              mountPath: /etc/prometheus/rules
+            - name: prometheus-storage
+              mountPath: /prometheus
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
       volumes:
-      - name: prometheus-config
-        configMap:
-          name: prometheus-config
-      - name: prometheus-storage
-        persistentVolumeClaim:
-          claimName: prometheus-pvc
-      - name: prometheus-alerts
-        configMap:
-          name: prometheus-alerts
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+        - name: prometheus-storage
+          persistentVolumeClaim:
+            claimName: prometheus-pvc
+        - name: prometheus-alerts
+          configMap:
+            name: prometheus-alerts
 ---
 apiVersion: v1
 kind: Service
@@ -542,7 +542,7 @@ spec:
   selector:
     app: prometheus
   ports:
-  - name: web
-    port: 9090
-    targetPort: 9090
-    protocol: TCP
+    - name: web
+      port: 9090
+      targetPort: 9090
+      protocol: TCP

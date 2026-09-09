@@ -13,28 +13,28 @@ kind: ClusterRole
 metadata:
   name: trivy-operator
 rules:
-- apiGroups: [""]
-  resources:
-  - pods
-  - pods/log
-  - replicationcontrollers
-  - services
-  - namespaces
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["apps"]
-  resources:
-  - deployments
-  - daemonsets
-  - replicasets
-  - statefulsets
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["batch"]
-  resources:
-  - jobs
-  - cronjobs
-  verbs: ["get", "list", "watch"]
-- nonResourceURLs: ["/api", "/apis", "/apis/*"]
-  verbs: ["get"]
+  - apiGroups: [""]
+    resources:
+    - pods
+    - pods/log
+    - replicationcontrollers
+    - services
+    - namespaces
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources:
+    - deployments
+    - daemonsets
+    - replicasets
+    - statefulsets
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources:
+    - jobs
+    - cronjobs
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/api", "/apis", "/apis/*"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -45,9 +45,9 @@ roleRef:
   kind: ClusterRole
   name: trivy-operator
 subjects:
-- kind: ServiceAccount
-  name: trivy-operator
-  namespace: trivy
+  - kind: ServiceAccount
+    name: trivy-operator
+    namespace: trivy
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -119,32 +119,32 @@ spec:
             runAsNonRoot: true
           restartPolicy: OnFailure
           containers:
-          - name: trivy
-            image: hiteshmondaldocker/trivy-runner:1.1
-            env:
-            - name: TRIVY_SEVERITY
-              value: "HIGH,CRITICAL"
-            - name: TRIVY_NO_PROGRESS
-              value: "true"
-            resources:
-              requests:
-                cpu: 500m
-                memory: 512Mi
-              limits:
-                cpu: 2000m
-                memory: 2Gi
-            volumeMounts:
-            - name: scan-reports
-              mountPath: /reports
-            - name: trivy-cache
-              mountPath: /tmp/trivy-cache
+            - name: trivy
+              image: hiteshmondaldocker/trivy-runner:1.1
+              env:
+                - name: TRIVY_SEVERITY
+                  value: "HIGH,CRITICAL"
+                - name: TRIVY_NO_PROGRESS
+                  value: "true"
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 512Mi
+                limits:
+                  cpu: 2000m
+                  memory: 2Gi
+              volumeMounts:
+                - name: scan-reports
+                  mountPath: /reports
+                - name: trivy-cache
+                  mountPath: /tmp/trivy-cache
           volumes:
-          - name: scan-reports
-            persistentVolumeClaim:
-              claimName: trivy-reports-pvc
-          - name: trivy-cache
-            persistentVolumeClaim:
-              claimName: trivy-cache-pvc
+            - name: scan-reports
+              persistentVolumeClaim:
+                claimName: trivy-reports-pvc
+            - name: trivy-cache
+              persistentVolumeClaim:
+                claimName: trivy-cache-pvc
 ---
 apiVersion: batch/v1
 kind: Job
@@ -168,42 +168,42 @@ spec:
         runAsNonRoot: true
       restartPolicy: Never
       containers:
-      - name: trivy
-        image: hiteshmondaldocker/trivy-runner:1.1
-        command:
-        - /bin/sh
-        - -c
-        - |
-          set -e
-          echo "Running initial Trivy scan..."
-          /usr/local/bin/trivy image --download-db-only --timeout 10m || true
-          echo "Scanning application image: hiteshmondaldocker/devops-app:latest"
-          /usr/local/bin/trivy image \
-            --scanners vuln \
-            --severity HIGH,CRITICAL \
-            --format json \
-            --output /reports/initial-devops-app.json \
-            hiteshmondaldocker/devops-app:latest
-          echo "Initial scan complete"
-        env:
-        - name: TRIVY_NO_PROGRESS
-          value: "true"
-        resources:
-          requests:
-            cpu: 500m
-            memory: 512Mi
-          limits:
-            cpu: 2000m
-            memory: 2Gi
-        volumeMounts:
-        - name: scan-reports
-          mountPath: /reports
-        - name: trivy-cache
-          mountPath: /tmp/trivy-cache
+        - name: trivy
+          image: hiteshmondaldocker/trivy-runner:1.1
+          command:
+          - /bin/sh
+          - -c
+          - |
+            set -e
+            echo "Running initial Trivy scan..."
+            /usr/local/bin/trivy image --download-db-only --timeout 10m || true
+            echo "Scanning application image: hiteshmondaldocker/devops-app:latest"
+            /usr/local/bin/trivy image \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --format json \
+              --output /reports/initial-devops-app.json \
+              hiteshmondaldocker/devops-app:latest
+            echo "Initial scan complete"
+          env:
+            - name: TRIVY_NO_PROGRESS
+              value: "true"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          volumeMounts:
+            - name: scan-reports
+              mountPath: /reports
+            - name: trivy-cache
+              mountPath: /tmp/trivy-cache
       volumes:
-      - name: scan-reports
-        persistentVolumeClaim:
-          claimName: trivy-reports-pvc
-      - name: trivy-cache
-        persistentVolumeClaim:
-          claimName: trivy-cache-pvc
+        - name: scan-reports
+          persistentVolumeClaim:
+            claimName: trivy-reports-pvc
+        - name: trivy-cache
+          persistentVolumeClaim:
+            claimName: trivy-cache-pvc
