@@ -51,7 +51,7 @@ permissions:
 
 jobs:
 
-  #  Load .env (or .env.example) once, expose values to later jobs 
+  # Load .env (or .env.example) once, expose values to later jobs
   load-env:
     name: Load .env
     runs-on: ubuntu-latest
@@ -91,7 +91,7 @@ jobs:
             echo "app_port=${APP_PORT:-8000}"
           } >> "$GITHUB_OUTPUT"
 
-  #  Shell scripts 
+  # Shell scripts
   shellcheck:
     name: Lint Shell Scripts
     runs-on: ubuntu-latest
@@ -112,7 +112,7 @@ jobs:
           fi
           shellcheck -S warning "${files[@]}"
 
-  #  YAML syntax/style 
+  # YAML syntax/style
   yamllint:
     name: Lint YAML
     runs-on: ubuntu-latest
@@ -129,7 +129,7 @@ jobs:
           mapfile -t files < <(find . -type f \( -name "*.yml" -o -name "*.yaml" \) -not -path "./.git/*")
           yamllint -d "{extends: default, rules: {line-length: disable, document-start: disable, truthy: disable}}" "${files[@]}"
 
-  #  Python app: lint, compile, tests 
+  # Python app: lint, compile, tests
   python-app:
     name: Python App — Lint & Test
     runs-on: ubuntu-latest
@@ -171,7 +171,7 @@ jobs:
             echo "No tests found — skipping pytest"
           fi
 
-  #  Docker: build locally + vulnerability scan, never push 
+  # Docker: build locally + vulnerability scan, never push
   docker-build:
     name: Docker Build & Scan (no push)
     runs-on: ubuntu-latest
@@ -193,7 +193,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=app
 
       - name: Scan app image (report only)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@0.36.0
         with:
           image-ref: ${{ needs.load-env.outputs.app_name }}:ci
           format: table
@@ -201,7 +201,7 @@ jobs:
           severity: LOW,MEDIUM,HIGH,CRITICAL
 
       - name: Gate on CRITICAL/HIGH vulnerabilities
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@0.36.0
         with:
           image-ref: ${{ needs.load-env.outputs.app_name }}:ci
           format: table
@@ -225,7 +225,7 @@ jobs:
           cache-from: type=gha,scope=trivy-runner
           cache-to: type=gha,mode=max,scope=trivy-runner
 
-  #  Kubernetes manifests: fully offline, no live cluster needed 
+  # Kubernetes manifests: fully offline, no live cluster needed
   kubernetes-validate:
     name: Validate Kubernetes Manifests
     runs-on: ubuntu-latest
@@ -299,7 +299,7 @@ jobs:
           kubeconform -strict -summary -ignore-missing-schemas \
             -kubernetes-version 1.30.0 "${files[@]}"
 
-  #  Terraform (AWS) — no AWS credentials used 
+  # Terraform (AWS) — no AWS credentials used
   terraform-validate:
     name: Terraform Validate (AWS)
     runs-on: ubuntu-latest
@@ -319,7 +319,7 @@ jobs:
         working-directory: platform/infra/terraform
         run: terraform validate
 
-  #  OpenTofu (OCI) — no OCI credentials used 
+  # OpenTofu (OCI) — no OCI credentials used
   opentofu-validate:
     name: OpenTofu Validate (OCI)
     runs-on: ubuntu-latest
@@ -339,7 +339,7 @@ jobs:
         working-directory: platform/infra/OpenTofu
         run: tofu validate
 
-  #  Pulumi (Azure) — syntax-checked only, no Azure login/cost 
+  # Pulumi (Azure) — syntax-checked only, no Azure login/cost
   pulumi-validate:
     name: Pulumi Validate (Azure)
     runs-on: ubuntu-latest
@@ -358,9 +358,9 @@ jobs:
           pip install -r requirements.txt
       - name: Byte-compile Pulumi program
         working-directory: platform/infra/Pulumi
-        run: python -m py_compile main.py
+        run: python -m py_compile __main__.py
 
-  #  Single required status check for branch protection 
+  # Single required status check for branch protection
   ci-success:
     name: CI Success
     if: always()

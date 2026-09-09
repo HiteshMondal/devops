@@ -336,15 +336,31 @@ clean_kubernetes_workloads() {
 
 clean_minikube() {
     print_section "Minikube"
+
     if command -v minikube >/dev/null 2>&1; then
         print_step "Stopping Minikube..."
         minikube stop 2>/dev/null || true
+
         print_step "Deleting Minikube cluster..."
         minikube delete --all 2>/dev/null || true
+
+        print_step "Removing stale Minikube Docker container..."
+        sudo docker rm -f minikube 2>/dev/null || true
+
+        print_step "Removing stale Minikube Docker network..."
+        if sudo docker network inspect minikube >/dev/null 2>&1; then
+            sudo docker network rm minikube 2>/dev/null || true
+            print_ok "Stale Minikube Docker network removed"
+        else
+            print_step "Minikube Docker network — nothing to remove"
+        fi
+
         print_step "Removing ~/.minikube state directory..."
         rm -rf ~/.minikube
+
         print_step "Removing ~/.kube/cache..."
         rm -rf ~/.kube/cache
+
         print_ok "Minikube fully destroyed"
     else
         print_skip "minikube not found"

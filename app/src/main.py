@@ -15,20 +15,22 @@ from pathlib import Path
 from typing import Annotated
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .auth import (
+    create_access_token,
+    hash_password,
+    make_get_current_user,
+    verify_password,
+)
 from .config import config
 from .database import get_session, init_db
-
-from fastapi import HTTPException
-from sqlalchemy.exc import IntegrityError
-
-from .auth import create_access_token, hash_password, make_get_current_user, verify_password
 from .metrics import PrometheusMiddleware, metrics_response
 from .middleware import RequestContextLogMiddleware
 from .models import ContactMessage, Project, User
@@ -141,8 +143,8 @@ class SignupIn(BaseModel):
         if len(v.encode("utf-8")) > 72:
             raise ValueError("Password must be 72 bytes or fewer")
         return v
- 
- 
+
+
 class LoginIn(BaseModel):
     email: EmailStr
     password: str

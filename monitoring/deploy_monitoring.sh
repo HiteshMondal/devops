@@ -6,8 +6,7 @@
 # .env is the SINGLE SOURCE OF TRUTH for Ports, Variables, and Secrets.
 # run.sh is the SINGLE AUTHORITY for Local/Production mode and execution flow.
 # This script MUST NOT independently determine the deployment environment.t.
-#
-# Dashboard provisioning via ConfigMap has been removed.
+
 # Dashboards are imported through the Grafana UI (Dashboards → Import).
 
 set -euo pipefail
@@ -39,6 +38,7 @@ source "${PROJECT_ROOT}/platform/lib/logging.sh"
 : "${PROMETHEUS_MEMORY_REQUEST:=256Mi}"
 : "${PROMETHEUS_MEMORY_LIMIT:=512Mi}"
 : "${PROMETHEUS_PORT:=9090}"
+
 : "${GRAFANA_ENABLED:=true}"
 : "${GRAFANA_PORT:=3000}"
 : "${GRAFANA_ADMIN_USER:=admin}"
@@ -48,6 +48,21 @@ source "${PROJECT_ROOT}/platform/lib/logging.sh"
 : "${GRAFANA_CPU_LIMIT:=200m}"
 : "${GRAFANA_MEMORY_REQUEST:=128Mi}"
 : "${GRAFANA_MEMORY_LIMIT:=256Mi}"
+
+: "${APP_NAME:=devops-app}"
+: "${TRIVY_NAMESPACE:=monitoring}"
+: "${DEPLOY_TARGET:=local}"
+: "${APP_ENV:=local}"
+: "${NAMESPACE:=devops-app}"
+
+export DEPLOY_TARGET
+export APP_ENV
+export NAMESPACE
+export PROMETHEUS_NAMESPACE
+export PROMETHEUS_SCRAPE_INTERVAL
+export PROMETHEUS_SCRAPE_TIMEOUT
+export APP_NAME
+export TRIVY_NAMESPACE
 
 # YAML processing
 substitute_env_vars() {
@@ -162,15 +177,11 @@ create_alerts_configmap() {
 
     print_step "Creating Prometheus Alerts ConfigMap"
 
-    local temp_alerts="/tmp/alerts-$$.yml"
-    envsubst < "$alerts_yml" > "$temp_alerts"
-
     kubectl create configmap prometheus-alerts \
-        --from-file=alerts.yml="$temp_alerts" \
+        --from-file=alerts.yml="$alerts_yml" \
         -n "$namespace" \
         --dry-run=client -o yaml | kubectl apply -f -
 
-    rm -f "$temp_alerts"
     print_success "Alerts ConfigMap created"
 }
 

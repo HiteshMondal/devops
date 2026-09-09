@@ -8,7 +8,7 @@
 ########################################
 
 resource "aws_db_subnet_group" "this" {
-  name       = "${var.app_name}-db-subnets"
+  name = "${var.app_name}-db-subnets"
   # Always private, regardless of the NAT-gateway/public-node choice above —
   # the database itself is never internet-facing.
   subnet_ids = module.vpc.private_subnets
@@ -23,10 +23,10 @@ resource "aws_security_group" "rds" {
 
   ingress {
     description     = "Database access from EKS worker nodes"
-    from_port        = var.db_port
-    to_port          = var.db_port
-    protocol         = "tcp"
-    security_groups  = [module.eks.node_security_group_id]
+    from_port       = var.db_port
+    to_port         = var.db_port
+    protocol        = "tcp"
+    security_groups = [module.eks.node_security_group_id]
   }
 
   egress {
@@ -60,10 +60,10 @@ resource "aws_db_instance" "this" {
   vpc_security_group_ids = [aws_security_group.rds.id]
   publicly_accessible    = false
 
-  multi_az                = var.db_multi_az
-  backup_retention_period = var.db_backup_retention_days
-  deletion_protection     = var.db_deletion_protection
-  skip_final_snapshot     = var.db_skip_final_snapshot
+  multi_az                  = var.db_multi_az
+  backup_retention_period   = var.db_backup_retention_days
+  deletion_protection       = var.db_deletion_protection
+  skip_final_snapshot       = var.db_skip_final_snapshot
   final_snapshot_identifier = var.db_skip_final_snapshot ? null : "${var.app_name}-db-final-${var.environment}"
 
   auto_minor_version_upgrade = true

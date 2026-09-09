@@ -12,36 +12,34 @@ spec:
     - Egress
   ingress:
     - from:
-      - namespaceSelector: {}
-      - namespaceSelector:
-          matchLabels:
-            kubernetes.io/metadata.name: ingress-nginx
+        - namespaceSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
       ports:
-      - protocol: TCP
-        port: 8000
+        - protocol: TCP
+          port: 8000
   egress:
     - to:
-      - namespaceSelector: {}
+        - namespaceSelector: {}
       ports:
-      - protocol: TCP
-        port: 53
-      - protocol: UDP
-        port: 53
-    # NOTE: namespaceSelector: {} only matches pods in in-cluster namespaces.
-    # If DB_HOST points to a managed/external database (RDS, Cloud SQL, etc.)
-    # instead of an in-cluster Service, add an `ipBlock` egress rule for that
-    # DB's CIDR/port here.
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53
+
     - to:
-      - namespaceSelector: {}
+        - namespaceSelector: {}
       ports:
-      - protocol: TCP
-        port: 443
-      - protocol: TCP
-        port: 80
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+
     - to:
-      - podSelector:
-          matchLabels:
-            app: postgres
+        - podSelector:
+            matchLabels:
+              app: postgres
       ports:
-      - protocol: TCP
-        port: 5432
+        - protocol: TCP
+          port: 5432

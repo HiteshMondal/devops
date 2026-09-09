@@ -48,9 +48,9 @@ spec:
               cpu: 500m
               memory: 512Mi
           volumeMounts:
-          - name: scan-reports
-            mountPath: /reports
-            readOnly: true
+            - name: scan-reports
+              mountPath: /reports
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /-/healthy
@@ -84,7 +84,7 @@ spec:
   selector:
     app: trivy-exporter
   ports:
-  - name: metrics
-    port: 8082
-    targetPort: metrics
-    protocol: TCP
+    - name: metrics
+      port: 8082
+      targetPort: metrics
+      protocol: TCP

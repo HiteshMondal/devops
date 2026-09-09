@@ -20,7 +20,7 @@ module "eks" {
   # Free-tier posture: nodes in public subnets with public IPs so no
   # NAT Gateway is required. The cluster API endpoint stays reachable
   # both publicly (for kubectl/CI) and from inside the VPC.
-  subnet_ids                    = var.enable_nat_gateway ? module.vpc.private_subnets : module.vpc.public_subnets
+  subnet_ids                      = var.enable_nat_gateway ? module.vpc.private_subnets : module.vpc.public_subnets
   cluster_endpoint_public_access  = true
   cluster_endpoint_private_access = true
 

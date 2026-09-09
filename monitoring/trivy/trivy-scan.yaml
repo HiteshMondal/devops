@@ -15,23 +15,23 @@ metadata:
 rules:
   - apiGroups: [""]
     resources:
-    - pods
-    - pods/log
-    - replicationcontrollers
-    - services
-    - namespaces
+      - pods
+      - pods/log
+      - replicationcontrollers
+      - services
+      - namespaces
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources:
-    - deployments
-    - daemonsets
-    - replicasets
-    - statefulsets
+      - deployments
+      - daemonsets
+      - replicasets
+      - statefulsets
     verbs: ["get", "list", "watch"]
   - apiGroups: ["batch"]
     resources:
-    - jobs
-    - cronjobs
+      - jobs
+      - cronjobs
     verbs: ["get", "list", "watch"]
   - nonResourceURLs: ["/api", "/apis", "/apis/*"]
     verbs: ["get"]
@@ -71,7 +71,6 @@ data:
       dir: /tmp/trivy/.cache
     timeout: 5m
 ---
-
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -171,20 +170,20 @@ spec:
         - name: trivy
           image: hiteshmondaldocker/trivy-runner:1.1
           command:
-          - /bin/sh
-          - -c
-          - |
-            set -e
-            echo "Running initial Trivy scan..."
-            /usr/local/bin/trivy image --download-db-only --timeout 10m || true
-            echo "Scanning application image: hiteshmondaldocker/devops-app:latest"
-            /usr/local/bin/trivy image \
-              --scanners vuln \
-              --severity HIGH,CRITICAL \
-              --format json \
-              --output /reports/initial-devops-app.json \
-              hiteshmondaldocker/devops-app:latest
-            echo "Initial scan complete"
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Running initial Trivy scan..."
+              /usr/local/bin/trivy image --download-db-only --timeout 10m || true
+              echo "Scanning application image: hiteshmondaldocker/devops-app:latest"
+              /usr/local/bin/trivy image \
+                --scanners vuln \
+                --severity HIGH,CRITICAL \
+                --format json \
+                --output /reports/initial-devops-app.json \
+                hiteshmondaldocker/devops-app:latest
+              echo "Initial scan complete"
           env:
             - name: TRIVY_NO_PROGRESS
               value: "true"

@@ -4,7 +4,6 @@ Uses the existing JWT_SECRET env var (already part of the platform's
 secret contract in devops-app-secrets) — no new configuration required.
 """
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -50,7 +49,7 @@ def create_access_token(user_id: int, email: str) -> str:
     return jwt.encode(payload, config.JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-def decode_access_token(token: str) -> Optional[dict]:
+def decode_access_token(token: str) -> dict | None:
     try:
         return jwt.decode(token, config.JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except jwt.PyJWTError:
