@@ -87,6 +87,7 @@ services:
       - jenkins-docker-certs:/certs/client:ro
       - ../casc:/var/jenkins_home/casc:ro
       - ${HOME}/.kube:/home/jenkins/.kube-host:ro
+      - ${HOME}:/hosthome:ro
       - ../../../../.env:/home/jenkins/.env-host:ro
     networks:
       - jenkins-net

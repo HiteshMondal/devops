@@ -41,7 +41,9 @@ else
 fi
 
 # AWS authentication
-export AWS_PROFILE="${AWS_PROFILE:-default}"
+if [[ -n "${AWS_PROFILE:-}" ]]; then
+    export AWS_PROFILE
+fi
 export AWS_REGION="${AWS_REGION:-us-east-1}"
 export AWS_DEFAULT_REGION="$AWS_REGION"
 
@@ -130,7 +132,7 @@ aws ec2 describe-availability-zones --region us-east-1
 EOF
     print_subsection "AWS Authentication"
 
-    print_info "AWS profile: ${AWS_PROFILE}"
+    print_info "AWS profile: ${AWS_PROFILE:-<none — using env credentials>}"
     print_info "AWS region:  ${AWS_REGION}"
 
     aws sts get-caller-identity >/dev/null
@@ -144,7 +146,7 @@ EOF
 
     cd "$tf_dir"
 
-    print_info "AWS profile: ${AWS_PROFILE}"
+    print_info "AWS profile: ${AWS_PROFILE:-<none — using env credentials>}"
     print_info "AWS region:  ${AWS_REGION}"
 
     terraform init -upgrade
@@ -152,17 +154,17 @@ EOF
     case "$ACTION" in
         plan)
             terraform validate
-            AWS_PROFILE="$AWS_PROFILE" terraform plan -out=tfplan
+            terraform plan -out=tfplan
             ;;
         apply)
             terraform validate
-            AWS_PROFILE="$AWS_PROFILE" terraform plan -out=tfplan
-            AWS_PROFILE="$AWS_PROFILE" terraform apply tfplan
+            terraform plan -out=tfplan
+            terraform apply tfplan
             print_success "Terraform apply complete"
             ;;
         destroy)
             print_warning "Destroying Terraform infrastructure"
-            AWS_PROFILE="$AWS_PROFILE" terraform destroy -auto-approve
+            terraform destroy -auto-approve
             print_success "Terraform destroy complete"
             ;;
     esac
@@ -214,6 +216,33 @@ deploy_pulumi() {
 
     require_command pulumi \
         "https://www.pulumi.com/docs/install/"
+
+    require_command az \
+        "https://learn.microsoft.com/cli/azure/install-azure-cli"
+
+    print_subsection "Azure CLI Authentication"
+
+    if ! az account show >/dev/null 2>&1; then
+        print_error "Not logged in to Azure CLI (or session expired)"
+        print_info  "Run: az login --use-device-code"
+        exit 1
+    fi
+
+    local az_account_name az_subscription_id az_tenant_id
+    az_account_name="$(az account show --query name -o tsv 2>/dev/null || true)"
+    az_subscription_id="$(az account show --query id -o tsv 2>/dev/null || true)"
+    az_tenant_id="$(az account show --query tenantId -o tsv 2>/dev/null || true)"
+
+    if [[ -z "$az_subscription_id" ]]; then
+        print_error "Azure CLI is logged in but no active subscription is set"
+        print_info  "Run: az login --use-device-code --tenant TENANT_ID"
+        print_info  "Then: az account set --subscription SUBSCRIPTION_ID"
+        exit 1
+    fi
+
+    print_success "Azure account:      ${az_account_name}"
+    print_success "Azure subscription: ${az_subscription_id}"
+    print_success "Azure tenant:       ${az_tenant_id}"
 
     local pulumi_dir="${PROJECT_ROOT}/platform/infra/Pulumi"
 

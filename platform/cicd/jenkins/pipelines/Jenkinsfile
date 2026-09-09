@@ -102,13 +102,15 @@ pipeline {
                     set -Eeuo pipefail
 
                 HOST_KUBECONFIG="/home/jenkins/.kube-host/config"
-                    if [ -f "$HOST_KUBECONFIG" ]; then
-                        cp "$HOST_KUBECONFIG" ./kubeconfig.local
-                        export KUBECONFIG="$(pwd)/kubeconfig.local"
+                if [ -f "$HOST_KUBECONFIG" ]; then
+                    cp "$HOST_KUBECONFIG" ./kubeconfig.local
+                    export KUBECONFIG="$(pwd)/kubeconfig.local"
 
-                        kubectl config view --flatten --raw > ./kubeconfig.flat
-                        mv ./kubeconfig.flat ./kubeconfig.local
+                    HOST_HOME_PATTERN='/home/[^/]*'
+                    sed -i -E "s#${HOST_HOME_PATTERN}#/hosthome#g" ./kubeconfig.local
 
+                    kubectl config view --flatten --raw > ./kubeconfig.flat
+                    mv ./kubeconfig.flat ./kubeconfig.local
                         for candidate in kind-control-plane minikube; do
                             if getent hosts "$candidate" >/dev/null 2>&1; then
                                 CURRENT_SERVER="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
