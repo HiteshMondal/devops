@@ -67,8 +67,8 @@ variable "gke_machine_type" {
     GKE system daemonsets are scheduled on it — use it only if you accept
     that trade-off. Sourced from .env → GKE_MACHINE_TYPE.
   EOT
-  type    = string
-  default = "e2-small"
+  type        = string
+  default     = "e2-small"
 }
 
 variable "gke_disk_size_gb" {

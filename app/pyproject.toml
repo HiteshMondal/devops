@@ -1,0 +1,6 @@
+[tool.ruff.lint]
+# B008 flags function calls in argument defaults — but FastAPI's Depends()
+# pattern requires exactly this (Depends(...) as a default arg is how
+# FastAPI's dependency injection works, not the "mutable default" bug
+# B008 is designed to catch). Safe to ignore repo-wide.
+extend-ignore = ["B008"]
