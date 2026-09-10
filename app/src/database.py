@@ -67,7 +67,17 @@ def _build_engine():
 
     dirname = os.path.dirname(config.DB_SQLITE_PATH)
     if dirname:
-        os.makedirs(dirname, exist_ok=True)
+        try:
+            os.makedirs(dirname, exist_ok=True)
+        except PermissionError:
+            logger.warning(
+                "Cannot create SQLite directory %s (no permission) — "
+                "falling back to in-memory SQLite", dirname,
+            )
+            return create_engine(
+                "sqlite:///:memory:",
+                connect_args={"check_same_thread": False},
+            )
     logger.info("Database backend: SQLite (%s)", config.DB_SQLITE_PATH)
     return create_engine(SQLITE_URL, connect_args={"check_same_thread": False})
 
