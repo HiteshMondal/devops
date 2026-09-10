@@ -127,23 +127,29 @@ build_and_load_image() {
 
     case "${K8S_DISTRIBUTION}" in
         minikube)
-        print_step "Building image for Minikube..."
-        local mk_runtime
-        mk_runtime="$(minikube profile list -o json 2>/dev/null \
-            | grep -o '"ContainerRuntime":"[^"]*"' \
-            | head -1 \
-            | cut -d'"' -f4)"
-        mk_runtime="${mk_runtime:-docker}"
+        if command -v minikube >/dev/null 2>&1; then
+            print_step "Building image for Minikube (minikube CLI detected)..."
+            local mk_runtime
+            mk_runtime="$(minikube profile list -o json 2>/dev/null \
+                | grep -o '"ContainerRuntime":"[^"]*"' \
+                | head -1 \
+                | cut -d'"' -f4)"
+            mk_runtime="${mk_runtime:-docker}"
 
-        if [[ "${mk_runtime}" == "docker" ]]; then
-            # eval is required here: minikube docker-env prints shell exports
-            eval "$(minikube docker-env)"
-            "${CONTAINER_ENGINE}" build -t "${image}" "${PROJECT_ROOT}/app"
-            "${CONTAINER_ENGINE}" tag "${image}" "${DOCKERHUB_USERNAME}/${APP_NAME}:latest"
+            if [[ "${mk_runtime}" == "docker" ]]; then
+                # eval is required here: minikube docker-env prints shell exports
+                eval "$(minikube docker-env)"
+                "${CONTAINER_ENGINE}" build -t "${image}" "${PROJECT_ROOT}/app"
+                "${CONTAINER_ENGINE}" tag "${image}" "${DOCKERHUB_USERNAME}/${APP_NAME}:latest"
+            else
+                # containerd/cri-o runtime — docker-env's buildkit socket doesn't work here
+                "${CONTAINER_ENGINE}" build -t "${image}" "${PROJECT_ROOT}/app"
+                minikube image load "${image}"
+            fi
         else
-            # containerd/cri-o runtime — docker-env's buildkit socket doesn't work here
+            print_warning "minikube CLI not found in this environment — falling back to registry push"
             "${CONTAINER_ENGINE}" build -t "${image}" "${PROJECT_ROOT}/app"
-            minikube image load "${image}"
+            "${CONTAINER_ENGINE}" push "${image}"
         fi
         ;;
         kind)
