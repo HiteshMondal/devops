@@ -113,13 +113,34 @@ pipeline {
                     mv ./kubeconfig.flat ./kubeconfig.local
 
                     REWRITTEN=false
+
                     for candidate in kind-control-plane minikube; do
                         if getent hosts "$candidate" >/dev/null 2>&1; then
                             CURRENT_SERVER="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-                            PORT="${CURRENT_SERVER##*:}"
-                            kubectl config set-cluster "$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')" \
-                                --server="https://${candidate}:${PORT}"
-                            echo "Rewrote kubeconfig server to https://${candidate}:${PORT} for in-network reachability"
+                            CLUSTER_NAME="$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')"
+
+                            case "$candidate" in
+                                minikube)
+                                    INTERNAL_API_PORT=8443
+                                    export K8S_DISTRIBUTION=minikube
+                                    ;;
+                                kind-control-plane)
+                                    INTERNAL_API_PORT=6443
+                                    export K8S_DISTRIBUTION=kind
+                                    ;;
+                                *)
+                                    continue
+                                    ;;
+                            esac
+
+                            kubectl config set-cluster "$CLUSTER_NAME" \
+                                --server="https://${candidate}:${INTERNAL_API_PORT}"
+
+                            echo "Detected local Kubernetes: ${K8S_DISTRIBUTION}"
+                            echo "Rewrote kubeconfig server:"
+                            echo "  ${CURRENT_SERVER}"
+                            echo "  -> https://${candidate}:${INTERNAL_API_PORT}"
+
                             REWRITTEN=true
                             break
                         fi
