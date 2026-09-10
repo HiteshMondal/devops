@@ -1,6 +1,6 @@
 # Kubernetes: Architecture, Deep Dive & Interview Guide
 
-Based on a real-world DevOps project deploying a Node.js application across Minikube, Kind, K3s, MicroK8s, EKS, GKE, and AKS.
+Based on a real-world DevOps project deploying a Python (FastAPI) application across Minikube, Kind, K3s, MicroK8s, EKS, GKE, and AKS.
 
 ---
 
@@ -29,7 +29,7 @@ designed by Google (based on their internal Borg system), now maintained by the 
 **Imperative vs Declarative:**
 - Imperative: `kubectl run nginx --image=nginx` (tell it exactly what to do, now)
 - Declarative: `kubectl apply -f deployment.yaml` (describe desired state; K8s figures out the diff)
-Production clusters should be managed declaratively (GitOps) — this project's `envsubst` + `kubectl apply` pipeline is a declarative approach.
+Production clusters should be managed declaratively (GitOps) — this project's Kustomize + `kubectl apply -k` pipeline (direct/local mode) and ArgoCD sync (GitOps/prod mode) are both declarative approaches.
 
 ---
 
@@ -54,10 +54,9 @@ Kubernetes is a container orchestration platform that automates deployment, scal
 │  │  │   for etcd    │  │   resources &  │  └──────────────────────────┘   │  │
 │  │  └───────┬───────┘  │   constraints  │                                 │  │
 │  │          │          └────────────────┘  ┌──────────────────────────┐   │  │
-│  │          │                              │   cloud-controller-mgr   │   │  │
-│  │  ┌───────▼───────┐                      │ (optional, cloud-specific)   │  │
-│  │  │     etcd      │                      └──────────────────────────┘   │  │
-│  │  │               │                                                     │  │
+│  │  ┌───────▼───────┐                      │   cloud-controller-mgr   │   │  │
+│  │  │     etcd      │                      │ (optional, cloud-specific)   │  │
+│  │  │               │                      └──────────────────────────┘   │  │
 │  │  │ - Consistent  │                                                     │  │
 │  │  │   key-value   │                                                     │  │
 │  │  │   store       │                                                     │  │
@@ -122,7 +121,7 @@ Request lifecycle for `kubectl apply -f pod.yaml`:
 
 ### How the project uses this architecture
 
-`run.sh` uses `kubectl cluster-info` and node-label inspection to automatically detect which distribution is running — Minikube, Kind, K3s, EKS, GKE, or AKS — and adapts the deployment strategy accordingly. Each distribution still follows the same master-worker model but with different ingress controllers, load balancer behaviors, and storage classes.
+`deploy_kubernetes.sh`'s `detect_k8s_distribution()` inspects node labels and the kubeconfig context to automatically detect which distribution is running — Minikube, Kind, K3s, EKS, GKE, AKS, or MicroK8s — and adapts the deployment strategy accordingly (`run.sh`'s own `detect_k8s_cluster()` only verifies the cluster is reachable via `kubectl cluster-info`; see "Distributions in this project" below for the detection logic). Each distribution still follows the same master-worker model but with different ingress controllers, load balancer behaviors, and storage classes.
 
 ---
 
@@ -238,7 +237,7 @@ A Namespace is a virtual cluster inside a physical cluster — a way to divide r
 - DNS resolution and NetworkPolicy both key off Namespace boundaries
 - ResourceQuota and LimitRange are applied per-Namespace to cap consumption
 
-In this project, `base/namespace.yaml` creates `devops-app`, and every other manifest sets `namespace: ${NAMESPACE}` so `kubectl apply` never leaks resources into `default`.
+In this project, `base/namespace.yaml` creates `devops-app`, and `base/kustomization.yaml` sets a top-level `namespace: devops-app` so Kustomize enforces it across every resource in the base and its overlays (individual manifests also hardcode `namespace: devops-app` directly) — `kubectl apply` never leaks resources into `default`.
 
 ### Owner references & garbage collection
 
@@ -292,7 +291,7 @@ Pending → Running → Succeeded, or Failed (restart per policy), or Unknown (n
 
 ### Distributions in this project
 
-`detect_k8s_cluster()` in `run.sh` and `detect_k8s_distribution()` in `deploy_kubernetes.sh` identify the distribution and set environment-specific variables:
+`detect_k8s_distribution()` identifies the distribution, and `resolve_k8s_service_config()` (both in `deploy_kubernetes.sh`) set environment-specific variables:
 
 ```bash
 case "$k8s_dist" in
@@ -358,16 +357,18 @@ initContainers:
 - Adapter — normalizes the main container's output for external consumption
 
 ```yaml
-# From deployment.yaml — each Pod runs the app container
+# From base/deployment.yaml — each Pod runs the app container
 spec:
   containers:
-  - name: ${APP_NAME}
-    image: ${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}
+  - name: devops-app
+    image: hiteshmondaldocker/devops-app:latest
     ports:
-    - containerPort: ${APP_PORT}
+    - name: http
+      containerPort: 8000
+      protocol: TCP
 ```
 
-Pods in this project run as non-root (`runAsUser: 1000`), drop all capabilities, and use TCP socket probes since `/health` endpoint availability varies.
+Pods in this project run as non-root (`runAsUser: 1000`), drop all capabilities, and probe `/api/v1/health` (startup/liveness) and `/api/v1/ready` (readiness) over HTTP — see "Health probes" under Scaling & Availability for the full probe configuration. The base image name/tag (`hiteshmondaldocker/devops-app:latest` above) is overridden per-overlay via Kustomize's `images:` transformer (`newName`/`newTag`), not inline shell substitution.
 
 **Deployment** — manages a ReplicaSet, handling rolling updates, rollbacks, and scaling.
 
@@ -410,8 +411,10 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: ${APP_NAME}-sa
-  namespace: ${NAMESPACE}
+  name: devops-app-sa
+  namespace: devops-app
+  labels:
+    app: devops-app
 ```
 
 In production, specific RBAC rules would attach to `devops-app-sa` for least-privilege access.
@@ -430,7 +433,7 @@ spec:
       containers:
       - name: migrate
         image: devops-app:latest
-        command: ["npm", "run", "migrate"]
+        command: ["python", "-m", "src.migrate"]
       restartPolicy: Never
 ```
 
@@ -471,43 +474,63 @@ spec:
 spec:
   type: NodePort
   selector:
-    app: ${APP_NAME}
+    app: devops-app
   ports:
-  - port: 80
-    targetPort: ${APP_PORT}
+  - name: http
+    protocol: TCP
+    port: 80
+    targetPort: 8000
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
 
 # overlays/local — fixed NodePort
 spec:
   type: NodePort
   ports:
   - port: 80
-    targetPort: 3000
+    targetPort: 8000
     nodePort: 30080
+    protocol: TCP
+    name: http
 
 # overlays/prod — cloud LoadBalancer
 spec:
   type: LoadBalancer
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
   ports:
   - port: 80
-    targetPort: 3000
+    targetPort: 8000
+    protocol: TCP
+    name: http
   - port: 443
-    targetPort: 3000
+    targetPort: 8000
+    protocol: TCP
+    name: https
 ```
 
 **Ingress** — manages external HTTP/HTTPS access as an L7 router with host/path rules: Internet → Ingress Controller → Ingress rules → Service → Pods.
 
 ```yaml
+# base/ingress.yaml
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
 spec:
-  ingressClassName: ${INGRESS_CLASS}
+  ingressClassName: nginx
   rules:
-  - host: ${INGRESS_HOST}
+  - host: devops-app.local
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: ${APP_NAME}-service
+            name: devops-app-service
             port:
               number: 80
 ```
@@ -527,16 +550,37 @@ spec:
   ingress:
   - from:
     - namespaceSelector: {}
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
     ports:
-    - port: 3000
+    - protocol: TCP
+      port: 8000
   egress:
-  - ports:
-    - port: 53
-    - port: 443
-    - port: 80
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
 ```
 
-This restricts app Pods to accepting traffic only on port 3000, and reaching out only to DNS and HTTPS.
+This restricts app Pods to accepting traffic only on port 8000 (from any namespace, with an explicit second rule for `ingress-nginx`), and reaching out only to DNS (53), HTTP/HTTPS (80/443), and the in-cluster Postgres Pod on port 5432.
 
 **Service discovery** — kube-proxy maintains iptables/IPVS rules so traffic to a ClusterIP is NAT'd to a backing Pod. CoreDNS handles DNS-based discovery:
 
@@ -553,37 +597,49 @@ CoreDNS itself runs as a Deployment in `kube-system`, watches the API server for
 **ConfigMap** — non-sensitive key-value configuration injected as env vars or files.
 
 ```yaml
+# base/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${APP_NAME}-config
+  name: devops-app-config
+  namespace: devops-app
+  labels:
+    app: devops-app
 data:
-  APP_NAME: "${APP_NAME}"
-  APP_PORT: "${APP_PORT}"
-  NODE_ENV: "${NODE_ENV}"
-  LOG_LEVEL: "${LOG_LEVEL}"
-  DB_HOST: "${DB_HOST}"
-  DB_PORT: "${DB_PORT}"
-  DB_NAME: "${DB_NAME}"
+  APP_ENV: "production"
+  DB_SQLITE_PATH: "/data/app.db"
+  LOG_LEVEL: "INFO"
+  MAX_CONCURRENT_DEPLOYMENTS: "3"
+  RATE_LIMIT_PER_MINUTE: "60"
+  LRU_CACHE_SIZE: "128"
+  CB_FAILURE_THRESHOLD: "5"
+  CB_RESET_SECONDS: "30"
 ```
 
-Consumed via `configMapKeyRef` in the Deployment's env section.
+Consumed via `envFrom.configMapRef` in the Deployment's env section, injecting every key as an environment variable.
 
 **Secrets** — sensitive data, base64-encoded by default (or encrypted at rest with KMS). Never commit these to Git.
 
 ```yaml
+# base/secrets.yaml — placeholder values, overwritten at deploy time
+# (secrets-patch.yaml in direct/local mode, SealedSecrets in prod/GitOps)
 apiVersion: v1
 kind: Secret
+metadata:
+  name: devops-app-secrets
+  namespace: devops-app
+  labels:
+    app: devops-app
 type: Opaque
 stringData:
-  DB_USERNAME: "${DB_USERNAME}"
-  DB_PASSWORD: "${DB_PASSWORD}"
-  JWT_SECRET: "${JWT_SECRET}"
-  API_KEY: "${API_KEY}"
-  SESSION_SECRET: "${SESSION_SECRET}"
+  DB_USERNAME: "placeholder"
+  DB_PASSWORD: "placeholder"
+  JWT_SECRET: "placeholder"
+  API_KEY: "placeholder"
+  SESSION_SECRET: "placeholder"
 ```
 
-Consumed via `secretKeyRef`. In production, consider AWS Secrets Manager (ESO), Vault, or Sealed Secrets instead of plain Secrets.
+Consumed via `envFrom.secretRef` (e.g. `postgres-statefulset.yaml` pulls `postgres-secrets` this way) or `secretKeyRef` for individual keys. In production, this project already moves to Sealed Secrets (see `platform/deployment/kubernetes/sealed-secrets/`) instead of plain Secrets — AWS Secrets Manager (ESO) or Vault are further options.
 
 **Common Secret types:**
 - `Opaque` — generic key-value (what this project uses)
@@ -604,17 +660,26 @@ spec:
     image: private-registry.example.com/devops-app:latest
 ```
 
-**Environment variable substitution** — `envsubst` injects `.env` values into YAML templates before applying:
+**Environment variable injection** — in direct/local mode, `deploy_kubernetes.sh`'s `patch_overlay()` generates fresh Kustomize patch files from `.env` values on every deploy, using plain bash parameter expansion (with `:-` fallbacks, not `envsubst`):
 
 ```bash
-substitute_env_vars() {
-    local file=$1
-    envsubst < "$file" > "${file}.tmp"
-    mv "${file}.tmp" "$file"
-}
+cat > "${overlay_dir}/secrets-patch.yaml" <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: devops-app-secrets
+  namespace: ${NAMESPACE}
+type: Opaque
+stringData:
+  DB_USERNAME: "${DB_USERNAME:-dbadmin}"
+  DB_PASSWORD: "${DB_PASSWORD:-$(_rand_b64 16)}"
+  JWT_SECRET: "${JWT_SECRET:-$(_rand_b64 32)}"
+  API_KEY: "${API_KEY:-cmd-$(date +%s)}"
+  SESSION_SECRET: "${SESSION_SECRET:-$(_rand_b64 24)}"
+EOF
 ```
 
-This avoids committing real values to Git while keeping manifest templates readable.
+The generated `configmap-patch.yaml`, `secrets-patch.yaml`, and `imagepull-patch.yaml` are written into a disposable temp-dir copy of the overlay (never the committed repo), registered under that overlay's `patches:` list if not already present, and applied in one shot via `kubectl apply -k`. Because every value falls back to a generated default (`${VAR:-default}`), a missing `.env` value never leaves a broken `${VAR}` placeholder in the YAML — unlike `envsubst`, which this project does not use. This avoids committing real values to Git while keeping the base manifests themselves free of secrets.
 
 ---
 
@@ -648,7 +713,7 @@ reclaimPolicy: Delete
 
 The project uses `readOnlyRootFilesystem: false` to allow temporary writes. For stateful apps, Kubernetes provides PersistentVolume (the actual storage resource), PersistentVolumeClaim (a Pod's request for storage), and StorageClass (dynamic provisioner definition).
 
-The database itself is an external AWS RDS instance managed by Terraform/OpenTofu, not a Pod — the recommended pattern of keeping stateful workloads outside Kubernetes when possible. The app connects via `DB_HOST` from the ConfigMap, with credentials flowing through Secrets.
+This project actually runs two PVC-backed volumes in-cluster: `app-data-pvc.yaml` (2Gi, `ReadWriteOnce`) mounted at `/data` on the `devops-app` Deployment for the SQLite database file (`DB_SQLITE_PATH`), and `postgres-statefulset.yaml`'s `volumeClaimTemplates` (2Gi, `ReadWriteOnce` per replica) backing the in-cluster `postgres` StatefulSet. Terraform/Pulumi/OpenTofu additionally provision a managed RDS/Azure PostgreSQL/Cloud SQL instance for cloud production infrastructure — whether the app points at that managed instance or the in-cluster StatefulSet depends on the `DB_HOST`/`DB_PORT` values injected via the ConfigMap and Secret patches at deploy time.
 
 ---
 
@@ -657,38 +722,47 @@ The database itself is an external AWS RDS instance managed by Terraform/OpenTof
 **Horizontal Pod Autoscaler** — adjusts replica count based on observed CPU/memory usage.
 
 ```yaml
+# base/hpa.yaml
 spec:
   scaleTargetRef:
+    apiVersion: apps/v1
     kind: Deployment
-    name: ${APP_NAME}
-  minReplicas: ${MIN_REPLICAS}
-  maxReplicas: ${MAX_REPLICAS}
+    name: devops-app
+  minReplicas: 2
+  maxReplicas: 10
   metrics:
   - type: Resource
     resource:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: ${CPU_TARGET_UTILIZATION}
+        averageUtilization: 70
   - type: Resource
     resource:
       name: memory
       target:
         type: Utilization
-        averageUtilization: ${MEMORY_TARGET_UTILIZATION}
+        averageUtilization: 80
   behavior:
     scaleDown:
       stabilizationWindowSeconds: 300
       policies:
       - type: Percent
         value: 50
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Min
     scaleUp:
       stabilizationWindowSeconds: 0
       policies:
       - type: Percent
         value: 100
+        periodSeconds: 30
       - type: Pods
         value: 4
+        periodSeconds: 30
       selectPolicy: Max
 ```
 
@@ -793,25 +867,48 @@ spec:
       memory: 64Mi
 ```
 
-**Health probes** — base manifests use TCP socket checks (work without a `/health` endpoint); prod overlay upgrades to HTTP checks once confirmed available.
+**Health probes** — base manifests already use HTTP checks against the app's real endpoints (`/api/v1/health` for startup/liveness, `/api/v1/ready` for readiness); the prod overlay patch adds explicit `initialDelaySeconds` and targets the numeric container port instead of the named `http` port.
 
 ```yaml
-livenessProbe:
-  tcpSocket:
+# base/deployment.yaml
+startupProbe:
+  httpGet:
+    path: /api/v1/health
     port: http
-  initialDelaySeconds: 30
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 12
+
+livenessProbe:
+  httpGet:
+    path: /api/v1/health
+    port: http
   periodSeconds: 10
+  timeoutSeconds: 5
   failureThreshold: 3
 
 readinessProbe:
-  tcpSocket:
+  httpGet:
+    path: /api/v1/ready
     port: http
-  initialDelaySeconds: 10
   periodSeconds: 5
+  timeoutSeconds: 3
   failureThreshold: 3
+
+# overlays/prod patch adds:
+livenessProbe:
+  httpGet:
+    path: /api/v1/health
+    port: 8000
+  initialDelaySeconds: 30
+readinessProbe:
+  httpGet:
+    path: /api/v1/ready
+    port: 8000
+  initialDelaySeconds: 10
 ```
 
-Liveness asks "is the app alive? if not, kill and restart it." Readiness asks "is the app ready for traffic? if not, pull it from the load balancer." Startup gives slow-starting apps more time before the other probes kick in.
+Liveness asks "is the app alive? if not, kill and restart it." Readiness asks "is the app ready for traffic? if not, pull it from the load balancer." Startup gives slow-starting apps more time (up to `12 × 5s = 60s`) before the other probes kick in.
 
 ---
 
@@ -866,9 +963,9 @@ roleRef:
 
 **Role** is namespace-scoped; **ClusterRole** is cluster-wide (needed for cluster-scoped resources like Nodes, or to grant the same permissions across every namespace). A ClusterRole can still be bound to a single namespace via a RoleBinding.
 
-**Falco & Trivy** — `Security/security.sh` deploys both. Trivy scans container images for CVEs and exports results as Prometheus metrics for Grafana. Falco watches system calls at runtime and alerts on suspicious behavior like a shell spawned inside a container.
+**Trivy** — `monitoring/trivy/trivy.sh` (invoked by `run.sh`'s `deploy_trivy()`) deploys a scanning CronJob and a `trivy-exporter`. Trivy scans container images for CVEs (filtered to `TRIVY_SEVERITY` from `.env`, e.g. `HIGH,CRITICAL`) and exports results as Prometheus metrics for Grafana dashboards.
 
-**Image security** — images are tagged with `${DOCKER_IMAGE_TAG}` from `.env`, and `imagePullPolicy: Always` ensures the latest digest is always pulled.
+**Image security** — images are tagged with `${DOCKER_IMAGE_TAG}` from `.env`. `base/deployment.yaml` currently hardcodes `imagePullPolicy: IfNotPresent`; direct/local deploys override this per-run via a generated `imagepull-patch.yaml` (see "What does `imagePullPolicy: Always` do" in the Interview section for the full picture).
 
 ---
 
@@ -877,11 +974,11 @@ roleRef:
 **Prometheus** scrapes metrics via annotations for automatic discovery:
 
 ```yaml
+# base/deployment.yaml pod template annotations
 annotations:
   prometheus.io/scrape: "true"
-  prometheus.io/port: "${APP_PORT}"
   prometheus.io/path: "/metrics"
-  prometheus.io/scheme: "http"
+  prometheus.io/port: "8000"
 ```
 
 Alerting rules for high CPU, pod restarts, and unavailable deployments live in `monitoring/prometheus/alerts.yml`.
@@ -922,8 +1019,14 @@ kubernetes/
 │   ├── hpa.yaml
 │   ├── configmap.yaml
 │   ├── secrets.yaml
+│   ├── postgres-secret.yaml
+│   ├── postgres-statefulset.yaml
+│   ├── app-data-pvc.yaml
+│   ├── devops-app-sealed-secret.yaml
+│   ├── postgres-sealed-secret.yaml
 │   ├── namespace.yaml
 │   └── kustomization.yaml
+├── sealed-secrets/           # install_sealed_secrets.sh, seal_secrets.sh
 └── overlays/
     ├── local/
     │   └── kustomization.yaml
@@ -962,55 +1065,59 @@ patches:
                   memory: 64Mi
 ```
 
-Local vs prod overlay comparison: replicas 1 vs 3, CPU request 50m vs 100m, CPU limit 200m vs 500m, memory limit 256Mi vs 512Mi, Service type NodePort (30080) vs LoadBalancer, HPA min/max 1–3 vs 2–10, liveness probe TCP vs HTTP, and pod anti-affinity, NetworkPolicy, and PodDisruptionBudget present only in prod.
+Local vs prod overlay comparison: replicas 1 vs 3, CPU request 50m vs 100m, CPU limit 200m vs 500m, memory limit 256Mi vs 512Mi, Service type NodePort (30080) vs LoadBalancer, HPA min/max 1–3 vs 2–10, liveness/readiness probes gain explicit `initialDelaySeconds` and switch to the numeric container port in prod (both are already HTTP in base — see "Health probes" above), and pod anti-affinity, NetworkPolicy, and PodDisruptionBudget present only in prod.
 
-`deploy_kubernetes.sh` copies manifests to a temp dir, runs `envsubst` on them, then applies base and overlay files in order (rather than calling `kustomize build` directly):
+`deploy_kubernetes.sh` copies `base/` and `overlays/` into a disposable temp dir (so patches and generated secrets never touch the repo), runs `patch_overlay()` to update the target overlay's `kustomization.yaml` (image `newName`/`newTag`, plus the generated `configmap-patch.yaml`/`secrets-patch.yaml`/`imagepull-patch.yaml`), then applies the whole overlay in one `kubectl apply -k` call — letting Kustomize itself resolve the base + overlay merge, rather than applying individual files in sequence:
 
 ```bash
-process_yaml_files "$WORK_DIR/base"
-process_yaml_files "$WORK_DIR/overlays/$environment"
+DEPLOY_TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/k8s-deployment.XXXXXX")
+cp -r "${BASE_DIR}" "${DEPLOY_TEMP_DIR}/base"
+cp -r "${OVERLAYS_DIR}" "${DEPLOY_TEMP_DIR}/overlays"
 
-kubectl apply -f "$WORK_DIR/base/namespace.yaml"
-kubectl apply -f "$WORK_DIR/base/secrets.yaml"
-kubectl apply -f "$WORK_DIR/base/configmap.yaml"
-kubectl apply -f "$WORK_DIR/base/deployment.yaml"
-kubectl apply -f "$WORK_DIR/base/service.yaml"
+overlay_dir="${DEPLOY_TEMP_DIR}/overlays/${env}"
+patch_overlay "${overlay_dir}"
+kubectl apply -k "${overlay_dir}"
+
+kubectl rollout status deployment/"${APP_NAME}" -n "${NAMESPACE}" --timeout=300s
 ```
+
+(See "Environment variable injection" under Configuration & Secrets above for what `patch_overlay()` actually generates.)
 
 ---
 
 ## CI/CD Integration
 
-**GitHub Actions** — `.github/workflows/prod.yml` triggers on push to main: checkout, configure AWS credentials, build & push the Docker image, update kubeconfig for EKS, run `deploy_kubernetes.sh prod`. `.github/workflows/terraform.yml` runs `terraform plan` on PR and `terraform apply` on merge.
+**GitHub Actions** — `.github/workflows/prod.yml` triggers on push to main: checkout, configure AWS credentials, build & push the Docker image, update kubeconfig for EKS, then hand off to the GitOps path (`deploy_sealed_secrets` + ArgoCD sync) — `deploy_kubernetes.sh` explicitly refuses to run for the `prod` environment, so CI follows the same `DEPLOY_MODE=gitops` flow as `run.sh`. `.github/workflows/terraform.yml` runs `terraform plan` on PR and `terraform apply` on merge.
 
 **GitLab CI** — `.gitlab-ci.yml` and `cicd/gitlab/.gitlab-ci.yml` run a similar build → test → deploy pipeline, using GitLab CI/CD Variables for secrets.
 
 **Environment variable flow**:
 
 ```
-Local:  .env → run.sh (source) → deploy_kubernetes.sh (export) → envsubst → kubectl apply
-CI/CD:  GitHub Secrets / GitLab Variables → Environment → deploy_kubernetes.sh → envsubst → kubectl apply
+Local (direct):      .env → run.sh (source) → deploy_kubernetes.sh → patch_overlay() → kubectl apply -k
+CI/CD (prod/GitOps): GitHub Secrets / GitLab Variables → run.sh → seal_secrets.sh (kubeseal) → SealedSecret manifests in Git → ArgoCD sync
 ```
 
 ---
 
 ## Infrastructure as Code
 
-Parallel Terraform and OpenTofu configurations provision the AWS infrastructure:
+Parallel Terraform, Pulumi, and OpenTofu configurations provision infrastructure across the three supported clouds — `run.sh`'s `select_cloud_provider()` picks which one runs:
 
 ```
 infra/
-├── terraform/
+├── terraform/            # AWS — EKS + RDS
 │   ├── main.tf         # AWS provider, backend (S3)
 │   ├── vpc.tf          # VPC, subnets, routing
 │   ├── eks.tf          # EKS cluster + node groups
 │   ├── rds.tf          # RDS PostgreSQL instance
 │   ├── variables.tf
 │   └── outputs.tf       # EKS endpoint, kubeconfig, RDS endpoint
-└── OpenTofu/            # OpenTofu equivalents
+├── Pulumi/               # Azure — AKS + PostgreSQL Flexible Server
+└── OpenTofu/            # GCP — GKE + Cloud SQL (opt-in, not Always-Free)
 ```
 
-This provisions a VPC across multiple AZs, an EKS cluster with managed node groups, an RDS instance in private subnets, security groups, and IAM roles. After `terraform apply`, `deploy_infra.sh` runs `aws eks update-kubeconfig` to connect `kubectl`.
+The AWS path provisions a VPC across multiple AZs, an EKS cluster with managed node groups, an RDS instance in private subnets, security groups, and IAM roles; the Pulumi and OpenTofu paths provision the equivalent AKS/PostgreSQL and GKE/Cloud SQL resources for their clouds. After the infra step, `deploy_infra.sh` updates `kubectl`'s kubeconfig for whichever cluster was just created (e.g. `aws eks update-kubeconfig` for EKS).
 
 ---
 
@@ -1056,7 +1163,7 @@ Local overlay: `requests: 50m cpu / 64Mi`, `limits: 200m cpu / 256Mi`. Prod: `re
 
 A failed liveness probe gets the container restarted by the kubelet — use it for deadlocks or unrecoverable state. A failed readiness probe removes the Pod from the Service's Endpoints without restarting it — use it for "still warming up" states.
 
-Base manifests use TCP socket probes (work without an HTTP endpoint), with a 30s initial delay and 3-failure threshold for liveness, and a 10s delay for readiness. The prod overlay upgrades to HTTP probes (`/health`, `/ready`) once confirmed available.
+Base manifests already use HTTP probes against `/api/v1/health` (liveness, after a `startupProbe` covers roughly the first 60s) and `/api/v1/ready` (readiness, 5s period / 3-failure threshold). The prod overlay patch adds explicit `initialDelaySeconds` (30s liveness, 10s readiness) and targets the numeric container port — see "Health probes" under Scaling & Availability for the full config.
 
 **How does a Service route traffic to Pods, and what happens when a Pod is replaced?**
 
@@ -1064,7 +1171,7 @@ A Service uses a label selector to find its Pods. kube-proxy watches the Endpoin
 
 **What's a NodePort and how does it differ from a LoadBalancer Service?**
 
-NodePort opens a static port (30000–32767) on every node, forwarding to the Service. LoadBalancer provisions an external cloud load balancer that routes to NodePorts behind the scenes. Locally this project uses a fixed `nodePort: 30080`; in prod it uses `type: LoadBalancer` with AWS NLB annotations. `get_access_url()` in `deploy_kubernetes.sh` handles both cases.
+NodePort opens a static port (30000–32767) on every node, forwarding to the Service. LoadBalancer provisions an external cloud load balancer that routes to NodePorts behind the scenes. Locally this project uses a fixed `nodePort: 30080`; in prod it uses `type: LoadBalancer` with AWS NLB annotations. `get_service_url()` in `deploy_kubernetes.sh` handles both cases.
 
 **What's the difference between a Namespace and a cluster? When would you use multiple Namespaces?**
 
@@ -1157,26 +1264,17 @@ A PDB sets minimum availability during voluntary disruptions — node drains, cl
 
 **Why does the NetworkPolicy in this project allow `namespaceSelector: {}` for ingress?**
 
-That's an empty selector meaning "all namespaces." It's intentionally permissive because the Prometheus stack (in the `monitoring` namespace) needs to scrape `/metrics`, and the Ingress Controller (in `ingress-nginx`) needs to forward HTTP traffic. Restricting to only the app's own namespace would break both. A tighter setup would explicitly allow just the `monitoring` and `ingress-nginx` namespaces by label. Egress stays locked down to DNS (53) and HTTP/HTTPS (80/443).
+That's an empty selector meaning "all namespaces." It's intentionally permissive because the Prometheus stack (in the `monitoring` namespace) needs to scrape `/metrics`, and the Ingress Controller (in `ingress-nginx`) needs to forward HTTP traffic — the policy actually lists an explicit `ingress-nginx` namespaceSelector too, which is redundant alongside the open `{}` selector but documents the intent. A tighter setup would drop `namespaceSelector: {}` and explicitly allow just the `monitoring` and `ingress-nginx` namespaces by label. Egress stays locked down to DNS (53), HTTP/HTTPS (80/443), and the in-cluster Postgres Pod on port 5432.
 
-**How does `envsubst` work here, and what are the risks?**
+**How does the project inject `.env` values into manifests, and what are the risks?**
 
-`envsubst` replaces `${VARIABLE}` placeholders with environment variable values:
-
-```bash
-substitute_env_vars() {
-    envsubst < "$file" > "${file}.tmp"
-    mv "${file}.tmp" "$file"
-}
-```
-
-Risks: an unexported variable becomes an empty string and can break the YAML (the script greps for leftover `${VAR}` patterns and warns); special characters like `$` in a value can get double-interpolated (use single quotes in `.env`); and variable scope requires explicitly exporting everything before calling `envsubst`.
+It doesn't use `envsubst` — `patch_overlay()` in `deploy_kubernetes.sh` writes fresh Kustomize patch files via bash heredocs (see "Environment variable injection" under Configuration & Secrets for the actual code). Risks: every value uses a `${VAR:-default}` fallback, so an unset variable silently gets a generated default instead of breaking the YAML (the trade-off is a random DB password/JWT secret on first run if `.env` is incomplete); special characters like `$` in a value can still get re-expanded inside the heredoc (quote values carefully in `.env`); and `set -a` / `source .env` / `set +a` in `run.sh` is what makes every `.env` value available to the child script in the first place — miss that step and the fallback defaults are all you get.
 
 **What does `imagePullPolicy: Always` do, and when would you use `IfNotPresent`?**
 
 `Always` checks the registry for a changed digest even if the image is cached locally — important with mutable tags like `latest` or a branch name. `IfNotPresent` uses the local cache if present, which is fine for immutable tags like `v1.2.3` or a commit SHA. `Never` requires the image to already be pre-loaded on the node.
 
-This project uses `Always` because `${DOCKER_IMAGE_TAG}` can be a branch tag that gets updated — Pods need to pick up new pushes rather than reuse a stale cached image.
+`base/deployment.yaml` hardcodes `IfNotPresent`. In direct/local mode, `deploy_kubernetes.sh` overrides this per-run via a generated `imagepull-patch.yaml` (`IfNotPresent` locally, `Always` for a `prod` argument) — though in practice `deploy_kubernetes.sh` refuses to run against `prod` at all (production goes through ArgoCD instead), so the committed `IfNotPresent` is what actually ships in both paths today. Switching the prod GitOps path to `Always` would make sense once `DOCKER_IMAGE_TAG` moves to a mutable branch tag rather than an explicit release tag.
 
 **How does `maxSurge: 1, maxUnavailable: 0` guarantee zero downtime during a rolling update?**
 
@@ -1184,11 +1282,11 @@ This project uses `Always` because `${DOCKER_IMAGE_TAG}` can be a branch tag tha
 
 **What's the difference between `stringData` and `data` in a Secret?**
 
-`data` expects values already base64-encoded by the user; `stringData` accepts plain text and Kubernetes encodes it internally. This project's secrets use `stringData` since `envsubst` injects plain text values. `stringData` is write-only — `kubectl get secret -o yaml` always shows base64 under `data`, and `stringData` wins if a key appears in both.
+`data` expects values already base64-encoded by the user; `stringData` accepts plain text and Kubernetes encodes it internally. This project's secrets use `stringData` since both `patch_overlay()`'s generated `secrets-patch.yaml` (direct mode) and `seal_secrets.sh` (prod/SealedSecrets) work with plain text values. `stringData` is write-only — `kubectl get secret -o yaml` always shows base64 under `data`, and `stringData` wins if a key appears in both.
 
 **How does the project detect the Kubernetes distribution, and why does it matter?**
 
-`run.sh` and `deploy_kubernetes.sh` inspect node labels and the kubeconfig context — checking for markers like `eks.amazonaws.com`, `minikube.k8s.io/version`, or `k3s.io` — and set `K8S_SERVICE_TYPE`, `K8S_INGRESS_CLASS`, and `K8S_SUPPORTS_LOADBALANCER` accordingly. This matters because the Kubernetes API is the same everywhere, but networking behavior isn't — a `LoadBalancer` Service on Minikube stays `<pending>` forever without `minikube tunnel`. Detecting the cluster automatically lets the same `run.sh` work across environments with `DEPLOY_TARGET=local` or `DEPLOY_TARGET=prod`.
+`deploy_kubernetes.sh`'s `detect_k8s_distribution()` inspects node labels and the kubeconfig context — checking for markers like `eks.amazonaws.com`, `minikube.k8s.io/version`, or `k3s.io` — and `resolve_k8s_service_config()` sets `K8S_SERVICE_TYPE`, `K8S_INGRESS_CLASS`, and `K8S_SUPPORTS_LOADBALANCER` accordingly. This matters because the Kubernetes API is the same everywhere, but networking behavior isn't — a `LoadBalancer` Service on Minikube stays `<pending>` forever without `minikube tunnel`. Detecting the cluster automatically lets the same `run.sh` work across environments with `DEPLOY_TARGET=local` or `DEPLOY_TARGET=prod`.
 
 **What does `sessionAffinity: ClientIP` do on the Service, and what are the trade-offs?**
 
@@ -1205,11 +1303,11 @@ It routes all requests from the same client IP to the same Pod for up to `timeou
 
 **How does the Prometheus scraping setup work?**
 
-Prometheus uses annotation-based service discovery. The Deployment and Service carry `prometheus.io/scrape: "true"`, `prometheus.io/port`, `prometheus.io/path`, and `prometheus.io/scheme`. Prometheus's `kubernetes_sd_config` watches the API for Services and Pods with these annotations and adds them as scrape targets automatically; scrape intervals, relabeling, and alerting rules live in `monitoring/prometheus/prometheus.yml`. `kube-state-metrics` is also scraped for object-level metrics the kubelet doesn't expose.
+Prometheus uses annotation-based service discovery. The Deployment's Pod template carries `prometheus.io/scrape: "true"`, `prometheus.io/path`, and `prometheus.io/port` (`8000`, matching `APP_PORT`). Prometheus's `kubernetes_sd_config` watches the API for Services and Pods with these annotations and adds them as scrape targets automatically; scrape intervals, relabeling, and alerting rules live in `monitoring/prometheus/prometheus.yml`. `kube-state-metrics` is also scraped for object-level metrics the kubelet doesn't expose.
 
 **What's the role of `deploy_infra.sh`?**
 
-It runs first in the prod path, using Terraform or OpenTofu to provision the EKS cluster, VPC, and RDS instance. The full sequence: `deploy_infra` → `build_and_push_image` → `deploy_kubernetes prod` → `deploy_monitoring` → `deploy_loki` → `security`. Terraform outputs feed `aws eks update-kubeconfig`, pointing `kubectl` at the newly created cluster — infrastructure before application in the pipeline.
+It runs first in the prod path, using Terraform, Pulumi, or OpenTofu (per the chosen cloud) to provision the cluster, VPC/network, and managed database. The full sequence: `deploy_infra` → `deploy_image` → `deploy_sealed_secrets` (installs the Sealed Secrets controller and seals `.env` values) → `deploy_argo` (installs ArgoCD, which then syncs the application, monitoring, Loki, and Trivy resources from Git) — `deploy_kubernetes.sh`, `deploy_monitoring.sh`, `deploy_loki.sh`, and `trivy.sh` only run in the local/direct path. Infra outputs feed the matching kubeconfig command (e.g. `aws eks update-kubeconfig` for EKS), pointing `kubectl` at the newly created cluster — infrastructure before application in the pipeline.
 
 ### Scenario-based
 

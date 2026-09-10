@@ -58,7 +58,7 @@ Before containers, "it works on my machine" was a real problem — an app might 
 | `docker tag <image> newname:tag` | Add a new tag to an existing image |
 | `docker version` | Client + daemon version, API version |
 | `docker info` | Daemon-wide state: storage driver, containers running, root dir 
-| `docker commit <container> newimage:tag` | Create a new image from a container's current state |
+| `docker commit <container> newimage:tag` | Create a new image from a container's current state — technically works but is considered an anti-pattern because it's not reproducible (no Dockerfile records *how* the image was made). Use it only for quick debugging snapshots, never for real builds. |
 
 ### `-d` vs `-it` (a very common beginner confusion)
 
@@ -85,16 +85,7 @@ docker load -i myimage.tar                  # import it on another machine
 
 docker export <container> -o container.tar  # export a CONTAINER's filesystem (no history/layers)
 docker import container.tar newimage:latest # import as a flattened image
-
-`docker commit <container> newimage:tag`    # Create a new image from a container's current state
 ```
-
-### `docker commit` (and why it's an anti-pattern)
-
-`docker commit` snapshots a running container's writable layer into a new
-image. It technically works but is considered bad practice because it's not
-reproducible — there's no Dockerfile recording *how* the image was made.
-Use it only for quick debugging snapshots, never for real builds.
 
 ---
 
@@ -115,7 +106,7 @@ Docker uses a **client-server architecture**. The Docker client communicates wit
   │  $ docker build .   │                     │                                  │
   │  $ docker pull      │                     │  ┌──────────┐  ┌──────────────┐  │
   │  $ docker run       │                     │  │nginx:    │  │python:       │  │
-  │  $ docker push      │                     │  │latest    │  │3.11-slim     │  │
+  │  $ docker push      │                     │  │latest    │  │3.12-slim     │  │
   │  $ docker ps        │                     │  └──────────┘  └──────────────┘  │
   │  $ docker exec      │                     │  ┌──────────┐  ┌──────────────┐  │
   └──────────┬──────────┘                     │  │myapp:    │  │node:         │  │
@@ -274,16 +265,20 @@ Requires `sudo systemctl restart docker` to apply. Interview point: setting `log
 
 ```bash
 # run.sh — runtime detection
-if command -v docker >/dev/null 2>&1; then
-    CONTAINER_RUNTIME="docker"
-    if ! docker info >/dev/null 2>&1; then
-        echo "❌ Docker not accessible without sudo"
-        echo "Run: sudo usermod -aG docker $USER && newgrp docker"
+detect_container_runtime() {
+    if command -v docker >/dev/null 2>&1; then
+        CONTAINER_RUNTIME="docker"
+    elif command -v podman >/dev/null 2>&1; then
+        CONTAINER_RUNTIME="podman"
+    else
+        print_error "Docker or Podman is required but neither was found"
+        print_url "Install Docker:" "https://docs.docker.com/get-docker/"
+        exit 1
     fi
-elif command -v podman >/dev/null 2>&1; then
-    CONTAINER_RUNTIME="podman"
-fi
-export CONTAINER_RUNTIME
+
+    export CONTAINER_RUNTIME
+    print_success "Container runtime: ${BOLD}${CONTAINER_RUNTIME}${RESET}"
+}
 ```
 
 ---
@@ -309,8 +304,8 @@ A Docker image is not a single file — it's three JSON-described pieces per the
 - **Layers** — tarballs of filesystem diffs, each identified by a SHA256 digest
 
 ```bash
-docker manifest inspect python:3.11-slim   # see the manifest for a tag
-docker inspect python:3.11-slim            # see the merged config
+docker manifest inspect python:3.12-slim   # see the manifest for a tag
+docker inspect python:3.12-slim            # see the merged config
 ```
 
 This is why `docker save`/`load` preserve everything — they're just moving these JSON files + layer tarballs — and why image digests (`@sha256:...`) are immutable: the digest is a hash of the manifest itself.
@@ -331,7 +326,7 @@ Dockerfile → docker build → Image → docker push → Registry
                                     docker rm   → Removed (gone)
 ```
 
-*In this project:* `build_and_push_image.sh` handles the `build → push` path. Kubernetes then handles `pull → run` on each node via `imagePullPolicy: Always`.
+*In this project:* `build_and_push_image.sh` handles the `build → push` path. Kubernetes then handles `pull → run` on each node.
 
 ---
 
@@ -342,162 +337,89 @@ Dockerfile → docker build → Image → docker push → Registry
 ```dockerfile
 # app/Dockerfile
 
-# Multi-stage build — keeps the final image lean
-# Compatible with Docker and Podman
+FROM python:3.12-slim
 
-# Stage 1: dependency builder
-FROM python:3.11-slim AS builder
-WORKDIR /build
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends gcc g++ cmake make \
-    && rm -rf /var/lib/apt/lists/*
-COPY requirements.txt .
-RUN pip install --upgrade pip \
-    && pip install --prefix=/install --no-cache-dir -r requirements.txt
-
-# Stage 2: runtime image
-FROM python:3.11-slim AS runtime
-RUN groupadd --gid 1001 appgroup \
-    && useradd --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser
 WORKDIR /app
-COPY --from=builder /install /usr/local
-COPY src/ ./src/
-USER appuser
-ENV APP_NAME=devops-aiml-app \
-    APP_PORT=3000 \
-    APP_ENV=production \
-    MODEL_NAME=baseline-v1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
-EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:3000/health')"
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "3000", "--workers", "1", "--log-level", "info"]
+
+# Install dependencies first for better layer caching
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Application source
+COPY src ./src
+
+# Writable location for the SQLite database file (see DB_SQLITE_PATH in
+# src/config.py). Created here so it exists even if no volume is mounted.
+RUN mkdir -p /app/data
+
+# APP_PORT is the single source of truth (see .env). Default kept in sync
+# with .env's APP_PORT=8000 so a plain `docker run` still works.
+ENV APP_PORT=8000
+EXPOSE 8000
+
+# Shell form so ${APP_PORT} is resolved from the container's real
+# environment at runtime (injected via the Kubernetes ConfigMap/Secret,
+# docker-compose, or `docker run -e APP_PORT=...`).
+CMD ["sh", "-c", "uvicorn src.main:app --host 0.0.0.0 --port ${APP_PORT:-8000} --log-level ${LOG_LEVEL:-info}"]
 ```
 
-This is a **multi-stage Dockerfile** for a Python web application (likely a FastAPI app using Uvicorn). Its goal is to build dependencies separately, keep the final image small, improve security, improve caching, and make deployments cleaner and faster.
+This is a single-stage Dockerfile for a **Python FastAPI** application, served by **Uvicorn**. It installs dependencies before copying application source (layer-cache optimization), provisions a writable directory for the SQLite database, and resolves its listening port from the container's real environment at runtime rather than baking it in.
 
 ### Big Picture Architecture
 
 ```text
-Stage 1 (builder)
- ├── install compilers/tools
- ├── install Python dependencies
- └── prepare packages
-
-Stage 2 (runtime)
- ├── fresh lightweight Python image
- ├── copy only installed packages
- ├── copy application code
- ├── run as non-root user
- └── start FastAPI app
+python:3.12-slim base
+ ├── set /app as working directory
+ ├── install Python dependencies (requirements.txt) — cached layer
+ ├── copy application source (src/)
+ ├── create /app/data for the SQLite DB file
+ ├── declare APP_PORT and EXPOSE 8000
+ └── start Uvicorn, reading APP_PORT / LOG_LEVEL from the real environment
 ```
 
-### Stage 1 — Builder Stage
+### `FROM python:3.12-slim`
 
-#### `FROM python:3.11-slim AS builder`
+Uses the official Python 3.12 slim (smaller Debian-based) image. The slim variant is preferred over the regular image (~900MB+) because it's much smaller (~100–150MB), has a reduced attack surface, faster pull times, and lower storage usage.
 
-Uses the official Python 3.11 slim (smaller Debian-based) image and names this stage `builder`. Naming a stage matters because without it you can't later do `COPY --from=builder` in a later stage — the name enables cross-stage copying.
+### `WORKDIR /app`
 
-Internally Docker creates a layer of Base OS + Python 3.11. The slim variant is preferred over the regular image (~900MB+) because it's much smaller (~100–150MB), has a reduced attack surface, faster pull times, and lower storage usage.
+Sets the working directory inside the container — equivalent to `mkdir -p /app && cd /app`. All future commands run from `/app`. Without it, `COPY requirements.txt .` would copy into root (`/`), which gets messy fast.
 
-#### `WORKDIR /build`
+### `COPY requirements.txt .` then `RUN pip install --no-cache-dir -r requirements.txt`
 
-Sets the working directory inside the container — equivalent to `mkdir -p /build && cd /build`. All future commands run from `/build`. Without it, `COPY requirements.txt .` would copy into root (`/`), which gets messy fast.
+Copies `requirements.txt` (fastapi, uvicorn, sqlalchemy, httpx, psycopg, passlib, pyjwt, prometheus-client, email-validator) into `/app/requirements.txt` and installs it *before* the rest of the source is copied. This is critical for Docker's layer cache: Docker builds layer by layer, and if `requirements.txt` is unchanged, the `RUN pip install` layer is reused from cache — only the app-code layer rebuilds. `--no-cache-dir` prevents pip from storing wheel caches, which would otherwise bloat the image.
 
-#### `RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ cmake make && rm -rf /var/lib/apt/lists/*`
+**Bad practice**, by contrast, is `COPY . .` followed by `RUN pip install ...` — now *any* source code change invalidates the dependency cache, forcing a full reinstall on every build.
 
-Installs build tools needed because some Python packages (numpy, pandas, cryptography, psycopg2, uvloop) require compilation:
+### `COPY src ./src`
 
-| Tool | Purpose |
+Copies the local `src/` folder (the FastAPI application) after dependencies, for the caching reason above: dependencies change less frequently than code, so an app-code-only change only invalidates this layer onward.
+
+### `RUN mkdir -p /app/data`
+
+Creates a writable location for the SQLite database file referenced by `DB_SQLITE_PATH` in `src/config.py`, so the path exists even if no volume is mounted at runtime.
+
+### `ENV APP_PORT=8000` / `EXPOSE 8000`
+
+`APP_PORT` is the single source of truth for the app's port, kept in sync with `.env`'s `APP_PORT=8000` so a plain `docker run` still works without extra flags. `EXPOSE 8000` documents the container port for readability and orchestration tools — it does **not** actually publish the port. Actual publishing requires `-p hostPort:8000` at `docker run` time, `ports:` in Compose, or a Kubernetes Service `targetPort`. In this project, Compose's `"${APP_PORT:-8000}:8000"` does the real publishing locally, and the Kubernetes Service's `targetPort` handles it in-cluster.
+
+### `CMD` (shell form, intentionally)
+
+```dockerfile
+CMD ["sh", "-c", "uvicorn src.main:app --host 0.0.0.0 --port ${APP_PORT:-8000} --log-level ${LOG_LEVEL:-info}"]
+```
+
+| Part | Meaning |
 |---|---|
-| gcc | C compiler |
-| g++ | C++ compiler |
-| cmake | Build system |
-| make | Compilation automation |
+| uvicorn | ASGI server |
+| src.main:app | app object |
+| 0.0.0.0 | listen on all interfaces |
+| ${APP_PORT:-8000} | resolved from the container's real environment at start, defaulting to 8000 |
+| ${LOG_LEVEL:-info} | resolved the same way, defaulting to info |
 
-- `apt-get update` runs first because package indexes must be refreshed, or "package not found" errors can occur.
-- Chaining with `&&` means each command runs only if the previous succeeds, and keeps everything in **one layer**.
-- `rm -rf /var/lib/apt/lists/*` removes package metadata cache — without it, the image becomes larger.
-- `--no-install-recommends` installs only required packages, avoiding unnecessary extras that bloat image size.
+Binding `0.0.0.0` matters — `127.0.0.1` would make the container inaccessible from outside. This is written as `["sh", "-c", "..."]` (an *exec-form call to a shell*, not bare shell form) specifically because `${APP_PORT}`/`${LOG_LEVEL}` need shell variable expansion at container start — Kubernetes injects these via ConfigMap/Secret, so they aren't known at build time. See "`RUN` vs `CMD`" and "CMD vs ENTRYPOINT" below for how `CMD` behaves in general, and the PID-1/signal-handling note further down for why the choice between shell form and exec form also affects graceful shutdown.
 
-#### `COPY requirements.txt .`
-
-Copies the local `requirements.txt` into `/build/requirements.txt`. Copying it separately (rather than the whole source tree) is critical for Docker's layer cache: Docker builds layer by layer, and if `requirements.txt` is unchanged, the subsequent `RUN pip install ...` layer is reused from cache — only app code rebuilds.
-
-**Bad practice**, by contrast, is `COPY . . ` followed by `RUN pip install ...` — now *any* source code change invalidates the dependency cache, forcing a full reinstall on every build.
-
-#### `RUN pip install --upgrade pip && pip install --prefix=/install --no-cache-dir -r requirements.txt`
-
-`pip install --upgrade pip` updates pip itself, since older versions can fail with modern packages. Installing with `--prefix=/install` (instead of the default global location) is critical for multi-stage builds — later, `COPY --from=builder /install /usr/local` copies *only* the installed dependencies, not build tools, cache, or temp files. `--no-cache-dir` prevents pip from storing wheel caches, which would otherwise bloat the image.
-
-### Stage 2 — Runtime Stage
-
-#### `FROM python:3.11-slim AS runtime`
-
-This starts a completely **new** image — everything from the builder stage is discarded unless explicitly copied. This is the key to multi-stage builds: the builder stage contains gcc, cmake, make, and temp files, while the runtime stage contains only the Python runtime, installed packages, and app code. Much smaller and safer.
-
-#### Create a non-root user
-
-```dockerfile
-RUN groupadd --gid 1001 appgroup \
-    && useradd --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser
-```
-
-| Entity | Value |
-|---|---|
-| Group | appgroup |
-| GID | 1001 |
-| User | appuser |
-| UID | 1001 |
-
-Containers run as root by default, which is dangerous — if the app is compromised, the attacker gets root inside the container. Best practice is to switch to a dedicated user with `USER appuser`.
-
-#### `WORKDIR /app`
-
-Sets the application directory.
-
-#### `COPY --from=builder /install /usr/local`
-
-Copies the installed Python packages. Python automatically searches `/usr/local/lib/python...`, so dependencies become globally available. Only the installed dependencies are copied — not gcc, apt packages, build cache, or temp files.
-
-#### `COPY src/ ./src/`
-
-Copies the local source folder. This happens *after* dependencies for caching optimization: dependencies change less frequently than code, so if only app code changes, only this layer rebuilds — dependencies stay cached.
-
-#### `COPY --chown` shortcut
-
-Instead of copying as root then `RUN chown -R appuser:appgroup /app` as a
-separate layer, `COPY` supports setting ownership inline:
-
-```dockerfile
-COPY --chown=appuser:appgroup src/ ./src/
-```
-
-This avoids an extra layer and extra `find`/`chown` filesystem walk at build
-time — meaningfully faster on large source trees.
-
-#### `USER appuser`
-
-All future commands (including `CMD` and the application process) run as non-root. This means the app cannot modify system files, install packages, or access privileged resources.
-
-#### `ENV`
-
-```dockerfile
-ENV APP_NAME=devops-aiml-app \
-    APP_PORT=3000 \
-    APP_ENV=production \
-    MODEL_NAME=baseline-v1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
-```
-
-Sets environment variables, accessible via `os.getenv("APP_NAME")` in Python. Two Python-specific ones matter:
-
-- `PYTHONUNBUFFERED=1` disables output buffering — without it, logs may appear delayed, which matters for Docker/Kubernetes logging.
-- `PYTHONDONTWRITEBYTECODE=1` prevents `.pyc` file creation, avoiding unnecessary writes and clutter.
-
-#### `ARG` — build-time-only variables
+### `ARG` — build-time-only variables
 
 ```dockerfile
 ARG MODEL_VERSION=baseline-v1
@@ -524,7 +446,7 @@ ENV APP_VERSION=$APP_VERSION
 ```
 This makes the value both a build-time input AND visible to the running app via `os.getenv()`.
 
-#### Environment Variable Precedence
+### Environment Variable Precedence
 
 When the same variable is set in multiple places, this is the resolution order
 (highest wins):
@@ -541,37 +463,16 @@ automatically become container environment variables — it only substitutes
 `${VAR}` placeholders in the compose file. To inject it into the container you
 still need `env_file: .env` under the service.
 
-#### `EXPOSE 3000`
+### `HEALTHCHECK`
 
-Documents the container port for readability and orchestration tools — it does **not** actually publish the port. Actual publishing requires `docker run -p 3000:3000`.
-
-#### `HEALTHCHECK`
+This project's `app/Dockerfile` does not declare a `HEALTHCHECK` instruction — health checking is instead done at the orchestration layer: `docker-compose.yml`'s `healthcheck:` block (Python `urllib` hitting `/api/v1/health`) for local Compose runs, and Kubernetes liveness/readiness probes for cluster deployments. If a `HEALTHCHECK` were added directly to the Dockerfile, the syntax would be:
 
 ```dockerfile
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:3000/health')"
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"
 ```
 
-Every 30 seconds, Docker calls `/health`. If it fails repeatedly, the container is marked unhealthy. This lets Docker/Kubernetes restart unhealthy containers, remove them from load balancing, and alert monitoring systems.
-
-#### `CMD`
-
-```dockerfile
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "3000", "--workers", "1", "--log-level", "info"]
-```
-
-The default startup command:
-
-| Part | Meaning |
-|---|---|
-| uvicorn | ASGI server |
-| src.main:app | app object |
-| 0.0.0.0 | listen on all interfaces |
-| 3000 | app port |
-| workers=1 | single worker |
-| log-level=info | logging verbosity |
-
-Binding `0.0.0.0` matters — `127.0.0.1` would make the container inaccessible from outside.
+Every interval, Docker would call the health endpoint; if it fails repeatedly, the container is marked unhealthy, letting Docker/Kubernetes restart unhealthy containers, remove them from load balancing, and alert monitoring systems.
 
 ### Order of Commands — Why It Matters
 
@@ -593,18 +494,18 @@ Layer 3 → Files copied
 Layer 4 → Metadata (CMD)
 ```
 
-Order affects caching. `COPY . . ` followed by `RUN npm install` means *any* source change invalidates the cache, so `npm install` reruns on every build — bad. The better order is `COPY package.json .` → `RUN npm install` → `COPY . .`, so dependencies are cached separately.
+Order affects caching. `COPY . .` followed by `RUN pip install ...` means *any* source change invalidates the cache, so the install step reruns on every build — bad. The better order (used in this project) is `COPY requirements.txt .` → `RUN pip install ...` → `COPY src ./src`, so dependencies are cached separately.
 
 A few other ordering pitfalls:
 
 - **`FROM` must come first** — without a base image, Docker has no filesystem or environment to build on.
 - **`COPY` before `WORKDIR`** copies files into `/` before the working directory changes, leaving a messy structure.
-- **`USER` before `COPY`** can fail due to permissions, since the non-root user may not have write access — copy as root, then switch user.
+- **`USER` before `COPY`** can fail due to permissions, since a non-root user may not have write access — copy as root, then switch user.
 - **`CMD` before `COPY`** is technically valid (Docker parses the whole Dockerfile first) but confusing. Best practice order: setup → dependencies → app files → runtime config → startup command last, since `CMD` represents final container behavior and reads better at the end.
 
 ### `RUN` vs `CMD`
 
-`RUN` executes during **image build** (e.g. `RUN pip install flask`) and runs once. `CMD` executes during **container start** (e.g. `CMD ["python", "app.py"]`) and runs every time the container starts.
+`RUN` executes during **image build** (e.g. `RUN pip install -r requirements.txt`) and runs once, baked into a layer. `CMD` executes during **container start** (e.g. this project's `CMD ["sh", "-c", "uvicorn ..."]`) and runs every time the container starts.
 
 | Feature | `docker run` | `CMD` | `RUN` |
 | :--- | :--- | :--- | :--- |
@@ -612,7 +513,6 @@ A few other ordering pitfalls:
 | **Phase** | Runtime (Launches container) | Runtime Configuration | Build time (Creates image layers) |
 | **Purpose** | Creates and starts a container | Sets default command for container | Installs software / sets up files |
 | **Overridable?** | N/A | Yes, by adding arguments to `docker run` | No, it is baked into the image |
-
 
 ### CMD vs ENTRYPOINT
 
@@ -624,18 +524,15 @@ A few other ordering pitfalls:
 | **Best Used For** | Optional default flags, or optional commands like shells. | Making a container behave like a single, dedicated tool. |
 | **Example Use Case** | `CMD ["--help"]` | `ENTRYPOINT ["git"]` |
 
-
 ```dockerfile
-ENTRYPOINT ["python", "app.py"]
-CMD ["--env=production"]
-```
-`docker run myimage --env=staging` → runs `python app.py --env=staging` (CMD args replaced, ENTRYPOINT stays fixed).
+ENTRYPOINT ["python"]
+CMD ["src/main.py"]
 
-**Shell form pitfall applies to ENTRYPOINT too:**
-```dockerfile
-ENTRYPOINT python app.py     # PID 1 = /bin/sh — SIGTERM may not propagate
-ENTRYPOINT ["python", "app.py"]  # PID 1 = python — correct
+# docker run devops-app                → runs: python src/main.py
+# docker run devops-app src/alt.py     → runs: python src/alt.py (CMD overridden)
 ```
+
+*In this project:* only `CMD ["sh", "-c", "uvicorn src.main:app ..."]` is used, with no explicit `ENTRYPOINT`. This means `docker run <image> bash` would open a bash shell instead of starting Uvicorn — useful for debugging. If `ENTRYPOINT` were set instead, you couldn't get a shell without the `--entrypoint` flag.
 
 ### `COPY` vs `ADD`
 
@@ -648,32 +545,45 @@ Prefer `COPY`. `ADD` has extra "magic" — automatic tar extraction and remote U
 | **Remote URLs** | No, cannot download from URLs. | Yes, downloads files directly from remote URLs. |
 | **Tar Extraction** | No, copies compressed files as-is. | Yes, automatically extracts local `.tar` archives. |
 | **Best Practice** | **Highly Recommended** for daily use (clean and clear). | Use only when you *need* auto-extraction or URLs. |
-| **Example Code** | `COPY package.json /app/` | `ADD https://example.com /app/` |
+| **Example Code** | `COPY requirements.txt /app/` | `ADD https://example.com /app/` |
 
 ### Final Runtime Result
 
-The final image contains the Python runtime, installed dependencies, application code, a non-root user, environment variables, a healthcheck, and the startup command — but **not** gcc, cmake, make, apt cache, pip cache, or build artifacts.
+The final image contains the Python runtime, installed dependencies, application source, the `/app/data` directory for SQLite, and the startup command — a straightforward single-stage build with no build tools to strip out, since none of this project's dependencies require compilation.
 
-This Dockerfile follows modern best practices: multi-stage builds, a small runtime image, dependency caching optimization, a non-root user, health checks, no pip/apt cache, explicit environment variables, separated build/runtime concerns, secure defaults, better CI/CD performance, and Kubernetes-friendly design.
-
-**Typical build flow** (`docker build -t myapp .`): pull `python:3.11-slim` → install compilers → install Python deps → start a fresh runtime image → copy only installed packages → copy app code → configure runtime → set the startup command.
-
-**Image size**, roughly: without multi-stage, 500MB–1GB+; with this approach, 100–250MB, depending on dependencies.
+**Typical build flow** (`docker build -t myapp app/`): pull `python:3.12-slim` → install Python deps from `requirements.txt` → copy `src/` → create `/app/data` → set the startup command.
 
 ### `.dockerignore`
 
 ```
 # app/.dockerignore
-node_modules        ← Don't copy local node_modules (use npm install inside)
-.git                ← No git history in image
-.gitlab             ← CI config not needed at runtime
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.db
+.env
+.venv/
+venv/
+.git/
 .gitignore
-Dockerfile          ← No need to include the build recipe
-.env*               ← CRITICAL: Never copy secrets into image
+tests/
 README.md
 ```
 
-The `.dockerignore` file prevents unnecessary files from being sent to the Docker build context (the tarball sent to the daemon before building). Without it: `node_modules` (potentially hundreds of MB) would be copied then overwritten by `npm install`; `.env` files containing secrets could be accidentally baked into the image; and build context size balloons, slowing down builds.
+The `.dockerignore` file prevents unnecessary files from being sent to the Docker build context (the tarball sent to the daemon before building). Without it: Python bytecode caches and virtualenvs (`__pycache__/`, `.venv/`, `venv/`) would bloat the build context; `.env` files containing secrets could be accidentally baked into the image; local SQLite `.db` files and test suites would be copied in unnecessarily; and build context size balloons, slowing down builds.
+
+**What would happen if `.env` was not excluded?** Docker sends the entire build context to the daemon before building, so if `.env` were included and something like `COPY . .` were used, its contents would end up in that layer. Even if a later `RUN rm .env` removed it, the content would still be **visible in that layer's history**:
+
+```bash
+docker history myimage:latest      # Shows all layers
+docker save myimage | tar -xf -    # Extract and inspect any layer
+```
+
+Anyone with pull access to the image could extract it and read the secrets. The wildcard pattern `.env*` (rather than listing `.env` alone) also matters in general — it future-proofs against `.env.local`, `.env.production`, `.env.staging`, etc., which teams often create over time; this project's real `.dockerignore` currently excludes the exact `.env` name, so adding variants later should extend it to `.env*` for the same protection. The correct pattern either way is to inject secrets at **runtime** via environment variables or, as this project does, via Kubernetes Secrets — never bake them into a layer.
 
 ---
 
@@ -687,21 +597,21 @@ Each `RUN`, `COPY`, and `ADD` instruction creates a new read-only layer. Layers 
 ┌─────────────────────────────────────┐
 │  Writable Container Layer           │  ← docker run creates this
 ├─────────────────────────────────────┤
-│  Layer 6: USER appuser              │  RUN chown + USER
+│  Layer 4: CMD (metadata only)       │  Startup command
 ├─────────────────────────────────────┤
-│  Layer 5: COPY . .                  │  Application source code
+│  Layer 3: RUN mkdir -p /app/data    │  SQLite data directory
 ├─────────────────────────────────────┤
-│  Layer 4: RUN npm install           │  node_modules (~50MB)
+│  Layer 2: COPY src ./src            │  Application source code
 ├─────────────────────────────────────┤
-│  Layer 3: COPY package*.json        │  package.json, package-lock.json
+│  Layer 1: RUN pip install -r ...    │  Python dependencies (~50-150MB)
 ├─────────────────────────────────────┤
-│  Layer 2: WORKDIR + RUN adduser     │  /app directory + system user
+│  Layer 0: COPY requirements.txt .   │  requirements.txt
 ├─────────────────────────────────────┤
-│  Layer 1: node:18-alpine base       │  ~50MB — shared across all images using it
+│  Base: python:3.12-slim             │  ~130MB — shared across all images using it
 └─────────────────────────────────────┘
 ```
 
-**Layer sharing:** If 10 different images all use `FROM node:18-alpine`, the base layer is stored once on disk and shared. This is why pulling a second Node.js image is fast — the base is already cached.
+**Layer sharing:** If 10 different images all use `FROM python:3.12-slim`, the base layer is stored once on disk and shared. This is why pulling a second Python image is fast — the base is already cached.
 **Pull mechanics:** when you `docker pull`, Docker checks each layer's
 digest against what's already cached locally and only downloads layers it
 doesn't already have — this is why pulling a new tag of an image you already
@@ -713,45 +623,44 @@ changed top layers transfer.
 
 ```bash
 # Tag format: registry/repository:tag
-docker.io/hiteshm/devops-app:latest
-#           ^username ^app    ^tag
+docker.io/<dockerhub-username>/devops-app:latest
+#              ^ DOCKERHUB_USERNAME   ^ APP_NAME   ^ tag
 
 # Digest (immutable reference to exact image content)
-docker.io/hiteshm/devops-app@sha256:abc123...
+docker.io/<dockerhub-username>/devops-app@sha256:abc123...
 
-# In this project — tag comes from git SHA or .env
-IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo latest)}"
-IMAGE_NAME="$DOCKERHUB_USERNAME/$APP_NAME:$IMAGE_TAG"
+# In this project — tag comes from .env, no automatic fallback
+# (build_and_push_image.sh fails loudly if DOCKER_IMAGE_TAG is unset)
+IMAGE_NAME="${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}"
 ```
 
-Using git SHAs as tags is a best practice — it creates a direct traceability from running container to the exact git commit that produced it.
+Using a stable, explicit tag (or a git SHA, if you choose to set `DOCKER_IMAGE_TAG` to one) is a best practice — it creates a direct traceability from a running container back to the exact build that produced it. This project deliberately does **not** auto-derive the tag from git — `DOCKER_IMAGE_TAG` must be set in `.env`, so the pushed tag and the tag referenced in `kustomization.yaml` can never silently drift apart.
 
 ### Multi-Stage Builds (Enhancement Opportunity)
 
-The current Dockerfile uses a single stage. Multi-stage builds can further reduce image size:
+The current `app/Dockerfile` uses a **single stage** — there's no compiler toolchain to strip out since none of this project's Python dependencies need to be built from source. If a future dependency did require compilation, a multi-stage build would keep the final image lean:
 
 ```dockerfile
-# Stage 1 — Build (has build tools, dev deps)
-FROM node:18-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm install              # Install ALL deps including devDeps
-COPY . .
-RUN npm run build            # Compile TypeScript, bundle, etc.
+# Stage 1 — Build (has compiler toolchain, dev deps)
+FROM python:3.12-slim AS builder
+WORKDIR /build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc g++ \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --prefix=/install --no-cache-dir -r requirements.txt
 
 # Stage 2 — Production (minimal, only runtime artifacts)
-FROM node:18-alpine AS production
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+FROM python:3.12-slim AS runtime
 WORKDIR /app
-COPY --from=builder /app/dist ./dist          # Only compiled output
-COPY --from=builder /app/node_modules ./node_modules
-RUN chown -R appuser:appgroup /app
-USER appuser
-EXPOSE 3000
-CMD ["node", "dist/index.js"]
+COPY --from=builder /install /usr/local     # Only installed packages
+COPY src ./src                              # Only application source
+RUN mkdir -p /app/data
+EXPOSE 8000
+CMD ["sh", "-c", "uvicorn src.main:app --host 0.0.0.0 --port ${APP_PORT:-8000} --log-level ${LOG_LEVEL:-info}"]
 ```
 
-The final image contains zero build tools or dev dependencies.
+The final image would contain zero compilers or build tools — only the runtime-needed installed packages and app source. Naming a stage (`AS builder`, `AS runtime`) matters because without it you can't later do `COPY --from=builder` in a later stage — the name enables cross-stage copying, and `FROM ... AS runtime` starts a completely new image where everything from the builder stage is discarded unless explicitly copied.
 
 ### Building Only One Stage with `--target`
 
@@ -767,11 +676,11 @@ slim runtime image.
 ### Checklist: Reducing Image Size
 
 - Use `-slim` / `-alpine` / distroless base images instead of full OS images
-- Use multi-stage builds — discard compilers/build tools in the final stage
+- Use multi-stage builds when compilers or build tools are needed — discard them in the final stage
 - Combine `RUN` commands with `&&` to avoid extra layers
 - Clean package manager caches in the **same** `RUN` layer they were created in (`rm -rf /var/lib/apt/lists/*` in the same line as `apt-get install`, not a later layer — a later layer doesn't shrink earlier ones)
 - Use `.dockerignore` to keep build context small
-- Install only production dependencies (`pip install --no-dev`, `npm install --production`)
+- Install only what's needed at runtime (`pip install --no-cache-dir`, avoid dev/test extras)
 - Prefer `COPY` over `ADD` (no tar-extraction surprises, same size either way but clearer intent)
 
 ### BuildKit — Docker's Modern Build Engine
@@ -798,12 +707,12 @@ docker build --secret id=npmrc,src=$HOME/.npmrc .
 docker buildx build --platform linux/amd64,linux/arm64 -t user/app:tag --push .
 ```
 
-**Interview point:** `ARG`/`ENV` secrets are visible forever via `docker history`; BuildKit secret mounts never touch a layer at all — this is the correct answer to "how do you pass a private npm token into a build safely."
+**Interview point:** `ARG`/`ENV` secrets are visible forever via `docker history`; BuildKit secret mounts never touch a layer at all — this is the correct answer to "how do you pass a private token into a build safely."
 
 ### Inspecting Multi-Platform Images
 
 ```bash
-docker manifest inspect node:18-alpine
+docker manifest inspect python:3.12-slim
 ```
 
 Shows the manifest list — every OS/architecture variant a tag actually
@@ -878,7 +787,7 @@ Containers do not copy an entire filesystem for each instance. Instead they use 
 
 - **Read operations** traverse the stack from top to bottom — the first layer that has the file wins.
 - **Write operations** use copy-on-write (CoW): the file is copied up into the writable layer before modification. The original image layer is never changed.
-- When a container is deleted, its writable layer is discarded. Image layers are shared across all containers built from the same image — a 200 MB base image layer is stored on disk only once regardless of how many containers use it.
+- When a container is deleted, its writable layer is discarded. Image layers are shared across all containers built from the same image — a 130 MB base image layer is stored on disk only once regardless of how many containers use it.
 
 ### Container Lifecycle
 
@@ -977,7 +886,7 @@ Containers on the same bridge can reach each other by IP. Outbound traffic is NA
 ### Reaching the Host Machine From a Container
 
 `localhost` inside a container refers to the container itself, not the host.
-To reach a service running on the host (e.g. a local Postgres on your laptop):
+To reach a service running on the host (e.g. a local Postgres on your laptop, per this project's `DB_HOST`/`DB_PORT` settings):
 
 ```bash
 # Mac/Windows Docker Desktop — works out of the box
@@ -1001,7 +910,7 @@ docker volume create mydata
 docker run -v mydata:/app/data myimage
 ```
 
-Stored under `/var/lib/docker/volumes/` on the host, managed by Docker, and survive container deletion. Can be shared between multiple containers simultaneously and support third-party drivers (NFS, EBS, GlusterFS via plugins).
+Stored under `/var/lib/docker/volumes/` on the host, managed by Docker, and survive container deletion. Can be shared between multiple containers simultaneously and support third-party drivers (NFS, EBS, GlusterFS via plugins). This project's own Compose file uses exactly this pattern for its SQLite data directory — see `devops_data:/data` under Docker Compose below.
 
 **Bind mounts:**
 
@@ -1009,7 +918,7 @@ Stored under `/var/lib/docker/volumes/` on the host, managed by Docker, and surv
 docker run -v /host/path:/container/path myimage
 ```
 
-Maps an arbitrary host directory into the container. The container can read/write the host filesystem directly. Useful in development (live code reloading), risky in production.
+Maps an arbitrary host directory into the container. The container can read/write the host filesystem directly. Useful in development (live code reloading — this project's Compose file bind-mounts `../../../app/src:/app/src:ro` read-only for exactly this reason), risky in production.
 
 **tmpfs mounts:**
 
@@ -1033,7 +942,7 @@ docker run \
   myimage
 ```
 
-These translate directly into cgroup entries under `/sys/fs/cgroup/`.
+These translate directly into cgroup entries under `/sys/fs/cgroup/`. This project's own resource limits (`APP_CPU_REQUEST`, `APP_CPU_LIMIT`, `APP_MEMORY_REQUEST`, `APP_MEMORY_LIMIT` in `.env`) are the Kubernetes equivalent, translated into pod `resources.requests`/`resources.limits` rather than `docker run` flags.
 
 ### Security Model
 
@@ -1045,11 +954,13 @@ These translate directly into cgroup entries under `/sys/fs/cgroup/`.
 | Seccomp profile | Default profile blocks ~44 dangerous syscalls (`reboot`, `mount`, `ptrace`, etc.) |
 | AppArmor / SELinux | MAC profiles restrict file and network access further (distro-dependent) |
 
-**Privilege escalation risks:** `--privileged` disables almost all isolation and gives the container full access to the host — avoid in production. `--cap-add` adds specific capabilities back selectively — safer than full privileged mode. Running containers as root (UID 0) inside is common but risky if combined with volume mounts, since a breakout could write to the host as root. User namespaces (`userns-remap`) remap container root (UID 0) to an unprivileged host UID — best practice for defence in depth.
+**Privilege escalation risks:** `--privileged` disables almost all isolation and gives the container full access to the host — avoid in production. `--cap-add` adds specific capabilities back selectively — safer than full privileged mode. Running containers as root (UID 0) inside is common but risky if combined with volume mounts, since a breakout could write to the host as root — this project's `app/Dockerfile` currently runs as root by default; adding a dedicated non-root `USER` (as covered in Security below) would close this gap. User namespaces (`userns-remap`) remap container root (UID 0) to an unprivileged host UID — best practice for defence in depth.
 
 ### Key Container Concepts
 
 **PID 1 and signal handling.** The first process started inside a container (the `ENTRYPOINT`/`CMD`) runs as **PID 1**. This matters because PID 1 receives `SIGTERM` from `docker stop` and is responsible for reaping zombie child processes — but many apps aren't designed to run as PID 1 and ignore `SIGTERM` or don't reap zombies. Solutions: use `tini` (a minimal init) as PID 1, or Docker's `--init` flag, which injects `tini` automatically.
+
+With **shell form** `CMD`, e.g. `CMD uvicorn src.main:app`, PID 1 would be `/bin/sh`, and `sh` may not forward `SIGTERM` to the actual Uvicorn child process — resulting in a `SIGKILL` after the grace period instead of a graceful shutdown. This project's actual `CMD ["sh", "-c", "uvicorn ... --port ${APP_PORT:-8000} ..."]` is *technically* still shell form under the hood (it explicitly invokes `sh -c` so `${APP_PORT}` gets expanded), so the same caveat applies here: Uvicorn is a child of `sh`, not PID 1 itself. In Kubernetes, `terminationGracePeriodSeconds` (default 30s) gives the container time to shut down before a `SIGKILL`; if graceful shutdown matters, consider `tini` or an exec-form wrapper that still allows variable expansion (e.g. resolving the port via an entrypoint script instead of inline `${APP_PORT}`).
 
 **Immutability.** Image layers are read-only by design. A container built from an image is always in a known, reproducible state at start. Configuration drift is prevented — state lives in volumes, not in the container. Rolling back means switching to the previous image tag, not patching a running system.
 
@@ -1118,7 +1029,8 @@ docker run --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3 my
 **Interview point:** without `max-size`/`max-file` limits, `json-file` logs grow
 unbounded and can fill a host's disk — a real production incident cause. In
 Kubernetes, this project's clusters offload log rotation to the kubelet/container
-runtime config instead of per-container flags.
+runtime config, and application logs are additionally shipped to Loki via Promtail
+for centralized querying.
 
 ---
 
@@ -1190,31 +1102,25 @@ A container can be attached to multiple networks simultaneously — useful for a
 ### Docker Compose Networking
 
 ```yaml
-# docker-compose.yml — this project
+# platform/deployment/docker/docker-compose.yml — this project
 services:
   devops-app:
     ports:
-      - "3000:3000"    # host_port:container_port — publishes to host
+      - "${APP_PORT:-8000}:8000"    # host_port:container_port — publishes to host
 ```
 
-When Docker Compose starts, it creates a **default bridge network** named `<project>_default`. All services can reach each other by service name:
-
-```
-# Inside the devops-app container, you could reach other services via:
-http://db:5432        # If a db service was defined
-http://redis:6379     # If a redis service was defined
-```
+When Docker Compose starts, it creates a **default bridge network** named `<project>_default`. All services can reach each other by service name — e.g. if a `db` or `redis` service were added to this Compose file, `devops-app` could reach it via `http://db:5432` or `http://redis:6379` without any extra network configuration.
 
 ### Port Mapping Explained
 
 ```
-Host Network:  0.0.0.0:3000  ──►  Container Network: 172.17.0.2:3000
+Host Network:  0.0.0.0:8000  ──►  Container Network: 172.17.0.2:8000
                ↑                                      ↑
                Bound on all host interfaces           Container's internal IP
                Accessible from outside host           Only accessible inside Docker network
 ```
 
-`-p 3000:3000` = `hostPort:containerPort` — NATs external traffic to the container.
+`-p 8000:8000` = `hostPort:containerPort` — NATs external traffic to the container. In this project's Compose file the mapping is written as `"${APP_PORT:-8000}:8000"`, so the host-side port follows `.env`'s `APP_PORT` while the container always listens on 8000 internally.
 
 ---
 
@@ -1224,8 +1130,8 @@ Host Network:  0.0.0.0:3000  ──►  Container Network: 172.17.0.2:3000
 
 | Type | Syntax | Use Case |
 |---|---|---|
-| **Named volume** | `volumes: app-data:/app/data` | Persistent data, managed by Docker |
-| **Bind mount** | `./src:/app/src` | Development — live code reload |
+| **Named volume** | `volumes: devops_data:/data` | Persistent data, managed by Docker |
+| **Bind mount** | `../../../app/src:/app/src:ro` | Development — live code reload |
 | **tmpfs** | `tmpfs: /tmp` | Ephemeral in-memory data |
 
 ### In This Project (docker-compose.yml)
@@ -1234,16 +1140,26 @@ Host Network:  0.0.0.0:3000  ──►  Container Network: 172.17.0.2:3000
 services:
   devops-app:
     volumes:
-      - ./app/src:/app/src     # Bind mount — local src changes reflect instantly
-      - /app/node_modules      # Anonymous volume — prevents host node_modules
-                               # from overwriting container's node_modules
+      - ../../../app/src:/app/src:ro   # Bind mount, read-only — local src changes reflect instantly
+      - devops_data:/data              # Named volume — persists the SQLite DB across container restarts
+
+volumes:
+  devops_data:
 ```
 
-The `/app/node_modules` trick is critical for development. Without it, the bind mount of `./app/src` might overwrite the container's `node_modules` with the host's (which could be different OS/architecture).
+Here, the bind mount (`../../../app/src:/app/src:ro`) is what a **Named Volume vs Bind Mount** comparison would call the "live code reload" case: local edits to `app/src` are visible inside the running container without a rebuild, and it's mounted `:ro` (read-only) so the container itself can't write back into the host's source tree. The named volume `devops_data:/data` is the persistence case: it's Docker-managed (stored under `/var/lib/docker/volumes/`), portable, and — unlike the bind mount — survives even if the host path layout changes, which matters here because `/data` holds the SQLite database file (`DB_SQLITE_PATH=/data/app.db` in `.env`).
+
+| | Named Volume | Bind Mount |
+|---|---|---|
+| **Location** | Docker-managed (`/var/lib/docker/volumes/`) | Exact host path you specify |
+| **Portability** | Portable across systems | Host-path dependent |
+| **Performance** | Optimized by Docker | Depends on host filesystem |
+| **Use case** | Persistent data (the SQLite DB file, via `devops_data`) | Development code sharing (`app/src`, mounted `:ro`) |
+| **Syntax** | `devops_data:/data` | `../../../app/src:/app/src:ro` |
 
 ### Production vs Development Storage
 
-In Kubernetes (production), the container filesystem is ephemeral — no volumes are mounted in the current project. This is correct for stateless Node.js apps. All state is externalized to RDS. The Docker Compose setup mounts source code for live development only.
+In Kubernetes (production), the container filesystem is ephemeral by default in this project's base manifests — application state lives outside the pod (e.g. a managed Postgres such as RDS/Cloud SQL/Azure PostgreSQL in production, per the `.env` `DB_*` variables). The Docker Compose setup's `devops_data` volume and bind-mounted source are for local development and SQLite-backed local runs only.
 
 ---
 
@@ -1252,28 +1168,39 @@ In Kubernetes (production), the container filesystem is ephemeral — no volumes
 ### The Project's Compose File
 
 ```yaml
-# docker-compose.yml
+# platform/deployment/docker/docker-compose.yml
 services:
   devops-app:
     build:
-      context: ./app          # Build context — what's sent to daemon
-      dockerfile: Dockerfile  # Which Dockerfile to use
-    container_name: devops-app
-    restart: unless-stopped   # Auto-restart unless manually stopped
+      context: ../../../app
+      dockerfile: Dockerfile
+    container_name: devops-console
+    restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${APP_PORT:-8000}:8000"
     environment:
-      NODE_ENV: development
-      PORT: 3000
+      APP_ENV: ${APP_ENV:-development}
+      DB_PATH: /data/app.db
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-60}
+      LRU_CACHE_SIZE: ${LRU_CACHE_SIZE:-128}
+      CB_FAILURE_THRESHOLD: ${CB_FAILURE_THRESHOLD:-5}
+      CB_RESET_SECONDS: ${CB_RESET_SECONDS:-30}
     volumes:
-      - ./app/src:/app/src    # Hot reload for development
-      - /app/node_modules
+      - ../../../app/src:/app/src:ro
+      - devops_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
+
+volumes:
+  devops_data:
 ```
+
+Notable details specific to this project: the build `context` points up three directories to `app/` (since the compose file itself lives under `platform/deployment/docker/`); `CB_FAILURE_THRESHOLD`/`CB_RESET_SECONDS` configure the app's circuit-breaker behavior; and the healthcheck uses Python's `urllib` (no `curl` dependency needed in the slim base image) against `/api/v1/health`, with a `start_period: 10s` grace window before failures count.
 
 ### `depends_on` Is Not a Readiness Check
 
@@ -1293,7 +1220,9 @@ Plain `depends_on: [db]` only waits for the container to **start**, not for
 the database inside it to be ready to accept connections — a classic source
 of "connection refused" errors on first `docker compose up`. The
 `condition: service_healthy` form (requires a `healthcheck:` on the
-dependency) is the fix.
+dependency) is the fix. This project's current Compose file has a single
+service and no such dependency, but the pattern applies immediately if a
+Postgres service is ever added alongside `devops-app`.
 
 ### Restart Policies
 
@@ -1304,20 +1233,27 @@ dependency) is the fix.
 | `unless-stopped` | Restart unless explicitly stopped — survives `docker restart daemon` |
 | `on-failure` | Restart only if exit code is non-zero |
 
-`unless-stopped` is ideal for development — it survives host reboots but respects `docker compose down`.
+This project uses `unless-stopped` (see the Compose file above) — it survives host reboots but respects `docker compose down`.
 
 ### Healthcheck
 
 ```yaml
 healthcheck:
-  test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-  #                     ^ fail on HTTP errors (non-2xx)
+  test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
   interval: 30s     # Check every 30 seconds
   timeout: 10s      # Fail if no response in 10 seconds
   retries: 3        # Mark unhealthy after 3 consecutive failures
+  start_period: 10s # Grace period before failures start counting
 ```
 
-Docker uses this to report container health (`healthy`/`unhealthy`/`starting`). In Compose, unhealthy containers are not automatically restarted — that's what `restart: unless-stopped` handles for crashes (exit code != 0).
+Docker uses this to report container health (`healthy`/`unhealthy`/`starting`). In Compose, unhealthy containers are not automatically restarted — that's what `restart: unless-stopped` handles for crashes (exit code != 0). Docker's healthcheck is advisory — it changes the container's health status but doesn't automatically restart it or remove it from load balancing. Kubernetes probes (readiness/liveness) are the **actionable** equivalent: they drive concrete platform behavior (removing a Pod from Service endpoints, or restarting the container), which is why the project's Kubernetes base manifests define their own probes independent of this Compose healthcheck.
+
+| Aspect | Docker healthcheck | Kubernetes probe |
+|---|---|---|
+| **On failure** | Marks container `unhealthy` (no action by default) | Removes Pod from Service endpoints (readiness) or restarts container (liveness) |
+| **Restart** | Only if `restart: unless-stopped` + container exits | Automatic via kubelet |
+| **Traffic routing** | Not integrated with networking | Integrated — unhealthy Pods get no traffic |
+| **Types** | CMD only | HTTP GET, TCP socket, exec, gRPC |
 
 ### Compose vs Kubernetes
 
@@ -1337,48 +1273,87 @@ Docker uses this to report container health (`healthy`/`unhealthy`/`starting`). 
 ### Image Naming Convention
 
 ```
-docker.io  /  hiteshm  /  devops-app  :  abc1234
-   ↑              ↑            ↑              ↑
- Registry     Namespace     Repository      Tag
-(default)    (username)     (image name)  (version)
+docker.io  /  <dockerhub-username>  /  devops-app  :  <tag>
+   ↑              ↑                       ↑              ↑
+ Registry     Namespace              Repository        Tag
+(default)   (DOCKERHUB_USERNAME)    (APP_NAME)     (DOCKER_IMAGE_TAG)
 ```
 
 ### The Build & Push Flow
 
 ```bash
-# build_and_push_image.sh
+# platform/deployment/docker/build_and_push_image.sh
 build_and_push_image() {
-  # 1. Generate tag from git SHA (traceability)
-  IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo latest)}"
-  IMAGE_NAME="$DOCKERHUB_USERNAME/$APP_NAME:$IMAGE_TAG"
+  : "${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required. Set it in .env}"
+  : "${APP_NAME:=devops-app}"
+  : "${PROJECT_ROOT:?PROJECT_ROOT must be set before calling build_and_push_image}"
 
-  # 2. Authenticate
-  echo "$DOCKERHUB_PASSWORD" | docker login \
-    -u "$DOCKERHUB_USERNAME" \
-    --password-stdin          # Pipe password — avoids shell history logging
+  # No git-SHA fallback — DOCKER_IMAGE_TAG must be explicit in .env,
+  # so it can never silently drift from what kustomization.yaml references.
+  if [[ -z "${DOCKER_IMAGE_TAG:-}" ]]; then
+    echo "ERROR: DOCKER_IMAGE_TAG is not set. Set it in .env before building." >&2
+    return 1
+  fi
 
-  # 3. Build
-  docker build -t "$IMAGE_NAME" "$PROJECT_ROOT/app"
+  local IMAGE_NAME="${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}"
+  local LATEST_IMAGE="${DOCKERHUB_USERNAME}/${APP_NAME}:latest"
 
-  # 4. Push
-  docker push "$IMAGE_NAME"
+  # Authenticate — password piped via stdin, never as a CLI argument
+  if [[ -n "${DOCKERHUB_PASSWORD:-}" ]]; then
+    echo "${DOCKERHUB_PASSWORD}" | docker login \
+      -u "${DOCKERHUB_USERNAME}" \
+      --password-stdin
+  else
+    # No password set — verify an existing login instead of failing blind
+    docker info 2>/dev/null | grep -q "Username" || return 1
+  fi
+
+  # Build from the real app directory (repo root /app, not platform/)
+  docker build -t "${IMAGE_NAME}" "${PROJECT_ROOT}/app"
+
+  # Also tag :latest for convenience (unless the tag already IS latest)
+  [[ "${DOCKER_IMAGE_TAG}" != "latest" ]] && docker tag "${IMAGE_NAME}" "${LATEST_IMAGE}"
+
+  # Push both tags
+  docker push "${IMAGE_NAME}"
+  [[ "${DOCKER_IMAGE_TAG}" != "latest" ]] && docker push "${LATEST_IMAGE}"
 }
 ```
 
-`--password-stdin` matters because passing passwords as CLI arguments (e.g. `-p mypassword`) writes them to shell history and is visible in `ps aux`. Piping via stdin is the secure alternative.
+`--password-stdin` matters because passing passwords as CLI arguments (e.g. `-p mypassword`) writes them to shell history and is visible in `ps aux`. Piping via stdin is the secure alternative. This same script and the same `DOCKERHUB_USERNAME`/`DOCKERHUB_PASSWORD`/`DOCKER_IMAGE_TAG` variables are reused unchanged in CI (see Docker in CI/CD below) — there's no separate CI-specific build logic.
 
 ### `configure_dockerhub_username.sh`
 
 ```bash
+# platform/deployment/docker/configure_dockerhub_username.sh
 configure_dockerhub_username() {
-  # Replaces placeholder in kustomization.yaml with actual DockerHub username
-  sed -i.bak "s|<DOCKERHUB_USERNAME>|$DOCKERHUB_USERNAME|g" \
-    kubernetes/overlays/prod/kustomization.yaml
-  rm -f kubernetes/overlays/prod/kustomization.yaml.bak
+    # ArgoCD (GitOps/prod) mode: the username is already hardcoded in the
+    # overlay kustomization.yaml files in Git — ArgoCD reads directly from
+    # Git and cannot access .env, so there's nothing to substitute.
+    if [[ "${DEPLOY_MODE:-}" == "argocd" ]]; then
+        return 0
+    fi
+
+    # Direct mode: substitute the real DockerHub username into both the
+    # local and prod kustomize overlays.
+    : "${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME in .env}"
+    : "${APP_NAME:=devops-app}"
+
+    for overlay in local prod; do
+        local kfile="${PROJECT_ROOT}/app/k8s/overlays/${overlay}/kustomization.yaml"
+        [[ -f "$kfile" ]] || continue
+
+        # Temp file instead of sed -i, since macOS sed -i requires a suffix
+        # argument and GNU sed doesn't — this form works on both.
+        local tmpfile
+        tmpfile=$(mktemp)
+        sed "s|newName:.*|newName: ${DOCKERHUB_USERNAME}/${APP_NAME}|g" "$kfile" > "$tmpfile"
+        mv "$tmpfile" "$kfile"
+    done
 }
 ```
 
-This GitOps pattern keeps the Docker image reference in `kustomization.yaml` as a placeholder (`<DOCKERHUB_USERNAME>/devops-app:tag`) and substitutes the real value at deploy time from environment variables.
+This GitOps-aware pattern keeps the DockerHub image reference in each overlay's `kustomization.yaml` (under `newName:`) and substitutes the real value at deploy time from `.env` — but only in direct/local mode. In ArgoCD mode the substitution is skipped entirely, since the value is expected to already be committed in Git for ArgoCD to read.
 
 ### DockerHub vs Private Registry
 
@@ -1403,27 +1378,30 @@ aws ecr get-login-password --region us-east-1 | \
 
 ### This Project's Security Layers
 
-**Layer 1 — Non-root user (Dockerfile)**
+**Layer 1 — Non-root user (enhancement opportunity)**
+
+The current `app/Dockerfile` does not create or switch to a dedicated user, so the container runs as root by default. A hardened version would add:
 ```dockerfile
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN groupadd --gid 1001 appgroup \
+    && useradd --uid 1001 --gid appgroup --create-home appuser
 USER appuser
 ```
-Prevents container breakout from escalating to root on the host.
+This prevents container breakout from escalating to root on the host.
 
 **Layer 2 — Minimal base image**
 ```dockerfile
-FROM node:18-alpine  # ~50MB, fewer packages = smaller attack surface
+FROM python:3.12-slim  # smaller than the full python:3.12 image, fewer packages = smaller attack surface
 ```
 
-**Layer 3 — Production dependencies only**
+**Layer 3 — Minimal, no-cache dependency installs**
 ```bash
-RUN npm install --production  # No build tools, test frameworks, or debuggers
+RUN pip install --no-cache-dir -r requirements.txt
 ```
 
 **Layer 4 — `.dockerignore` (secrets exclusion)**
 ```
-.env*    # Prevents any .env file from entering the image
-.git     # No git history, tokens, or credentials
+.env    # Prevents the .env file from entering the image
+.git/   # No git history, tokens, or credentials
 ```
 
 **Layer 5 — Kubernetes `securityContext` (runtime)**
@@ -1433,18 +1411,14 @@ securityContext:
   runAsUser: 1000
   allowPrivilegeEscalation: false
   capabilities:
-    drop: [ALL]              # Drop all Linux capabilities
-securityContext:
+    drop: [ALL]
   readOnlyRootFilesystem: true   # container FS is read-only; app can only
-                                  # write to explicitly mounted volumes (e.g. /tmp)
+                                  # write to explicitly mounted volumes (e.g. /app/data)
 ```
 
 **Layer 6 — Trivy scanning (CI/CD)**
-```python
-# Security/trivy/trivy-exporter.py
-# Scans the built image for CVEs before deployment
-# Exports results as Prometheus metrics for Grafana dashboards
-```
+
+Scans the built image for CVEs before deployment and exports results as Prometheus metrics for Grafana dashboards, per this project's `monitoring/trivy` setup (`TRIVY_SEVERITY=HIGH,CRITICAL` in `.env`).
 
 **Layer 7 — Secrets (never bake into images)**
 
@@ -1452,17 +1426,17 @@ Docker has a native `docker secret` mechanism (Swarm mode only):
 ```bash
 echo "mypassword" | docker secret create db_password -
 ```
-Secrets are mounted as in-memory files at `/run/secrets/<name>` inside the container — never as environment variables, which can leak via `docker inspect` or crash logs. In Kubernetes (what this project actually uses), the equivalent is a `Secret` object mounted as a volume or env var from `secretKeyRef`.
+Secrets are mounted as in-memory files at `/run/secrets/<name>` inside the container — never as environment variables, which can leak via `docker inspect` or crash logs. In Kubernetes (what this project actually uses for `JWT_SECRET`, `API_KEY`, `SESSION_SECRET`, and DB credentials), the equivalent is a `Secret` object mounted as a volume or env var from `secretKeyRef`, and in production these are additionally sealed via the Sealed Secrets controller before being committed to Git.
 
 ### Common Vulnerabilities to Avoid
 
 | Vulnerability | Risk | Mitigation in Project |
 |---|---|---|
-| Running as root | Container escape → root on host | `USER appuser` |
-| Secrets in image layers | `docker history` reveals them | `.dockerignore`, env vars at runtime |
-| Outdated base image | Known CVEs | Trivy scanning, pin digest |
-| Excessive capabilities | Privilege escalation | `capabilities.drop: [ALL]` |
-| Large attack surface | More packages = more CVEs | Alpine base, `--production` |
+| Running as root | Container escape → root on host | Not yet applied — see Layer 1 above |
+| Secrets in image layers | `docker history` reveals them | `.dockerignore` excludes `.env`; secrets injected at runtime via Kubernetes Secrets |
+| Outdated base image | Known CVEs | Trivy scanning |
+| Excessive capabilities | Privilege escalation | `capabilities.drop: [ALL]` (Kubernetes `securityContext`) |
+| Large attack surface | More packages = more CVEs | `-slim` base image, minimal dependency list |
 
 ---
 
@@ -1487,21 +1461,30 @@ All Kubernetes distributions use **containerd** (or CRI-O) directly — not Dock
 ### Podman Support in This Project
 
 ```bash
-# run.sh — Podman fallback
+# run.sh — Podman fallback (detect_container_runtime)
 elif command -v podman >/dev/null 2>&1; then
     CONTAINER_RUNTIME="podman"
 fi
 
-# build_and_push_image_podman.sh — separate implementation
-# Called when CONTAINER_RUNTIME=podman
-
-# Local build fallback
+# deploy_image() in run.sh dispatches based on CONTAINER_RUNTIME
 if [[ "$CONTAINER_RUNTIME" == "podman" ]]; then
-    podman build -t "$APP_NAME:latest" "$PROJECT_ROOT/app"
+    bash "$PROJECT_ROOT/platform/deployment/docker/build_and_push_image_podman.sh"
 else
-    docker build -t "$APP_NAME:latest" "$PROJECT_ROOT/app"
+    bash "$PROJECT_ROOT/platform/deployment/docker/build_and_push_image.sh"
 fi
 ```
+
+```bash
+# platform/deployment/docker/build_and_push_image_podman.sh — actual build call
+podman build \
+    --format docker \
+    --tag "${DOCKERHUB_USERNAME}/${APP_NAME}:${DOCKER_IMAGE_TAG}" \
+    --tag "${DOCKERHUB_USERNAME}/${APP_NAME}:latest" \
+    --file "${PROJECT_ROOT}/app/Dockerfile" \
+    "${PROJECT_ROOT}/app"
+```
+
+`--format docker` forces Podman to produce a Docker-compatible (not OCI-native) image manifest, which matters for maximum compatibility with DockerHub and Kubernetes nodes expecting Docker-format images. Pushing is gated by `BUILD_PUSH=true` in `.env`; the script checks for an existing DockerHub login by reading `~/.docker/config.json` directly (Podman has no `docker info | grep Username` equivalent), and only calls `podman login` if no valid credential entry is found.
 
 **Podman advantages:**
 - **Daemonless** — no background daemon required, runs as user process
@@ -1521,32 +1504,28 @@ Beyond Podman's rootless-by-default model, Docker itself supports a rootless mod
 
 ## Docker in CI/CD
 
-### GitHub Actions Flow
+### CI/CD Flow
 
-```yaml
-# .github/workflows/prod.yml
-# 1. Checkout code
-# 2. Set up Docker Buildx (multi-platform builds)
-# 3. Login to DockerHub using GitHub Secrets
-# 4. docker build + push
-# 5. Update kubeconfig
-# 6. kubectl apply
-```
+This project's build-and-push logic is not duplicated for CI — the same `build_and_push_image.sh` (or `build_and_push_image_podman.sh`) used locally via `run.sh` is invoked in the pipeline, reading the same `DOCKERHUB_USERNAME` / `DOCKERHUB_PASSWORD` / `DOCKER_IMAGE_TAG` variables from the CI platform's secret store instead of a local `.env`:
 
-**GitHub Secrets used:**
+1. Checkout code
+2. Set up Docker Buildx (multi-platform builds)
+3. Login to DockerHub using CI secrets (`DOCKERHUB_USERNAME`, `DOCKERHUB_PASSWORD`)
+4. `docker build` + `docker push` (via the shared script)
+5. Hand off to the deployment path configured for the target environment — direct `kubectl` for local-style runs, or ArgoCD sync for production GitOps, per `DEPLOY_MODE` in `.env`
+
+**CI secrets used** (same names as `.env`, set in the CI platform instead):
 - `DOCKERHUB_USERNAME`
 - `DOCKERHUB_PASSWORD` (or Personal Access Token)
-
-These map to the same variables used in `build_and_push_image.sh`, so the same script works locally and in CI.
 
 ### Build Context Optimization in CI
 
 ```bash
-# In CI, the build context is the checked-out repo
-# .dockerignore ensures only necessary files are sent:
-# - Excludes node_modules (installed fresh inside)
-# - Excludes .git history
-# - Excludes .env files
+# In CI, the build context is the checked-out repo's app/ directory
+# app/.dockerignore ensures only necessary files are sent:
+# - Excludes __pycache__/, .venv/, venv/ (reinstalled fresh inside)
+# - Excludes .git/ history
+# - Excludes .env files, tests/, README.md
 ```
 
 ### Docker Layer Caching in CI
@@ -1559,7 +1538,7 @@ GitHub Actions can cache Docker layers between runs:
     cache-to: type=gha,mode=max  # Push cache after build
 ```
 
-This means on code-only changes (no dependency changes), the `npm install` layer is served from cache — cutting build times significantly.
+This means on code-only changes (no dependency changes), the `pip install -r requirements.txt` layer is served from cache — cutting build times significantly.
 
 ---
 
@@ -1578,95 +1557,21 @@ This means on code-only changes (no dependency changes), the `npm install` layer
 7. The daemon connects the container's `veth` interface to the `docker0` bridge and assigns an IP.
 8. PID 1 (`nginx`) starts running inside its isolated namespaces, backed by the OverlayFS union of image layers + a fresh writable layer.
 
-#### What is the difference between `CMD` and `ENTRYPOINT` in a Dockerfile?
-
-- `ENTRYPOINT` defines the **executable** that always runs. It cannot be overridden by `docker run` arguments (only by `--entrypoint` flag).
-- `CMD` provides **default arguments** to `ENTRYPOINT`, or if no `ENTRYPOINT` is set, it's the default command. It **can** be overridden by `docker run` arguments.
-
-```dockerfile
-# Example
-ENTRYPOINT ["node"]
-CMD ["src/index.js"]
-
-# docker run devops-app            → runs: node src/index.js
-# docker run devops-app src/alt.js → runs: node src/alt.js (CMD overridden)
-```
-
-*In this project:* Only `CMD ["node", "src/index.js"]` is used, with no explicit `ENTRYPOINT`. This means `docker run devops-app bash` would open a bash shell instead of running Node — useful for debugging. If `ENTRYPOINT ["node"]` were set, you couldn't easily get a shell.
-
-#### Why does this project copy `package*.json` before copying the full source? What is this pattern called?
+#### Why does this project copy `requirements.txt` before copying the full source? What is this pattern called?
 
 This is **Docker layer caching optimization**. Each instruction creates a cached layer, and Docker invalidates a layer's cache when the instruction or its inputs change.
 
 ```dockerfile
-COPY package*.json ./      # Layer A — only changes when dependencies change
-RUN npm install            # Layer B — only rebuilds when Layer A changes (expensive!)
-COPY . .                   # Layer C — changes on every code edit (cheap)
+COPY requirements.txt .    # Layer A — only changes when dependencies change
+RUN pip install --no-cache-dir -r requirements.txt   # Layer B — only rebuilds when Layer A changes (expensive!)
+COPY src ./src             # Layer C — changes on every code edit (cheap)
 ```
 
-Without this pattern, `COPY . .` followed by `RUN npm install` rebuilds every time — even for a comment change! With the optimization, `npm install` (which can take 30–120 seconds) is cached on every build where only source code changed. This is one of the highest-impact Dockerfile optimizations.
+Without this pattern, `COPY . .` followed by `RUN pip install ...` rebuilds every time — even for a comment change! With the optimization actually used in `app/Dockerfile`, `pip install` (which can take tens of seconds) is cached on every build where only source code changed. This is one of the highest-impact Dockerfile optimizations.
 
-#### What does `--production` do in `npm install --production`, and why does it matter for Docker images?
+#### What happened when two identically-named kustomize overlays needed different DockerHub usernames substituted?
 
-`npm install --production` installs only `dependencies` from `package.json`, skipping `devDependencies`.
-
-*In this project's `package.json`:*
-```json
-"dependencies": {
-  "express", "dotenv", "morgan", "prom-client"  ← installed (needed at runtime)
-},
-"devDependencies": {
-  "nodemon"  ← skipped (only needed during development for hot reload)
-}
-```
-
-This matters because it produces a smaller image, a smaller attack surface (`nodemon` watches files and spawns processes; removing it reduces risk), and better reproducibility. `NODE_ENV=production npm install` achieves the same result.
-
-#### What would happen if `.env` was not in `.dockerignore`? How could secrets end up in the image?
-
-Docker sends the entire build context (directory contents) to the daemon before building. If `.env` is included, `COPY . .` would copy it into the image layer.
-
-Even if a subsequent `RUN rm .env` removed it, the `.env` content would still be **visible in that layer's history**:
-
-```bash
-docker history devops-app:latest    # Shows all layers
-docker save devops-app | tar -xf -  # Extract and inspect any layer
-```
-
-Anyone with `docker pull` access could extract the image and read the secrets.
-
-**This project prevents it by:**
-```
-# app/.dockerignore
-.env*    # Matches .env, .env.local, .env.production, etc.
-```
-
-The correct pattern is to inject secrets at **runtime** via environment variables:
-```bash
-docker run -e DB_PASSWORD=secret devops-app  # Not baked into image
-```
-Or in Kubernetes via Secrets (as this project does).
-
-#### Explain the difference between `EXPOSE` in a Dockerfile and actually publishing a port.
-
-`EXPOSE` is purely **documentation**. It informs users and tools which port the containerized application listens on. It does not bind any port or make the container accessible.
-
-Actual port publishing requires:
-
-```bash
-# docker run — explicitly publish port
-docker run -p 3000:3000 devops-app    # Maps host port 3000 to container port 3000
-docker run -P devops-app              # Auto-maps all EXPOSED ports to random host ports
-
-# docker-compose.yml
-ports:
-  - "3000:3000"                       # Explicit mapping
-
-# Kubernetes
-# EXPOSE is ignored — ports defined in containerPort + Service targetPort
-```
-
-*In this project:* `EXPOSE 3000` documents the port. In Docker Compose, `ports: "3000:3000"` actually publishes it. In Kubernetes, the Service's `targetPort: ${APP_PORT}` (3000) handles the mapping.
+This isn't a generic scenario — it's exactly what `configure_dockerhub_username.sh` handles: it loops over **both** the `local` and `prod` overlays under `app/k8s/overlays/`, substituting `${DOCKERHUB_USERNAME}/${APP_NAME}` into each `kustomization.yaml`'s `newName:` field independently, but only when `DEPLOY_MODE` is not `argocd` (since ArgoCD reads the value already committed in Git and has no access to `.env`).
 
 #### What is the difference between a bind mount and a named volume? When does this project use each?
 
@@ -1675,17 +1580,10 @@ ports:
 | **Location** | Docker-managed (`/var/lib/docker/volumes/`) | Exact host path you specify |
 | **Portability** | Portable across systems | Host-path dependent |
 | **Performance** | Optimized by Docker | Depends on host filesystem |
-| **Use case** | Persistent data (DB files) | Development code sharing |
-| **Syntax** | `myvolume:/app/data` | `./src:/app/src` |
+| **Use case** | Persistent data (this project's SQLite DB file) | Development code sharing (this project's `app/src`) |
+| **Syntax** | `devops_data:/data` | `../../../app/src:/app/src:ro` |
 
-*In this project's `docker-compose.yml`:*
-```yaml
-volumes:
-  - ./app/src:/app/src    # Bind mount — code changes immediately reflect in container
-  - /app/node_modules     # Anonymous volume — prevents bind mount from hiding node_modules
-```
-
-The anonymous `/app/node_modules` volume is a clever Docker Compose pattern. When you bind mount `./app/src`, Docker also exposes parent directories. Without the anonymous volume, the host's `node_modules` (possibly empty or wrong platform) would override the container's `node_modules` from `npm install`. The anonymous volume takes precedence over the bind mount for that specific path.
+See "Volumes & Storage" above for how this project's own Compose file uses each.
 
 ### Advanced Docker
 
@@ -1696,67 +1594,38 @@ Docker builds images layer by layer. Each layer has a **cache key** computed fro
 If a layer's cache key matches a previously built layer, Docker reuses it (cache hit) instead of re-executing the instruction. Once any layer's cache is invalidated, **all subsequent layers are also invalidated** — even if their own inputs haven't changed.
 
 ```
-FROM node:18-alpine  → Cache hit (base hasn't changed)
-RUN addgroup ...     → Cache hit
-WORKDIR /app         → Cache hit
-COPY package*.json   → Cache hit (package.json unchanged)
-RUN npm install      → Cache hit (packages unchanged) ← saves 60s
-COPY . .             → Cache MISS (src/index.js changed)
-RUN chown ...        → Re-executed (downstream of miss)
-USER appuser         → Re-executed
+FROM python:3.12-slim   → Cache hit (base hasn't changed)
+WORKDIR /app             → Cache hit
+COPY requirements.txt .  → Cache hit (requirements.txt unchanged)
+RUN pip install ...      → Cache hit (packages unchanged) ← saves real time
+COPY src ./src           → Cache MISS (src/main.py changed)
+RUN mkdir -p /app/data   → Re-executed (downstream of miss)
 ```
 
 What invalidates cache: changing a `RUN` command's text, any file referenced by `COPY`/`ADD` being modified, a parent layer being invalidated, or using `--no-cache`.
 
 #### What is a multi-stage build and how could it improve this project's Dockerfile?
 
-Multi-stage builds use multiple `FROM` statements. Intermediate stages can have build tools; only the final stage is shipped as the image.
-
-Current single-stage limitation in this project: even though `npm install --production` is used, the `npm` binary and Alpine package toolchain are still present in the image.
-
-Enhanced version:
-```dockerfile
-# Stage 1: Install dependencies
-FROM node:18-alpine AS deps
-WORKDIR /app
-COPY package*.json ./
-RUN npm install --production
-
-# Stage 2: Production image (no npm, no build tools)
-FROM node:18-alpine AS production
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules  # Copy only node_modules
-COPY ./src ./src                                   # Copy only source
-RUN chown -R appuser:appgroup /app
-USER appuser
-EXPOSE 3000
-CMD ["node", "src/index.js"]
-```
-
-The `npm` CLI itself isn't in the final image — only the runtime-needed `node_modules`. For TypeScript projects, Stage 1 would compile TS → JS, and Stage 2 would only copy the compiled JS.
+Multi-stage builds use multiple `FROM` statements. Intermediate stages can have build tools; only the final stage is shipped as the image. See "Multi-Stage Builds (Enhancement Opportunity)" under Images & Layers above for the concrete before/after for this project's Dockerfile — in short, the current single-stage build has no compiler toolchain to strip out today, but the pattern would matter the moment a dependency requiring compilation is added.
 
 #### How does Docker handle `SIGTERM` and graceful shutdown? Why does this matter for Kubernetes?
 
 When `docker stop` is run (or Kubernetes terminates a Pod), Docker sends `SIGTERM` to the container's PID 1, waits for a grace period (default 30s), then sends `SIGKILL`.
 
-With **shell form** `CMD`:
+With **shell form** `CMD`, e.g.:
 ```dockerfile
-CMD node src/index.js    # sh -c "node src/index.js"
+CMD uvicorn src.main:app
 # PID 1 = /bin/sh
-# Node.js is a child process — sh may not forward SIGTERM to it!
-# Result: app gets SIGKILL after 30s — abrupt termination
+# Uvicorn is a child process — sh may not forward SIGTERM to it!
 ```
 
-With **exec form** `CMD` (as used in this project):
+With **exec form** `CMD`:
 ```dockerfile
-CMD ["node", "src/index.js"]
-# PID 1 = node directly
-# SIGTERM goes straight to Node.js
-# Result: Node.js can handle it — close DB connections, finish requests
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# PID 1 = uvicorn directly, SIGTERM goes straight to it
 ```
 
-In Kubernetes, the `terminationGracePeriodSeconds` (default 30s) gives the container time to gracefully shut down. If the app doesn't handle `SIGTERM`, it gets `SIGKILL`ed mid-request, dropping active connections and potentially corrupting state. The exec form in this project ensures `SIGTERM` reaches the Node.js process correctly.
+*In this project:* the actual `CMD` is `["sh", "-c", "uvicorn src.main:app --host 0.0.0.0 --port ${APP_PORT:-8000} --log-level ${LOG_LEVEL:-info}"]` — this is deliberately shell form under the hood (via explicit `sh -c`) because `${APP_PORT}`/`${LOG_LEVEL}` need runtime shell expansion, which pure exec form can't do. This means Uvicorn is technically a child of `sh`, not PID 1. See the "PID 1 and signal handling" note under Containers above for the full trade-off and mitigation options (`tini`, `--init`, or an entrypoint script).
 
 #### This project supports both Docker and Podman. What are the key architectural differences?
 
@@ -1768,24 +1637,7 @@ In Kubernetes, the `terminationGracePeriodSeconds` (default 30s) gives the conta
 | **Socket** | `/var/run/docker.sock` | `/run/user/<uid>/podman/podman.sock` |
 | **Compose** | `docker compose` (plugin) | `podman-compose` (separate tool) |
 
-*How the project handles both:*
-```bash
-# run.sh — transparent runtime selection
-if command -v docker >/dev/null 2>&1; then
-    CONTAINER_RUNTIME="docker"
-elif command -v podman >/dev/null 2>&1; then
-    CONTAINER_RUNTIME="podman"
-fi
-
-# build step uses the variable
-if [[ "$CONTAINER_RUNTIME" == "podman" ]]; then
-    podman build -t "$APP_NAME:latest" "$PROJECT_ROOT/app"
-else
-    docker build -t "$APP_NAME:latest" "$PROJECT_ROOT/app"
-fi
-```
-
-The `build_and_push_image_podman.sh` script provides a Podman-specific implementation (Podman login syntax differs slightly, and `podman push` handles registry authentication differently).
+*How the project handles both:* see "Podman Support in This Project" under Container Runtimes & Podman above for the actual `run.sh` dispatch logic and the real `build_and_push_image_podman.sh` build invocation (`--format docker`, dual `--tag`, `BUILD_PUSH` gating).
 
 #### The project uses `imagePullPolicy: Always` in Kubernetes. What does this mean for DockerHub rate limits?
 
@@ -1793,31 +1645,31 @@ The `build_and_push_image_podman.sh` script provides a Podman-specific implement
 
 **Solutions used or applicable to this project:**
 1. Authenticate pulls with DockerHub credentials (via `imagePullSecret`) — uses per-account limits instead of IP-based
-2. Migrate to ECR/GCR/ACR for cloud deployments (no rate limits for same-cloud pulls)
-3. Use `IfNotPresent` for immutable versioned tags (e.g., `v1.2.3` or git SHAs) — once cached on a node, no re-pull needed
+2. Migrate to ECR/GCR/ACR for cloud deployments (no rate limits for same-cloud pulls) — this project already does this per-cloud-provider in production (see Registry & DockerHub above)
+3. Use `IfNotPresent` for immutable, explicitly-versioned tags — once cached on a node, no re-pull needed
 4. Deploy a pull-through cache (Harbor, Nexus) inside the cluster
 
-The project uses git SHA tags (`IMAGE_TAG=$(git rev-parse --short HEAD)`) which are immutable — `IfNotPresent` would be safer here, but `Always` ensures correctness if the same tag is somehow reused.
+Since this project requires `DOCKER_IMAGE_TAG` to be explicitly set (no auto git-SHA tagging), tags are only as immutable as the operator makes them — using a distinct tag per release rather than reusing `latest` would let `IfNotPresent` be used safely.
 
 #### What happens if two services in `docker-compose.yml` both try to use the same host port?
 
 Docker will fail to start the second container with a "port already in use" error (`bind: address already in use`). Each host port can only be bound by one process at a time.
 
-The current `docker-compose.yml` only has one service (`devops-app`) on port 3000, so no conflict. But if we added Prometheus on 9090 and it was already running on the host, the compose deployment would fail.
+The current `docker-compose.yml` only has one service (`devops-app`) on the port set by `APP_PORT` (default 8000), so no conflict exists today. But if a second service — e.g. a local Postgres — were added and something else on the host already used its port, the compose deployment would fail.
 
 **Solutions:**
 ```yaml
 # 1. Use different host ports
 ports:
-  - "9091:9090"    # host 9091 → container 9090
+  - "5433:5432"    # host 5433 → container 5432
 
 # 2. Only expose within Docker network (no host port binding)
 expose:
-  - "9090"         # Only accessible from other containers, not host
+  - "5432"         # Only accessible from other containers, not host
 
 # 3. Use dynamic port assignment
 ports:
-  - "9090"         # Docker assigns a random available host port
+  - "5432"         # Docker assigns a random available host port
 ```
 
 In Kubernetes, this problem doesn't exist — Services get ClusterIPs and the host port binding issue is abstracted away.
@@ -1826,70 +1678,41 @@ In Kubernetes, this problem doesn't exist — Services get ClusterIPs and the ho
 
 **Check exit code and logs:**
 ```bash
-docker ps -a                           # See all containers including stopped
-docker logs devops-app                 # Last logs before exit
-docker inspect devops-app --format='{{.State.ExitCode}}'  # Exit code
+docker ps -a                              # See all containers including stopped
+docker logs devops-console                # Last logs before exit
+docker inspect devops-console --format='{{.State.ExitCode}}'  # Exit code
 ```
 
-Common exit codes: `0` — intentional exit (CMD completed); `1` — app error (uncaught exception in Node.js); `137` — OOMKilled (exit 128 + signal 9); `143` — SIGTERM (exit 128 + signal 15).
+Common exit codes: `0` — intentional exit (CMD completed); `1` — app error (uncaught exception in Python); `137` — OOMKilled (exit 128 + signal 9); `143` — SIGTERM (exit 128 + signal 15).
 
 **Override CMD to get a shell:**
 ```bash
 docker run -it --entrypoint sh devops-app:latest
-# Now manually run: node src/index.js
+# Now manually run: uvicorn src.main:app --host 0.0.0.0 --port 8000
 # See the actual error message
 ```
 
 **Check environment:**
 ```bash
 docker run -it --entrypoint sh devops-app:latest
-env | grep -E "NODE_ENV|APP_PORT|DB_"   # Are expected env vars set?
+env | grep -E "APP_ENV|APP_PORT|DB_|LOG_LEVEL"   # Are expected env vars set?
 ```
 
-**Check file permissions** (common with non-root user):
+**Check file permissions** (especially relevant once a non-root `USER` is added — see Security above):
 ```bash
 docker run -it --entrypoint sh --user root devops-app:latest
-ls -la /app    # Check ownership
+ls -la /app /app/data    # Check ownership, especially the SQLite data dir
 ```
 
-*In this project:* The `chown -R appuser:appgroup /app` in the Dockerfile prevents the most common permission issue. But if mounted volumes override `/app`, permissions could be wrong.
+#### What is the `.dockerignore` pattern for excluding environment files, and why does the wildcard variant matter?
 
-#### What is the `.dockerignore` pattern `.env*` and why is the wildcard important?
+This project's real `app/.dockerignore` excludes the exact `.env` filename. A wildcard pattern `.env*` would additionally match `.env.local`, `.env.development`, `.env.production`, and `.env.test` — variants teams often create over time as they add staging/prod-specific overrides.
 
-The glob pattern `.env*` matches `.env` (main environment file), `.env.local` (local overrides), `.env.development`, `.env.production` (production secrets), `.env.test` (test credentials), and `.env.example`.
-
-Without the wildcard, you'd need to explicitly list every variant. Teams often create `.env.production`, `.env.staging`, etc. over time — the wildcard future-proofs the exclusion. This matters because developers might accidentally create `.env.production` with real production database credentials and commit the image without realizing it's included. The pattern ensures all variants are always excluded regardless of which `.env` files exist.
+Without the wildcard, you'd need to explicitly list every variant as it's created. This matters because developers might accidentally create a new `.env.production` containing real production database credentials and build an image without realizing the exclusion list didn't cover it. See ".dockerignore" under Dockerfile Deep Dive above for the full explanation of what leaks into image history if this is missed.
 
 #### How does the healthcheck in `docker-compose.yml` differ from Kubernetes probes?
 
-```yaml
-# docker-compose.yml healthcheck
-healthcheck:
-  test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-  interval: 30s
-  timeout: 10s
-  retries: 3
-```
-
-```yaml
-# Kubernetes readiness probe (equivalent)
-readinessProbe:
-  httpGet:
-    path: /health
-    port: http
-  periodSeconds: 5
-  timeoutSeconds: 3
-  failureThreshold: 3
-```
-
-| Aspect | Docker healthcheck | Kubernetes probe |
-|---|---|---|
-| **On failure** | Marks container `unhealthy` (no action by default) | Removes Pod from Service endpoints (readiness) or restarts container (liveness) |
-| **Restart** | Only if `restart: unless-stopped` + container exits | Automatic via kubelet |
-| **Traffic routing** | Not integrated with networking | Integrated — unhealthy Pods get no traffic |
-| **Types** | CMD only | HTTP GET, TCP socket, exec, gRPC |
-
-Docker's healthcheck is advisory — it changes the container's health status but doesn't automatically restart it or remove it from load balancing. Kubernetes probes are **actionable** — they drive concrete platform behavior. This is why the Kubernetes base manifest uses TCP socket probes (even without a `/health` endpoint) while the Compose file assumes the Express app exposes `/health`.
+See "Healthcheck" under Docker Compose above for the full comparison table and this project's actual healthcheck definition (Python `urllib` against `/api/v1/health`).
 
 #### What's the difference between a Dockerfile and a docker-compose file?
 
@@ -1908,14 +1731,14 @@ A **Dockerfile is a declarative build specification** interpreted by `docker bui
 FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install -r requirements.txt
-COPY . .
-CMD ["python", "app.py"]
+RUN pip install --no-cache-dir -r requirements.txt
+COPY src ./src
+CMD ["sh", "-c", "uvicorn src.main:app --host 0.0.0.0 --port ${APP_PORT:-8000}"]
 ```
 
 Output: `Dockerfile → docker build → Image`. Important: a Dockerfile **does not create containers** — it only creates images.
 
-A **docker-compose.yml is a multi-container runtime configuration file**. It defines services (containers), networks, volumes, environment variables, port mappings, service dependencies, and restart policies.
+A **docker-compose.yml is a multi-container runtime configuration file**. It defines services (containers), networks, volumes, environment variables, port mappings, service dependencies, and restart policies — as this project's own file does for its single `devops-app` service.
 
 ```yaml
 services:
@@ -1958,7 +1781,7 @@ A dangling image is a layer with no tag, usually left behind after rebuilding an
 
 #### What is Docker Swarm, and why doesn't this project use it?
 
-Docker Swarm is Docker's built-in, simpler orchestrator for running containers across multiple hosts (init with `docker swarm init`, deploy with `docker stack deploy`). It handles service replication, rolling updates, and overlay networking, but has a much smaller feature set than Kubernetes (no native autoscaling based on custom metrics, smaller ecosystem, no CRDs/operators). This project uses Kubernetes because it targets production-grade, multi-distribution deployment — Swarm is rarely used at scale today.
+Docker Swarm is Docker's built-in, simpler orchestrator for running containers across multiple hosts (init with `docker swarm init`, deploy with `docker stack deploy`). It handles service replication, rolling updates, and overlay networking, but has a much smaller feature set than Kubernetes (no native autoscaling based on custom metrics, smaller ecosystem, no CRDs/operators). This project uses Kubernetes because it targets production-grade, multi-distribution deployment across Minikube/Kind/K3s/MicroK8s locally and EKS/AKS/GKE in production — Swarm is rarely used at scale today.
 
 #### How do you limit which CPUs/cores a container can use?
 
@@ -1971,7 +1794,7 @@ docker run --cpus="1.5" myimage            # limit to 1.5 CPU's worth of time
 
 #### If a base image's tag gets updated upstream, does your existing built image change?
 
-No. Once built, an image is immutable — it references the exact layer digests that existed at build time, not a live pointer to `python:3.11-slim`. Only a **new** `docker build` (with no `--no-cache` conflicts, and assuming the local layer cache doesn't have the old base cached) would pull the newer base layer. This is why pinning to a **digest** (`python:3.11-slim@sha256:...`) instead of a mutable tag is recommended for fully reproducible builds — a plain tag can point to different content over time even though your Dockerfile text hasn't changed.
+No. Once built, an image is immutable — it references the exact layer digests that existed at build time, not a live pointer to `python:3.12-slim`. Only a **new** `docker build` (with no `--no-cache` conflicts, and assuming the local layer cache doesn't have the old base cached) would pull the newer base layer. This is why pinning to a **digest** (`python:3.12-slim@sha256:...`) instead of a mutable tag is recommended for fully reproducible builds — a plain tag can point to different content over time even though your Dockerfile text hasn't changed.
 
 #### What's the difference between `docker attach` and `docker exec -it`?
 
@@ -1993,11 +1816,11 @@ It doesn't affect runtime behavior — it's used for organization, automated too
 
 #### What is a distroless image?
 
-A base image (from Google's `gcr.io/distroless`) containing only the application and its runtime dependencies — no shell, no package manager, no OS utilities. Smaller attack surface than even Alpine, but harder to debug since you can't `docker exec ... sh` into it.
+A base image (from Google's `gcr.io/distroless`) containing only the application and its runtime dependencies — no shell, no package manager, no OS utilities. Smaller attack surface than even `-slim`, but harder to debug since you can't `docker exec ... sh` into it.
 
 #### What does `VOLUME` do inside a Dockerfile, vs `-v` at runtime?
 
-`VOLUME /data` in a Dockerfile marks a path as **always** getting an anonymous volume, even if the user doesn't pass `-v` — useful for enforcing that a path is never written to the container's writable layer. It can surprise users who expected data to persist only when they explicitly request it.
+`VOLUME /data` in a Dockerfile marks a path as **always** getting an anonymous volume, even if the user doesn't pass `-v` — useful for enforcing that a path is never written to the container's writable layer. It can surprise users who expected data to persist only when they explicitly request it. This project instead creates `/app/data` with a plain `RUN mkdir -p` and relies on the Compose `devops_data:/data` named volume or a Kubernetes volume to persist it — it does not declare `VOLUME` in the Dockerfile itself.
 
 #### What's the difference between `docker-compose up` and `docker-compose up -d --build`?
 
