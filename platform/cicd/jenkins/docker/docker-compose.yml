@@ -4,13 +4,6 @@
 # Pipeline builds talk to the `docker-dind` sidecar over TLS instead of the
 # host's Docker socket, so this works identically on any Linux host
 # regardless of docker group/socket permissions.
-#
-# Configuration is layered and entirely optional:
-#   1. jenkins.env            (this folder — Jenkins-specific values)
-#   2. project-root .env      (shared repo config, e.g. DOCKERHUB_USERNAME)
-# Both are declared `required: false` so this stack still starts even if
-# one of them is missing — it never breaks because of changes made
-# elsewhere in the repository.
 
 services:
 
@@ -56,10 +49,6 @@ services:
       DOCKER_CERT_PATH: /certs/client
       DOCKER_TLS_VERIFY: "1"
       CASC_JENKINS_CONFIG: /var/jenkins_home/casc/jenkins.yaml
-      # Everything Jenkins/JCasC needs is read from env vars — nothing is
-      # hardcoded in this file or in casc/jenkins.yaml. Values come from
-      # jenkins.env and/or the project-root .env loaded above; defaults
-      # keep the stack usable even when a value is left blank.
       JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
       JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:?Set JENKINS_ADMIN_PASSWORD in docker/jenkins.env}
       JENKINS_URL: ${JENKINS_URL:-http://localhost:8090/}

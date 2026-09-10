@@ -139,7 +139,7 @@ bootstrap_menu() {
             "Install Workstation Dependencies|Docker kubectl Terraform AWS CLI etc" \
             "Reset / Cleanup Environment|Selective destructive cleanup menu" \
             "Run Platform Deployment|Normal deployment workflow" \
-            "Jenkins CI/CD|Optional — deploy or reset the Docker-based Jenkins stack" \
+            "Jenkins CI/CD|Deploy Jenkins stack" \
             "Exit"
 
         _prompt_choice 3 5

@@ -35,6 +35,7 @@ if [[ -f "$ENV_FILE" ]]; then
     # shellcheck source=/dev/null
     source "$ENV_FILE"
     set +o allexport
+    [[ -z "${AWS_PROFILE:-}" ]] && unset AWS_PROFILE
 else
     print_error ".env file not found at ${ENV_FILE}"
     exit 1

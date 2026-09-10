@@ -51,6 +51,7 @@ pipeline {
                 '''
                 sh """
                     set -Eeuo pipefail
+                    env | grep AWS_PROFILE
                     SCRIPT="platform/infra/deploy_infra.sh"
                     if [ ! -f "\$SCRIPT" ]; then
                         echo "FATAL: \$SCRIPT not found — repo layout may have changed"

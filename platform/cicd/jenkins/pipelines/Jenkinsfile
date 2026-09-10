@@ -111,17 +111,36 @@ pipeline {
 
                     kubectl config view --flatten --raw > ./kubeconfig.flat
                     mv ./kubeconfig.flat ./kubeconfig.local
-                        for candidate in kind-control-plane minikube; do
-                            if getent hosts "$candidate" >/dev/null 2>&1; then
-                                CURRENT_SERVER="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-                                PORT="${CURRENT_SERVER##*:}"
-                                kubectl config set-cluster "$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')" \
-                                    --server="https://${candidate}:${PORT}"
-                                echo "Rewrote kubeconfig server to https://${candidate}:${PORT} for in-network reachability"
-                                break
-                            fi
-                        done
+
+                    REWRITTEN=false
+                    for candidate in kind-control-plane minikube; do
+                        if getent hosts "$candidate" >/dev/null 2>&1; then
+                            CURRENT_SERVER="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+                            PORT="${CURRENT_SERVER##*:}"
+                            kubectl config set-cluster "$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')" \
+                                --server="https://${candidate}:${PORT}"
+                            echo "Rewrote kubeconfig server to https://${candidate}:${PORT} for in-network reachability"
+                            REWRITTEN=true
+                            break
+                        fi
+                    done
+
+                    if [ "$REWRITTEN" = false ]; then
+                        if kubectl --kubeconfig=./kubeconfig.local cluster-info --request-timeout=5s >/dev/null 2>&1; then
+                            echo "No candidate hostname (kind-control-plane/minikube) resolved, but the copied kubeconfig's server is directly reachable from this container — proceeding without rewrite."
+                        else
+                            echo "FATAL: Could not reach the local Kubernetes cluster from inside the Jenkins container."
+                            echo "  - No candidate hostname (kind-control-plane, minikube) resolved via getent, meaning"
+                            echo "    Jenkins is not attached to the cluster's Docker network."
+                            echo "  - The copied kubeconfig's server is also unreachable directly."
+                            echo ""
+                            echo "  Fix: ensure minikube/kind is already running BEFORE deploying Jenkins, so"
+                            echo "  deploy_jenkins.sh can detect and attach to its Docker network. Then redeploy"
+                            echo "  Jenkins with: platform/cicd/jenkins/scripts/deploy_jenkins.sh"
+                            exit 1
+                        fi
                     fi
+                fi
 
                     SCRIPT="platform/deployment/kubernetes/deploy_kubernetes.sh"
                     if [ ! -f "$SCRIPT" ]; then
