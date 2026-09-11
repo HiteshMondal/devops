@@ -51,7 +51,7 @@ platform/cicd/jenkins/
 │   ├── Dockerfile              # Controller image: plugins + CLIs
 │   ├── docker-compose.yml      # jenkins + docker-dind services
 │   ├── plugins.txt             # Pinned plugin list
-│   └── jenkins.env.example     # Copy to jenkins.env and fill in
+│   └── docker-compose.k8s-network.yml # Local Kubernetes network attachment
 ├── casc/
 │   └── jenkins.yaml            # Security, credentials, job seeding
 ├── pipelines/
@@ -87,40 +87,33 @@ To stop it:
 
 ## Configuration — environment variables & secrets
 
-Nothing is hardcoded. Every credential and setting comes from environment
-variables, layered from two **optional** files (compose loads both with
-`required: false`, so the stack still starts if either is missing):
-
-1. **`docker/jenkins.env`** — Jenkins-specific values (admin password,
-   ports, kubeconfig). Copy from `jenkins.env.example`. Never committed.
-2. **Project-root `.env`** — shared repo config (`DOCKERHUB_USERNAME`,
-   `GITHUB_TOKEN`, `AWS_*`, `ARGOCD_ADMIN_PASSWORD`, etc.). Reused as-is;
-   nothing here needs to be duplicated if it's already in the root `.env`.
+**Project-root `.env`** — shared repo config (`DOCKERHUB_USERNAME`,
+`GITHUB_TOKEN`, `AWS_*`, `ARGOCD_ADMIN_PASSWORD`, etc.) and
+Jenkins-specific values (admin password, ports, kubeconfig).
 
 These environment variables become **Jenkins credentials** at startup via
 JCasC (`casc/jenkins.yaml`) — Jenkins' own built-in credentials store acts
 as the secrets manager pipelines pull from. No secret is ever written into
 a Jenkinsfile, a Docker image layer, or committed to Git.
 
-| Jenkins credential ID     | Source env var(s)                          | Used by                     |
-|----------------------------|---------------------------------------------|------------------------------|
+| Jenkins credential ID      | Source env var(s)                            | Used by                      |
+|----------------------------|----------------------------------------------|------------------------------|
 | `dockerhub-credentials`    | `DOCKERHUB_USERNAME`, `DOCKERHUB_PASSWORD`   | Image build & push, Trivy    |
 | `github-credentials`       | `GITHUB_USERNAME`, `GITHUB_TOKEN`            | Job Git checkout             |
-| `github-token`              | `GITHUB_TOKEN`                              | Any step needing a bare PAT  |
+| `github-token`             | `GITHUB_TOKEN`                               | Any step needing a bare PAT  |
 | `aws-access-key-id`        | `AWS_ACCESS_KEY_ID`                          | Terraform (infra pipeline)   |
 | `aws-secret-access-key`    | `AWS_SECRET_ACCESS_KEY`                      | Terraform (infra pipeline)   |
 | `argocd-admin-password`    | `ARGOCD_ADMIN_PASSWORD`                      | Optional Argo sync steps     |
-| `kubeconfig`                | `KUBECONFIG_CONTENTS_BASE64`                 | Local direct `kubectl` deploy|
+| `kubeconfig`               | `KUBECONFIG_CONTENTS_BASE64`                 | Local direct `kubectl` deploy|
 
-`configure_jenkins.sh` will base64-encode a kubeconfig file for you and
-write it to `jenkins.env` — you don't need to run `base64` by hand.
+`configure_jenkins.sh` will base64-encode a kubeconfig file for you and don't need to run `base64` by hand.
 
-### Key ports (override in `jenkins.env`)
+### Key ports (override in `.env`)
 
-| Variable              | Default | Notes                                              |
-|------------------------|---------|-----------------------------------------------------|
+| Variable               | Default | Notes                                                  |
+|------------------------|---------|--------------------------------------------------------|
 | `JENKINS_HTTP_PORT`    | `8090`  | Chosen to avoid clashing with `ARGOCD_LOCAL_PORT=8080` |
-| `JENKINS_AGENT_PORT`   | `50000` | For remote/JNLP agents, if you add any later        |
+| `JENKINS_AGENT_PORT`   | `50000` | For remote/JNLP agents, if you add any later           |
 
 ---
 
@@ -167,7 +160,7 @@ doesn't need its own copy checked into the image.
   issuer are all set explicitly in `casc/jenkins.yaml` — anonymous read is
   disabled and legacy API tokens are turned off.
 - Rotate `JENKINS_ADMIN_PASSWORD` and any credential env var by updating
-  `jenkins.env` and restarting the stack (`./deploy_jenkins.sh` again) —
+  `.env` and restarting the stack (`./deploy_jenkins.sh` again) —
   JCasC re-applies on every controller start.
 
 ---
