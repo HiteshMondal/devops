@@ -26,9 +26,14 @@ ARG TARGETARCH=amd64
 
 USER root
 
+ENV TZ=Asia/Kolkata
+
 # Base OS tooling
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl gnupg unzip jq git python3 python3-venv python3-pip \
+      tzdata \
+    && ln -sf /usr/share/zoneinfo/Asia/Kolkata /etc/localtime \
+    && echo "Asia/Kolkata" > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
 # Docker CLI only (daemon = docker-dind sidecar service)

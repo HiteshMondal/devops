@@ -12,9 +12,10 @@ services:
     container_name: ${JENKINS_DIND_CONTAINER_NAME:-jenkins-docker-dind}
     hostname: docker-dind
     privileged: true
-    restart: unless-stopped
+    restart: "no"
     environment:
       DOCKER_TLS_CERTDIR: /certs
+      TZ: Asia/Kolkata
     volumes:
       - jenkins-docker-certs:/certs/client
       - jenkins-dind-data:/var/lib/docker
@@ -36,7 +37,7 @@ services:
         JENKINS_VERSION: ${JENKINS_VERSION:-lts-jdk17}
     image: ${JENKINS_IMAGE_NAME:-devops-jenkins}:${JENKINS_IMAGE_TAG:-latest}
     container_name: ${JENKINS_CONTAINER_NAME:-jenkins-controller}
-    restart: unless-stopped
+    restart: "no"
     depends_on:
       docker-dind:
         condition: service_healthy
@@ -44,6 +45,7 @@ services:
       - path: ../../../../.env
         required: false
     environment:
+      TZ: Asia/Kolkata
       # Wire the pipeline docker CLI to the dind sidecar over TLS.
       DOCKER_HOST: tcp://docker-dind:2376
       DOCKER_CERT_PATH: /certs/client
