@@ -31,6 +31,11 @@ from pulumi_azure_native import authorization, containerservice, dbforpostgresql
 
 from env_loader import load_env
 
+from storage import create_distributed_storage
+from self_healing import create_self_healing
+from dr import create_dr_backup
+from monitoring_alerts import create_self_healing_alerts
+
 # Configuration — .env is authoritative, Pulumi config can override either,
 # hard-coded defaults only apply when neither source sets a value.
 load_env()
@@ -83,6 +88,10 @@ db_admin_password = get_secret("DB_PASSWORD", required=True)
 db_sku_name = get_env("AZURE_POSTGRES_SKU", "Standard_B1ms")
 db_storage_gb = int(get_env("AZURE_POSTGRES_STORAGE_GB", "32"))
 db_version = get_env("AZURE_POSTGRES_VERSION", "16")
+
+enable_cloud_storage = get_env("ENABLE_CLOUD_STORAGE", "false").lower() == "true"
+enable_self_healing = get_env("ENABLE_SELF_HEALING", "false").lower() == "true"
+enable_dr_backup = get_env("ENABLE_DR_BACKUP", "false").lower() == "true"
 
 common_tags = {
     "app": app_name,
@@ -219,7 +228,7 @@ pg_server = dbforpostgresql.Server(
     administrator_login_password=db_admin_password,
     sku=dbforpostgresql.SkuArgs(name=db_sku_name, tier="Burstable"),
     storage=dbforpostgresql.StorageArgs(storage_size_gb=db_storage_gb),
-    backup=dbforpostgresql.BackupArgs(backup_retention_days=7, geo_redundant_backup="Disabled"),
+    backup=dbforpostgresql.BackupArgs(backup_retention_days=7, geo_redundant_backup="Enabled"),
     high_availability=dbforpostgresql.HighAvailabilityArgs(mode="Disabled"),
     network=dbforpostgresql.NetworkArgs(
         delegated_subnet_resource_id=db_subnet.id,
@@ -237,6 +246,55 @@ pg_database = dbforpostgresql.Database(
     database_name=db_name,
     charset="UTF8",
     collation="en_US.utf8",
+)
+
+# Distributed Cloud File System (GRS-replicated Storage Account)
+files_storage_account, files_container = create_distributed_storage(
+    enabled=enable_cloud_storage,
+    app_name=app_name,
+    env_name=env_name,
+    rg=rg,
+    location=location,
+    common_tags=common_tags,
+)
+
+# Self-Healing Infrastructure
+self_healing_function_app = create_self_healing(
+    enabled=enable_self_healing,
+    app_name=app_name,
+    env_name=env_name,
+    rg=rg,
+    location=location,
+    common_tags=common_tags,
+    aks_cluster=aks_cluster,
+    aks_node_pool_name="system",
+    postgres_server_name=pg_server.name,
+    subscription_id=client_config.subscription_id,
+)
+
+create_self_healing_alerts(
+    enabled=enable_self_healing,
+    app_name=app_name,
+    rg=rg,
+    common_tags=common_tags,
+    aks_cluster=aks_cluster,
+    pg_server=pg_server,
+    self_healing_function_app=self_healing_function_app,
+    subscription_id=client_config.subscription_id,
+)
+
+# Multi-Cloud (cross-region via GRS) Disaster Recovery
+dr_backup_function_app = create_dr_backup(
+    enabled=enable_dr_backup,
+    app_name=app_name,
+    env_name=env_name,
+    rg=rg,
+    location=location,
+    common_tags=common_tags,
+    postgres_server_name=pg_server.name,
+    files_storage_account=files_storage_account,
+    files_container_name="files",
+    subscription_id=client_config.subscription_id,
 )
 
 # Cluster credentials (kubeconfig) — fetched post-creation, exported as secret
@@ -258,6 +316,9 @@ pulumi.export("aks_kube_config", Output.secret(kubeconfig_raw))
 pulumi.export("postgres_server_name", pg_server.name)
 pulumi.export("postgres_fqdn", pg_server.fully_qualified_domain_name)
 pulumi.export("postgres_database", pg_database.name)
+pulumi.export("cloud_storage_account", files_storage_account.name if files_storage_account else None)
+pulumi.export("self_healing_enabled", enable_self_healing)
+pulumi.export("dr_backup_enabled", enable_dr_backup)
 connection_string = Output.all(
     pg_server.fully_qualified_domain_name, db_admin_user, db_admin_password, db_name
 ).apply(lambda a: f"postgresql://{a[1]}:{a[2]}@{a[0]}:5432/{a[3]}?sslmode=require")

@@ -14,20 +14,11 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
-
-  # Local backend by default so this project runs on any machine with zero
-  # extra setup (no S3 bucket / DynamoDB table required).
-  #
-  # For team use, replace this block with an S3 backend, e.g.:
-  #
-  # backend "s3" {
-  #   bucket         = "your-terraform-state-bucket"
-  #   key            = "devops-app/terraform.tfstate"
-  #   region         = "us-east-1"
-  #   dynamodb_table = "terraform-locks"
-  #   encrypt        = true
-  # }
 }
 
 data "aws_caller_identity" "current" {}

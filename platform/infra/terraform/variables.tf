@@ -170,3 +170,45 @@ variable "enable_nat_gateway" {
   type        = bool
   default     = false
 }
+
+# Distributed Cloud File System (S3 + Cross-Region Replication)
+
+variable "enable_cloud_storage" {
+  description = "Create an S3 bucket with versioning + Cross-Region Replication for distributed file storage. Free tier: 5GB S3 standard storage; replicated copy in the destination region incurs its own storage + inter-region transfer cost (~$0.02/GB), so this is opt-in."
+  type        = bool
+  default     = false
+}
+
+variable "cloud_storage_replica_region" {
+  description = "Destination AWS region for S3 Cross-Region Replication. Must differ from var.aws_region."
+  type        = string
+  default     = "us-west-2"
+}
+
+# Self-Healing Infrastructure (CloudWatch Alarms -> Lambda remediation)
+
+variable "enable_self_healing" {
+  description = "Deploy CloudWatch Alarms + a Python Lambda that automatically remediates unhealthy EKS worker nodes (terminate -> ASG replaces) and RDS failures (reboot). Lambda free tier (1M requests + 400,000 GB-s/month) covers this comfortably, so cost stays ~$0."
+  type        = bool
+  default     = false
+}
+
+# Multi-Cloud (same-cloud, cross-region) Disaster Recovery
+
+variable "enable_dr_backup" {
+  description = "Deploy a scheduled Lambda (via EventBridge) that snapshots RDS and copies the snapshot to var.cloud_storage_replica_region for disaster recovery. Snapshot storage beyond the 20GB Free Tier allocation is billed (~$0.095/GB-month), so keep retention short via dr_snapshot_retention_days."
+  type        = bool
+  default     = false
+}
+
+variable "dr_backup_schedule_expression" {
+  description = "EventBridge schedule expression for the DR snapshot job."
+  type        = string
+  default     = "rate(1 day)"
+}
+
+variable "dr_snapshot_retention_days" {
+  description = "How many days to keep copied DR snapshots in the replica region before the cleanup step (run inside the same Lambda) deletes them."
+  type        = number
+  default     = 7
+}

@@ -65,16 +65,23 @@ chmod +x run.sh
 
 ### 🧩 Platform Capabilities
 
-| Layer                  | Technology                                           |
-| :--------------------- | :--------------------------------------------------- |
-| 🚀 **Application**     | FastAPI · Python · Uvicorn                           |
-| 📦 **Containers**      | Docker · Podman                                      |
-| ☸️ **Orchestration**   | Kubernetes · Kustomize                               |
-| 🔄 **CI/CD & GitOps**  | GitHub Actions · GitLab CI · ArgoCD · Jenkins CI/CD  |
-| 🏗️ **Infrastructure**  | Terraform · OpenTofu · Pulumi                        |
-| 📊 **Observability**   | Prometheus · Grafana · Loki                          |
-| 🛡️ **Security**        | Trivy                                                |
-| ☁️ **Cloud**           | AWS · Azure · Google Cloud (GCP)                     |   
+| Layer                  | Technology                           | What it does                                                                                                                                                                                                |
+| :--------------------- | :----------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🚀 **Application**     | **FastAPI · Python · Uvicorn**       | Runs the Python web application and API services with asynchronous request handling, application configuration, authentication, database integration, health endpoints, and application metrics.            |
+| 📦 **Containers**      | **Docker · Podman**                  | Packages the application and supporting services into reproducible OCI containers, then builds, tags, and pushes images for local or Kubernetes deployment.                                                 |
+| ☸️ **Orchestration**   | **Kubernetes · Kustomize**           | Runs the application as Kubernetes workloads and manages Deployments, Services, HPA, PVCs, Ingress, PostgreSQL, secrets, network policies, and environment-specific overlays without duplicating manifests. |
+| 🔄 **CI/CD & GitOps**  | **GitHub Actions**                   | Runs multi-job CI pipelines on every Git push to automate application tests, container builds, security checks, infrastructure validation, and Kubernetes manifest validation.                              |
+|                        | **GitLab CI**                        | Provides a staged CI workflow for automated testing, image/container workflows, security validation, infrastructure operations, and deployment-related checks.                                              |
+|                        | **Argo CD**                          | Implements GitOps-based continuous delivery by continuously reconciling Kubernetes resources with the desired state stored in Git and deploying changes to the cluster.                                     |
+|                        | **Jenkins**                          | Runs multi-stage CI/CD pipelines for end-to-end validation, infrastructure workflows, container operations, and main-branch release/deployment checks.                                                      |
+| 🏗️ **Infrastructure** | **Terraform · OpenTofu**             | Defines cloud infrastructure as code so networking, Kubernetes clusters, databases, storage, and related resources can be provisioned, changed, and reproduced declaratively.                               |
+|                        | **Pulumi · Python**                  | Defines infrastructure and cloud automation using Python, including self-healing workflows, disaster-recovery automation, monitoring-driven actions, storage, and serverless functions.                     |
+| 📊 **Observability**   | **Prometheus**                       | Collects and stores time-series metrics from Kubernetes and application components, enabling health monitoring, capacity analysis, and alerting.                                                            |
+|                        | **Grafana**                          | Visualizes infrastructure, Kubernetes, application, and security data through dashboards, with 25+ monitoring panels and 10+ configured alerts.                                                             |
+|                        | **Loki**                             | Aggregates Kubernetes/application logs into a centralized log store so logs can be queried and correlated with operational events and metrics.                                                              |
+| 🛡️ **Security**       | **Trivy**                            | Scans container images for known vulnerabilities and integrates security checks into CI/CD; the project includes scanning and monitoring workflows for 20+ images.                                          |
+| ☁️ **Cloud**           | **AWS · Azure · Google Cloud (GCP)** | Provides the cloud platforms targeted by the infrastructure layer for Kubernetes, databases, storage, networking, disaster recovery, and automated cloud operations.                                        |
+  
 
 <br>
 
@@ -100,8 +107,8 @@ chmod +x run.sh
                                          │
                     ┌────────────────────┴────────────────────┐
                     │                                         │
-               DEPLOY_TARGET=local                    DEPLOY_TARGET=prod
-        (Minikube/Kind/K3s/MicroK8s)                   (EKS/GKE/AKS/OKE)
+            DEPLOY_TARGET=local                     DEPLOY_TARGET=prod
+        (Minikube/Kind/K3s/MicroK8s)                 (EKS/GKE/AKS/OKE)
                     │                                         │
           configure_environment()                  configure_environment()
           DEPLOY_MODE=direct                        DEPLOY_MODE=gitops
@@ -261,7 +268,11 @@ Provisions infra, then hands off to ArgoCD. Argo manages the app, monitoring, lo
 - Provision infrastructure (Terraform / OpenTofu / Pulumi)
 - Build & push image
 - Deploy ArgoCD
-- ArgoCD syncs everything else from the repo
+- ArgoCD syncs everything else from the main repo
+
+### Jenkins CICD (Optional Docker-based Jenkins)
+
+Full GitOps end-to-end CI/CD and main-branch validation
 
 ---
 
@@ -290,38 +301,174 @@ Provisions infra, then hands off to ArgoCD. Argo manages the app, monitoring, lo
 
 ```
 .
-├── run.sh                     # Main orchestrator
+├── run.sh                      # Main orchestrator
 |
-├── .env                       # Config, ports, secrets (not committed)
+├── .env                        # Config, ports, secrets
+├── .github/workflows/prod.yml  # GitHub Actions CI Only
+├── .gitlab-ci.yml              # GitLab CI
 |
-├── .github/workflows/prod.yml # GitHub Actions
-├── .gitlab-ci.yml
+├── app                         # FastAPI application
+│   ├── Dockerfile
+│   ├── pyproject.toml
+│   ├── requirements.txt
+│   ├── src
+│   │   ├── auth.py
+│   │   ├── config.py
+│   │   ├── database.py
+│   │   ├── main.py
+│   │   ├── metrics.py
+│   │   ├── middleware.py
+│   │   ├── models.py
+│   │   └── static
+│   │       └── app.js
+│   └── tests
 |
-├── app/                       # FastAPI application
-│   └── src/
+├── monitoring
+│   ├── deploy_monitoring.sh    # Monitoring orchestrator
+│   ├── dashboards              # json dashboards
+│   ├── grafana
+│   │   ├── grafana.yaml
+│   │   └── loki-dashboard-configmap.yaml
+|   |
+│   ├── loki
+│   │   ├── base
+│   │   │   ├── kustomization.yaml
+│   │   │   └── loki-deployment.yaml
+│   │   ├── deploy_loki.sh
+│   │   └── overlays
+│   │       ├── local
+│   │       │   ├── kustomization.yaml
+│   │       │   ├── loki-resources-patch.yaml
+│   │       │   └── loki-storage-patch.yaml
+│   │       └── prod
+│   │           ├── kustomization.yaml
+│   │           ├── loki-resources-patch.yaml
+│   │           ├── loki-retention-patch.yaml
+│   │           └── loki-storage-patch.yaml
+|   |
+│   ├── prometheus
+│   │   ├── agents.yaml
+│   │   ├── alerts.yaml
+│   │   ├── prometheus.yaml
+│   │   └── prometheus.yml.tpl
+|   |
+│   └── trivy
+│       ├── deployment.yaml
+│       ├── Dockerfile
+│       ├── trivy-exporter.py
+│       ├── trivy-runner
+│       │   ├── Dockerfile
+│       │   └── scan.sh
+│       ├── trivy-scan.yaml
+│       └── trivy.sh
 |
-├── scripts/                   # install / reset utilities
 |
-├── platform/
-│   ├── lib/                   # shared shell helpers (colors, logging)
-│   ├── deployment/
-│   │   ├── docker/            # image build & push
-│   │   └── kubernetes/        # Kustomize base + overlays
-│   ├── cicd/
-│   │   ├── argo/              # ArgoCD app definitions
-│   │   ├── github/
-|   |   └── jenkins/           # Jenkins CI/CD
-│   └── infra/
-│       ├── terraform/         # AWS
-│       ├── Pulumi/            # Azure
-│       └── OpenTofu/          # GCP
+├── platform
+│   ├── cicd
+│   │   ├── argo
+│   │   │   ├── app_template.yaml
+│   │   │   ├── deploy_argo.sh
+│   │   │   └── generated
+│   │   │       └── apps.yaml
+│   │   ├── github
+│   │   └── jenkins
+│   │       ├── casc
+│   │       │   └── jenkins.yaml
+│   │       ├── docker
+│   │       │   ├── docker-compose.k8s-network.yml
+│   │       │   ├── docker-compose.yml
+│   │       │   ├── Dockerfile
+│   │       │   └── plugins.txt
+│   │       ├── pipelines
+│   │       │   ├── Jenkinsfile
+│   │       │   └── Jenkinsfile.infra
+│   │       └── scripts
+│   │           ├── configure_jenkins.sh
+│   │           ├── deploy_jenkins.sh
+│   │           └── reset_jenkins.sh
+|   |
+|   |
+│   ├── deployment
+│   │   ├── docker
+│   │   │   ├── build_and_push_image_podman.sh
+│   │   │   ├── build_and_push_image.sh
+│   │   │   ├── configure_dockerhub_username.sh
+│   │   │   ├── docker-compose.yml
+|   |   |
+│   │   └── kubernetes
+│   │       ├── deploy_kubernetes.sh   # Kubernetes orchestrator
+│   │       ├── base
+│   │       │   ├── app-data-pvc.yaml
+│   │       │   ├── configmap.yaml
+│   │       │   ├── deployment.yaml
+│   │       │   ├── devops-app-sealed-secret.yaml
+│   │       │   ├── hpa.yaml
+│   │       │   ├── ingress.yaml
+│   │       │   ├── kustomization.yaml
+│   │       │   ├── namespace.yaml
+│   │       │   ├── postgres-sealed-secret.yaml
+│   │       │   ├── postgres-secret.yaml
+│   │       │   ├── postgres-statefulset.yaml
+│   │       │   ├── secrets.yaml
+│   │       │   └── service.yaml
+│   │       ├── overlays
+│   │       │   ├── local
+│   │       │   └── prod
+│   │       └── sealed-secrets
+│   │           ├── install_sealed_secrets.sh
+│   │           └── seal_secrets.sh
+|   |
+|   |
+│   ├── infra
+│   │   ├── deploy_infra.sh     # Infrastructure orchestrator
+|   |   |
+│   │   ├── OpenTofu
+│   │   │   ├── cloudsql.tf
+│   │   │   ├── gke.tf
+│   │   │   ├── main.tf
+│   │   │   ├── outputs.tf
+│   │   │   ├── provider.tf
+│   │   │   ├── tfplan
+│   │   │   └── variables.tf
+|   |   |
+│   │   ├── Pulumi
+│   │   │   ├── dr.py
+│   │   │   ├── env_loader.py
+│   │   │   ├── function_packaging.py
+│   │   │   ├── functions
+│   │   │   │   ├── dr_backup
+│   │   │   │   ├── host.json
+│   │   │   │   └── self_healing
+│   │   │   ├── __main__.py
+│   │   │   ├── monitoring_alerts.py
+│   │   │   ├── pulumi.prod.yaml
+│   │   │   ├── Pulumi.yaml
+│   │   │   ├── requirements.txt
+│   │   │   ├── self_healing.py
+│   │   │   ├── storage.py
+|   |   |
+│   │   └── terraform
+│   │       ├── dr.tf
+│   │       ├── eks.tf
+│   │       ├── lambda
+│   │       │   ├── dr_snapshot_copy.py
+│   │       │   └── self_healing.py
+│   │       ├── main.tf
+│   │       ├── outputs.tf
+│   │       ├── provider.tf
+│   │       ├── rds.tf
+│   │       ├── self_healing.tf
+│   │       ├── storage.tf
+│   │       ├── terraform.tfstate
+│   │       ├── tfplan
+│   │       ├── variables.tf
+│   │       └── vpc.tf
+|   |
+│   └── lib
 |
-└── monitoring/
-    ├── prometheus/
-    ├── grafana/
-    ├── loki/
-    ├── trivy/
-    └── dashboards/
+├── scripts
+│   ├── install.sh              # Install and check required Dependencies
+│   └── reset.sh                # Selective destructive cleanup
 ```
 ---
 
@@ -347,8 +494,10 @@ FastAPI service at `app/src/main.py`, port set by `APP_PORT` in `.env`.
 |---|---|
 | `GET /` | App info and environment |
 | `GET /health` | Healthcheck (used by Kubernetes probes) |
-| `GET /predict` | Model inference placeholder |
-| `GET /metrics/summary` | Basic request metrics |
+| `GET /metrics` | Basic request metrics |
+| `GET /ready`  | Readiness probe — deep-checks the database connection |
+| `GET /config`  | Non-sensitive runtime configuration |
+
 
 Built with a multi-stage Dockerfile; runs as a non-root user.
 
