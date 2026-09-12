@@ -327,10 +327,8 @@ select_cloud_provider() {
 
     _menu "Cloud Provider" \
         "AWS|Terraform (EKS + RDS)" \
-        "Azure|Pulumi (AKS + PostgreSQL)" \
-        "GCP|OpenTofu (GKE + Cloud SQL)"
+        "Azure|Pulumi (AKS + PostgreSQL)"
         
-
     _prompt_choice 1 3
 
     case "$REPLY" in
@@ -341,10 +339,6 @@ select_cloud_provider() {
 
         2)
             CLOUD_PROVIDER="azure"
-            ;;
-
-        3)
-            CLOUD_PROVIDER="gcp"
             ;;
 
     esac

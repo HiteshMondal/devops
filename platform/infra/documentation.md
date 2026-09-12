@@ -274,17 +274,16 @@ final_snapshot_identifier = var.db_skip_final_snapshot ? null : "${var.app_name}
 
 **Multi-AZ is opt-in** — `var.db_multi_az` defaults to `false` because Multi-AZ failover is not Free Tier eligible; it costs extra and is left off by default.
 
-### The Project's Three Cloud Stacks
+### The Project's Cloud Stacks
 
-The project does **not** maintain two competing implementations of the same AWS architecture. Instead it maintains three genuinely different, cloud-specific stacks, selected in `run.sh` → `select_cloud_provider()`:
+The project does **not** maintain two competing implementations of the same AWS architecture. Instead it maintains two genuinely different, cloud-specific stacks, selected in `run.sh` → `select_cloud_provider()`:
 
 | Directory | Tool | Cloud | Compute | Database |
 |---|---|---|---|---|
 | `platform/infra/terraform/` | Terraform | AWS | EKS | RDS (PostgreSQL) |
-| `platform/infra/OpenTofu/` | OpenTofu | GCP | GKE | Cloud SQL (opt-in) |
 | `platform/infra/Pulumi/` | Pulumi (Python) | Azure | AKS | PostgreSQL Flexible Server |
 
-Because these are three different clouds rather than two parallel copies of the same AWS config, there is no drift risk between the Terraform and OpenTofu directories in the way that phrase usually implies — each is the sole source of truth for its own cloud. `deploy_infra.sh` normalizes the provider argument (`aws`/`terraform`, `azure`/`pulumi`, `gcp`/`opentofu`) and dispatches to `deploy_terraform`, `deploy_pulumi`, or `deploy_opentofu` accordingly.
+Because these are three different clouds rather than two parallel copies of the same AWS config, there is no drift risk between the Terraform and OpenTofu directories in the way that phrase usually implies — each is the sole source of truth for its own cloud. `deploy_infra.sh` normalizes the provider argument (`aws`/`terraform` and `azure`/`pulumi`) and dispatches to `deploy_terraform` or `deploy_pulumi` accordingly.
 
 ---
 
@@ -352,7 +351,7 @@ In August 2023, HashiCorp changed Terraform's license from the Mozilla Public Li
 
 ### Compatibility
 
-OpenTofu is designed to be a drop-in replacement for Terraform. All existing Terraform configurations, providers, modules, and state files are compatible. The project's `deploy_infra.sh` handles this directly in its `deploy_opentofu()` function by detecting whichever binary is available:
+OpenTofu is designed to be a drop-in replacement for Terraform. All existing Terraform configurations, providers, modules, and state files are compatible. The project's `deploy_infra.sh` can handles this directly in its `deploy_opentofu()` function by detecting whichever binary is available:
 
 ```bash
 if command -v tofu >/dev/null 2>&1; then
@@ -377,17 +376,6 @@ OpenTofu has begun adding features not present in Terraform:
 - **Removed block** — A declarative way to remove resources from state without destroying them.
 - **Test framework improvements** — Enhanced `.tftest.hcl` testing capabilities.
 
-### The Project's OpenTofu Backend (State) Configuration
-
-The project's OpenTofu stack targets **GCP**, so its backend is GCS, not S3. `platform/infra/OpenTofu/provider.tf` includes a commented-out backend configuration:
-
-```hcl
-# backend "gcs" {
-#   bucket = "REPLACE_WITH_YOUR_STATE_BUCKET"
-#   prefix = "devops-platform/opentofu"
-# }
-```
-
 Uncommenting and populating this (with a bucket that already exists — OpenTofu cannot create its own backend) is essential for team use. Without it, state is stored locally and cannot be shared between team members or CI/CD pipelines.
 
 ---
@@ -405,7 +393,6 @@ Uncommenting and populating this (with a bucket that already exists — OpenTofu
 | Module compatibility | Full | Full |
 | Governance | HashiCorp (private) | Linux Foundation (community) |
 | Cost | Free (OSS tier) / Paid (TF Cloud) | Free, OpenTofu Cloud in dev |
-| Used for (this project) | AWS stack (EKS + RDS) | GCP stack (GKE + Cloud SQL) |
 
 ---
 
@@ -417,7 +404,7 @@ Terraform state is a JSON file (`terraform.tfstate`) that maps Terraform resourc
 
 ### Why Remote State Matters
 
-Storing state locally (the default in this project, for both the AWS and GCP stacks) is suitable only for solo development. In a team environment or CI/CD pipeline, remote state is essential because:
+Storing state locally (the default in this project, for AWS) is suitable only for solo development. In a team environment or CI/CD pipeline, remote state is essential because:
 
 - Multiple engineers cannot safely run `terraform apply`/`tofu apply` concurrently with local state — the last writer wins and corrupts the state.
 - CI/CD pipelines cannot access a state file that only exists on a developer's laptop.
@@ -429,7 +416,7 @@ When using an S3 backend with DynamoDB locking, Terraform writes a lock entry to
 
 ### Sensitive Data in State
 
-The project's `db_password` variable is marked `sensitive = true` in both the AWS and GCP stacks, but this only prevents it from appearing in plan/apply console output — **the value is still stored in plaintext in the state file**. This is why a remote backend bucket should have:
+The project's `db_password` variable is marked `sensitive = true` in AWS stack, but this only prevents it from appearing in plan/apply console output — **the value is still stored in plaintext in the state file**. This is why a remote backend bucket should have:
 
 - **Server-side encryption** enabled on the bucket
 - **Bucket policy** restricting access to only the roles/users that need it
@@ -538,7 +525,7 @@ The `terraform-aws-modules/vpc/aws` module used by this project handles the actu
 
 Terraform state (`terraform.tfstate`) is a JSON file that maps every resource in your configuration to its real-world counterpart. It stores IDs, all attributes (including computed ones), dependencies, and metadata. Terraform reads state before every plan to understand what currently exists and computes only the delta.
 
-The security risk is that **state contains sensitive values in plaintext** — including the RDS/Cloud SQL/PostgreSQL password (`db_password`), connection strings, and any sensitive outputs. Even though the project marks `db_password` as `sensitive = true` in both the AWS and GCP variable definitions (preventing console display), the value is still written to the state file in plaintext. Mitigations include: encrypting the state backend bucket with KMS (AWS) or equivalent (GCS), using strict IAM policies to limit who can read the state bucket, enabling bucket versioning for recovery, and using OpenTofu's native state encryption feature which encrypts state contents before writing to any backend.
+The security risk is that **state contains sensitive values in plaintext** — including the RDS/Cloud SQL/PostgreSQL password (`db_password`), connection strings, and any sensitive outputs. Even though the project marks `db_password` as `sensitive = true` in AWS variable definitions (preventing console display), the value is still written to the state file in plaintext. Mitigations include: encrypting the state backend bucket with KMS (AWS) or equivalent (GCS), using strict IAM policies to limit who can read the state bucket, enabling bucket versioning for recovery, and using OpenTofu's native state encryption feature which encrypts state contents before writing to any backend.
 
 ---
 
@@ -557,8 +544,6 @@ resource "google_project_service" "required" {
 }
 ```
 
-This is exactly how the project's OpenTofu `main.tf` enables the required GCP APIs — each API name in the `required_apis` list becomes its own addressable resource (`google_project_service.required["compute.googleapis.com"]`), so removing one API from the list only affects that specific resource without renumbering or disturbing the others.
-
 Use `count` when: you need a simple integer count of identical resources, or order genuinely doesn't matter and the set never shrinks from the middle. Use `for_each` when: resources have distinct identities, the set may change, or you want stable resource addresses.
 
 ---
@@ -571,21 +556,19 @@ The script normalizes both the provider and the action argument, then dispatches
 case "$PROVIDER" in
     aws|terraform)  PROVIDER="aws" ;;
     azure|pulumi)   PROVIDER="azure" ;;
-    gcp|opentofu)   PROVIDER="gcp" ;;
 esac
 
 case "$PROVIDER" in
     aws)   deploy_terraform ;;
     azure) deploy_pulumi ;;
-    gcp)   deploy_opentofu ;;
 esac
 ```
 
-This is the **Strategy Pattern**: `PROVIDER` selects which concrete implementation (`deploy_terraform`, `deploy_pulumi`, `deploy_opentofu`) runs, and the caller (`run.sh`, and the `MAIN EXECUTION` block at the bottom of `deploy_infra.sh`) doesn't need to know which cloud or which tool is behind the chosen provider — it just calls the dispatcher with a provider name and an action. Each concrete function additionally handles its own tool's specific auth check (`aws sts get-caller-identity`, `az account show`, GCP's ADC) before running init/plan/apply, so cloud-specific setup stays encapsulated inside its own function.
+This is the **Strategy Pattern**: `PROVIDER` selects which concrete implementation (`deploy_terraform`, `deploy_pulumi`, `deploy_opentofu`) runs, and the caller (`run.sh`, and the `MAIN EXECUTION` block at the bottom of `deploy_infra.sh`) doesn't need to know which cloud or which tool is behind the chosen provider — it just calls the dispatcher with a provider name and an action. Each concrete function additionally handles its own tool's specific auth check (`aws sts get-caller-identity` and `az account show`) before running init/plan/apply, so cloud-specific setup stays encapsulated inside its own function.
 
 ---
 
-**Q9: Compare Terraform (AWS), Pulumi (Azure), and OpenTofu (GCP) as used in this project. Why maintain three separate stacks instead of one multi-cloud module?**
+**Q9: Compare Terraform (AWS) and Pulumi (Azure) as used in this project. Why maintain two separate stacks instead of one multi-cloud module?**
 
 These are not three implementations of the same infrastructure — they are genuinely different target clouds with different managed services (EKS vs. AKS vs. GKE; RDS vs. Azure PostgreSQL Flexible Server vs. Cloud SQL), so there is no single Terraform module that could reasonably express all three without heavy conditionals that would hurt readability more than they'd help.
 
@@ -593,7 +576,6 @@ These are not three implementations of the same infrastructure — they are genu
 
 **Pulumi/Azure** — Written in Python rather than HCL, and explicitly designed to be **standalone**: `env_loader.py` walks up the directory tree to find `.env` on its own, so `cd platform/infra/Pulumi && pulumi up` works even if every other file in the repo were deleted. Best when the team wants real programming-language constructs (the loops, functions, and classes HCL doesn't have) or is already Python-heavy.
 
-**OpenTofu/GCP** — Chosen specifically to exercise the open-source fork rather than Terraform proper, using hand-written resources (`google_container_cluster`, `google_container_node_pool`) rather than a large community module, plus a `for_each`-based API-enablement pattern (`google_project_service.required`) so the project works on a brand-new GCP project with zero manual `gcloud services enable` steps.
 
 **For this project:** the value of keeping three independent stacks is that each one is a genuine, idiomatic reference implementation for its cloud — useful for learning or demoing all three ecosystems — rather than a lowest-common-denominator abstraction that would obscure how each cloud's native tooling actually differs.
 
@@ -603,7 +585,7 @@ These are not three implementations of the same infrastructure — they are genu
 
 Several gaps remain across the three stacks:
 
-**Secrets management** — `db_password` is currently passed as a plain `TF_VAR_db_password` sourced from `.env`. In production, it should instead be fetched from a secrets manager (AWS Secrets Manager/SSM Parameter Store, Azure Key Vault, GCP Secret Manager) via a data source at apply time, or generated with a `random_password` resource and stored directly in the target secrets manager so Terraform never needs the plaintext value as an input variable.
+**Secrets management** — `db_password` is currently passed as a plain `TF_VAR_db_password` sourced from `.env`. In production, it should instead be fetched from a secrets manager (AWS Secrets Manager/SSM Parameter Store and Azure Key Vault) via a data source at apply time, or generated with a `random_password` resource and stored directly in the target secrets manager so Terraform never needs the plaintext value as an input variable.
 
 **Remote state with encryption** — All three stacks currently default to local state. The commented-out S3 backend (Terraform) and GCS backend (OpenTofu) should be uncommented and configured with an encrypted, versioned bucket and (for AWS) DynamoDB locking. Pulumi's default backend is Pulumi Cloud, which handles this differently and should be reviewed against the team's data-residency requirements.
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # /platform/infra/deploy_infra.sh — Infrastructure Deployment Orchestrator
-# Supports: Terraform (AWS) + Pulumi (Azure) + OpenTofu (Google Cloud Platform)
+# Supports: Terraform (AWS) + Pulumi (Azure)
 # Usage: ./deploy_infra.sh [plan|apply|destroy] [aws||azure]
 
 # Designed to be compatible with major Linux distributions and WSL.
@@ -57,18 +57,6 @@ export TF_VAR_db_port="$DB_PORT"
 export TF_VAR_app_name="$APP_NAME"
 export TF_VAR_app_port="$APP_PORT"
 export TF_VAR_aws_region="$AWS_REGION"
-
-# OpenTofu and GCP
-export TF_VAR_gcp_project_id="${GCP_PROJECT_ID:-}"
-export TF_VAR_gcp_region="${GCP_REGION:-us-central1}"
-export TF_VAR_gcp_zone="${GCP_ZONE:-us-central1-a}"
-export TF_VAR_gke_cluster_name="${GKE_CLUSTER_NAME:-devops-app-cluster}"
-export TF_VAR_gke_node_count="${GKE_NODE_COUNT:-1}"
-export TF_VAR_gke_machine_type="${GKE_MACHINE_TYPE:-e2-small}"
-export TF_VAR_gke_disk_size_gb="${GKE_DISK_SIZE_GB:-30}"
-export TF_VAR_cloudsql_tier="${CLOUDSQL_TIER:-db-f1-micro}"
-export TF_VAR_cloudsql_disk_size_gb="${CLOUDSQL_DISK_SIZE_GB:-10}"
-export TF_VAR_cloudsql_version="${CLOUDSQL_VERSION:-POSTGRES_15}"
 export TF_VAR_deploy_target="$DEPLOY_TARGET"
 
 # Defaults
@@ -87,12 +75,9 @@ case "$PROVIDER" in
     azure|pulumi)
         PROVIDER="azure"
         ;;
-    gcp|opentofu)
-        PROVIDER="gcp"
-        ;;
     *)
         print_error "Invalid provider: ${BOLD}${PROVIDER}${RESET}"
-        print_info "Valid values: aws | azure | gcp"
+        print_info "Valid values: aws | azure"
         exit 1
         ;;
 esac
@@ -167,46 +152,6 @@ EOF
             print_warning "Destroying Terraform infrastructure"
             terraform destroy -auto-approve
             print_success "Terraform destroy complete"
-            ;;
-    esac
-}
-
-# GCP / OpenTofu
-deploy_opentofu() {
-    print_subsection "GCP Infrastructure — OpenTofu"
-
-    local tofu_dir="${PROJECT_ROOT}/platform/infra/OpenTofu"
-    local iac_bin
-
-    if command -v tofu >/dev/null 2>&1; then
-        iac_bin="tofu"
-    elif command -v terraform >/dev/null 2>&1; then
-        iac_bin="terraform"
-        print_warning "Using terraform fallback for OpenTofu"
-    else
-        print_error "Neither tofu nor terraform CLI found"
-        exit 1
-    fi
-
-    cd "$tofu_dir"
-
-    "$iac_bin" init -upgrade
-
-    case "$ACTION" in
-        plan)
-            "$iac_bin" validate
-            "$iac_bin" plan -out=tfplan
-            ;;
-        apply)
-            "$iac_bin" validate
-            "$iac_bin" plan -out=tfplan
-            "$iac_bin" apply tfplan
-            print_success "OpenTofu apply complete"
-            ;;
-        destroy)
-            print_warning "Destroying OpenTofu infrastructure"
-            "$iac_bin" destroy -auto-approve
-            print_success "OpenTofu destroy complete"
             ;;
     esac
 }
@@ -296,9 +241,6 @@ case "$PROVIDER" in
         ;;
     azure)
         deploy_pulumi
-        ;;
-    gcp)
-        deploy_opentofu
         ;;
 esac
 

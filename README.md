@@ -26,9 +26,7 @@
 <p>
   <img src="https://img.shields.io/badge/AWS-FF9900?style=for-the-badge&logo=amazonaws&logoColor=white" alt="AWS"/>
   <img src="https://img.shields.io/badge/Azure-0078D4?style=for-the-badge&logo=microsoftazure&logoColor=white" alt="Azure"/>
-  <img src="https://img.shields.io/badge/Google%20Cloud-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white" alt="Google Cloud"/>
   <img src="https://img.shields.io/badge/Terraform-844FBA?style=for-the-badge&logo=terraform&logoColor=white" alt="Terraform"/>
-  <img src="https://img.shields.io/badge/OpenTofu-FFDA18?style=for-the-badge&logo=opentofu&logoColor=black" alt="OpenTofu"/>
   <img src="https://img.shields.io/badge/Pulumi-8A3391?style=for-the-badge&logo=pulumi&logoColor=white" alt="Pulumi"/>
   <img src="https://img.shields.io/badge/Trivy-1904DA?style=for-the-badge&logo=aqua&logoColor=white" alt="Trivy"/>
 </p>
@@ -74,13 +72,13 @@ chmod +x run.sh
 |                        | **GitLab CI**                        | Provides a staged CI workflow for automated testing, image/container workflows, security validation, infrastructure operations, and deployment-related checks.                                              |
 |                        | **Argo CD**                          | Implements GitOps-based continuous delivery by continuously reconciling Kubernetes resources with the desired state stored in Git and deploying changes to the cluster.                                     |
 |                        | **Jenkins**                          | Runs multi-stage CI/CD pipelines for end-to-end validation, infrastructure workflows, container operations, and main-branch release/deployment checks.                                                      |
-| 🏗️ **Infrastructure** | **Terraform · OpenTofu**             | Defines cloud infrastructure as code so networking, Kubernetes clusters, databases, storage, and related resources can be provisioned, changed, and reproduced declaratively.                               |
+| 🏗️ **Infrastructure** | **Terraform · Pulumi**             | Defines cloud infrastructure as code so networking, Kubernetes clusters, databases, storage, and related resources can be provisioned, changed, and reproduced declaratively.                               |
 |                        | **Pulumi · Python**                  | Defines infrastructure and cloud automation using Python, including self-healing workflows, disaster-recovery automation, monitoring-driven actions, storage, and serverless functions.                     |
 | 📊 **Observability**   | **Prometheus**                       | Collects and stores time-series metrics from Kubernetes and application components, enabling health monitoring, capacity analysis, and alerting.                                                            |
 |                        | **Grafana**                          | Visualizes infrastructure, Kubernetes, application, and security data through dashboards, with 25+ monitoring panels and 10+ configured alerts.                                                             |
 |                        | **Loki**                             | Aggregates Kubernetes/application logs into a centralized log store so logs can be queried and correlated with operational events and metrics.                                                              |
 | 🛡️ **Security**       | **Trivy**                            | Scans container images for known vulnerabilities and integrates security checks into CI/CD; the project includes scanning and monitoring workflows for 20+ images.                                          |
-| ☁️ **Cloud**           | **AWS · Azure · Google Cloud (GCP)** | Provides the cloud platforms targeted by the infrastructure layer for Kubernetes, databases, storage, networking, disaster recovery, and automated cloud operations.                                        |
+| ☁️ **Cloud**           | **AWS · Azure** | Provides the cloud platforms targeted by the infrastructure layer for Kubernetes, databases, storage, networking, disaster recovery, and automated cloud operations.                                        |
   
 
 <br>
@@ -124,7 +122,6 @@ chmod +x run.sh
                     │                          ├───────────────────────────────┤
                     │                          │ aws   → Terraform  → EKS+RDS  │
                     │                          │ azure → Pulumi     → AKS+PG   │
-                    │                          │ gcp   → OpenTofu   → GKE+SQL  │
                     │                          └──────────────┬────────────────┘
                     │                                         │
                     │                          detect_k8s_cluster()
@@ -206,15 +203,6 @@ For Azure deployments:
 * Configured **Azure authentication**
 * Appropriate Azure permissions to provision **AKS and PostgreSQL**
 
-### ☁️ Google Cloud (GCP)
-
-For GCP deployments:
-
-* **gcloud CLI**
-* **OpenTofu**
-* Configured **Application Default Credentials** (`gcloud auth application-default login`, or a service-account key via `GOOGLE_APPLICATION_CREDENTIALS`)
-* Appropriate GCP permissions to provision **GKE and Cloud SQL**
-* Note: Cloud SQL is not covered by GCP's Always-Free tier — it's opt-in (`enable_cloudsql`) and will incur cost
 
 ### 🔄 Production / GitOps
 
@@ -265,7 +253,7 @@ Applies manifests straight to your cluster with `kubectl`.
 
 Provisions infra, then hands off to ArgoCD. Argo manages the app, monitoring, logging, and security from Git.
 
-- Provision infrastructure (Terraform / OpenTofu / Pulumi)
+- Provision infrastructure (Terraform / Pulumi)
 - Build & push image
 - Deploy ArgoCD
 - ArgoCD syncs everything else from the main repo
@@ -293,7 +281,6 @@ Full GitOps end-to-end CI/CD and main-branch validation
 |---|---|---|---|
 | AWS | Terraform | EKS | RDS PostgreSQL |
 | Azure | Pulumi | AKS | PostgreSQL Flexible Server |
-| Google Cloud | OpenTofu | GKE | Cloud SQL (opt-in, not Always-Free) |
 
 ---
 
@@ -422,15 +409,6 @@ Full GitOps end-to-end CI/CD and main-branch validation
 │   ├── infra
 │   │   ├── deploy_infra.sh     # Infrastructure orchestrator
 |   |   |
-│   │   ├── OpenTofu
-│   │   │   ├── cloudsql.tf
-│   │   │   ├── gke.tf
-│   │   │   ├── main.tf
-│   │   │   ├── outputs.tf
-│   │   │   ├── provider.tf
-│   │   │   ├── tfplan
-│   │   │   └── variables.tf
-|   |   |
 │   │   ├── Pulumi
 │   │   │   ├── dr.py
 │   │   │   ├── env_loader.py
@@ -480,7 +458,7 @@ Full GitOps end-to-end CI/CD and main-branch validation
 * **CI/CD**: GitHub Actions · GitLab CI · ArgoCD · Jenkins- [`platform/cicd/CICD_Documentation.md`](./platform/cicd/CICD_Documentation.md)
                                                             [`platform/cicd/github/Git_GitHub_Fundamentals.md`](./platform/cicd/github/Git_GitHub_Fundamentals.md)
                                                             [`platform/cicd/jenkins/documentation.md`](./platform/cicd/jenkins/documentation.md)
-* **Infrastructure**: Terraform / OpenTofu / Pulumi — [`platform/infra/documentation.md`](./platform/infra/documentation.md)
+* **Infrastructure**: Terraform / Pulumi — [`platform/infra/documentation.md`](./platform/infra/documentation.md)
 * **Monitoring**: Prometheus + Grafana + Loki — [`monitoring/documentation.md`](./monitoring/documentation.md)
 * **AWS**: [`platform/infra/terraform/AWS_Documentation.md`](./platform/infra/terraform/AWS_Documentation.md)
 

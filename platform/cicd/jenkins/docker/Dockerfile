@@ -65,12 +65,6 @@ RUN curl -fsSLo /tmp/terraform.zip \
     && unzip -oq /tmp/terraform.zip -d /usr/local/bin \
     && rm -f /tmp/terraform.zip
 
-# OpenTofu (GCP pipeline)
-RUN curl -fsSLo /tmp/tofu.zip \
-      "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_${TARGETARCH}.zip" \
-    && unzip -oq /tmp/tofu.zip -d /usr/local/bin tofu \
-    && rm -f /tmp/tofu.zip
-
 # Pulumi (Azure pipeline)
 RUN curl -fsSL https://get.pulumi.com | sh -s -- --version "${PULUMI_VERSION}" \
     && mv /root/.pulumi/bin/* /usr/local/bin/ \

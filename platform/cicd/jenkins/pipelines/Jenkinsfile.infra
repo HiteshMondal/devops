@@ -1,7 +1,7 @@
 // Jenkinsfile.infra — DevOps Platform Infrastructure Pipeline
 //
 // Thin wrapper around platform/infra/deploy_infra.sh (plan / apply / destroy
-// across AWS-Terraform, Azure-Pulumi, GCP-OpenTofu). Manual trigger only —
+// across AWS-Terraform and Azure-Pulumi). Manual trigger only —
 // intentionally not wired to githubPush(), since infra changes should be
 // deliberate.
 
@@ -15,7 +15,7 @@ pipeline {
     }
 
     parameters {
-        choice(name: 'CLOUD_PROVIDER', choices: ['aws', 'azure', 'gcp'], description: 'Matches run.sh cloud provider selection')
+        choice(name: 'CLOUD_PROVIDER', choices: ['aws' and 'azure'], description: 'Matches run.sh cloud provider selection')
         choice(name: 'INFRA_ACTION', choices: ['plan', 'apply', 'destroy'], description: 'Matches run.sh infra action selection')
     }
 
