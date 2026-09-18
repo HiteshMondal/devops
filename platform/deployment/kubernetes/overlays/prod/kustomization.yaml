@@ -14,9 +14,9 @@ resources:
   - ../../base
   - network-policy.yaml
   - pod-disruption-budget.yaml
-  - ../../base/devops-app-sealed-secret.yaml
-  - ../../base/postgres-sealed-secret.yaml
-  - ../../base/postgres-backup-cronjob.yaml
+  - devops-app-sealed-secret.yaml
+  - postgres-sealed-secret.yaml
+  - postgres-backup-cronjob.yaml
 
 namespace: devops-app
 
@@ -25,8 +25,8 @@ images:
     newName: hiteshmondaldocker/devops-app
     newTag: latest
 
-patchesStrategicMerge:
-  - backup-config-patch.yaml
+patches:
+  - path: backup-config-patch.yaml
 
 patches:
   # Production-grade resource allocation and replica count

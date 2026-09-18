@@ -39,7 +39,7 @@ source "${PROJECT_ROOT}/platform/lib/colors.sh"
 # shellcheck source=/dev/null
 source "${PROJECT_ROOT}/platform/lib/logging.sh"
 
-BASE_DIR="${PROJECT_ROOT}/platform/deployment/kubernetes/base"
+BASE_DIR="${PROJECT_ROOT}/platform/deployment/kubernetes/overlays/prod"
 NAMESPACE="${NAMESPACE:-devops-app}"
 SEALED_SECRETS_NAMESPACE="${SEALED_SECRETS_NAMESPACE:-kube-system}"
 SEALED_SECRETS_CONTROLLER_NAME="${SEALED_SECRETS_CONTROLLER_NAME:-sealed-secrets-controller}"

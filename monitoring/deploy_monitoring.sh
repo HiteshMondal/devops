@@ -210,7 +210,7 @@ process_tpl_files() {
 wait_for_rollout() {
     local resource="$1"
     local namespace="$2"
-    kubectl rollout status "$resource" -n "$namespace" --timeout=300s
+    kubectl rollout status "$resource" -n "$namespace" --timeout=400s
 }
 
 detect_k8s_distribution() {
@@ -405,11 +405,11 @@ deploy_monitoring() {
     print_success "Namespace ready"
 
     kubectl apply -n "$namespace" -f "$PROJECT_ROOT/monitoring/prometheus/agents.yaml"
-    kubectl rollout status deployment/kube-state-metrics -n "$namespace" --timeout=300s
+    kubectl rollout status deployment/kube-state-metrics -n "$namespace" --timeout=400s
     if kubectl get daemonset node-exporter -n "$namespace" >/dev/null 2>&1; then
         kubectl rollout status daemonset/node-exporter \
             -n "$namespace" \
-            --timeout=300s
+            --timeout=400s
     else
         print_warning "node-exporter is not installed in namespace ${namespace}"
     fi
@@ -432,7 +432,7 @@ deploy_monitoring() {
     kubectl rollout status \
         deployment/prometheus \
         -n "$namespace" \
-        --timeout=300s
+        --timeout=400s
 
     print_success "Prometheus ready"
 
@@ -456,7 +456,7 @@ deploy_monitoring() {
     kubectl rollout status \
         deployment/grafana \
         -n "$namespace" \
-        --timeout=300s
+        --timeout=400s
 
     GRAFANA_ADMIN_PASSWORD=$(kubectl get secret \
         grafana-secrets \
