@@ -1,0 +1,74 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: devops-app
+  labels:
+    app: postgres-backup
+spec:
+  schedule: "0 3 * * *"   # daily at 03:00
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: postgres-backup
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: postgres-backup-sa
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            fsGroup: 999
+          containers:
+            - name: pg-dump-upload
+              image: amazon/aws-cli:2.17.62
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  apk add --no-cache postgresql16-client >/dev/null
+                  STAMP=$(date -u +%Y%m%d-%H%M%S)
+                  FILE="/tmp/${POSTGRES_DB}-${STAMP}.sql.gz"
+                  PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
+                    -h postgres-service -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
+                    | gzip > "${FILE}"
+                  aws s3 cp "${FILE}" "s3://${BACKUP_BUCKET}/postgres/${STAMP}.sql.gz"
+              envFrom:
+                - secretRef:
+                    name: postgres-secrets
+              env:
+                - name: BACKUP_BUCKET
+                  valueFrom:
+                    configMapKeyRef:
+                      name: devops-app-config
+                      key: BACKUP_BUCKET
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                runAsNonRoot: true
+                runAsUser: 999
+                capabilities:
+                  drop: ["ALL"]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-backup-sa
+  namespace: devops-app
+  labels:
+    app: postgres-backup
+  annotations:
+    eks.amazonaws.com/role-arn: "${POSTGRES_BACKUP_ROLE_ARN}"   # patched at deploy time, prod overlay only

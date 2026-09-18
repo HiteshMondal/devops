@@ -168,7 +168,7 @@ variable "db_skip_final_snapshot" {
 variable "enable_nat_gateway" {
   description = "Create a NAT Gateway for private-subnet egress. NAT Gateway is NOT Free Tier eligible (~$0.045/hr + data). Off by default; worker nodes run in public subnets with public IPs instead to keep this deployable at $0 infra cost beyond the EKS control plane."
   type        = bool
-  default     = false
+  default     = true
 }
 
 # Distributed Cloud File System (S3 + Cross-Region Replication)
@@ -176,7 +176,7 @@ variable "enable_nat_gateway" {
 variable "enable_cloud_storage" {
   description = "Create an S3 bucket with versioning + Cross-Region Replication for distributed file storage. Free tier: 5GB S3 standard storage; replicated copy in the destination region incurs its own storage + inter-region transfer cost (~$0.02/GB), so this is opt-in."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "cloud_storage_replica_region" {
@@ -190,7 +190,7 @@ variable "cloud_storage_replica_region" {
 variable "enable_self_healing" {
   description = "Deploy CloudWatch Alarms + a Python Lambda that automatically remediates unhealthy EKS worker nodes (terminate -> ASG replaces) and RDS failures (reboot). Lambda free tier (1M requests + 400,000 GB-s/month) covers this comfortably, so cost stays ~$0."
   type        = bool
-  default     = false
+  default     = true
 }
 
 # Multi-Cloud (same-cloud, cross-region) Disaster Recovery
@@ -198,7 +198,7 @@ variable "enable_self_healing" {
 variable "enable_dr_backup" {
   description = "Deploy a scheduled Lambda (via EventBridge) that snapshots RDS and copies the snapshot to var.cloud_storage_replica_region for disaster recovery. Snapshot storage beyond the 20GB Free Tier allocation is billed (~$0.095/GB-month), so keep retention short via dr_snapshot_retention_days."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "dr_backup_schedule_expression" {

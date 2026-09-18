@@ -16,6 +16,7 @@ module "eks" {
   cluster_version = var.kubernetes_version
 
   vpc_id = module.vpc.vpc_id
+  enable_irsa = true
 
   # Free-tier posture: nodes in public subnets with public IPs so no
   # NAT Gateway is required. The cluster API endpoint stays reachable
@@ -24,8 +25,6 @@ module "eks" {
   cluster_endpoint_public_access  = true
   cluster_endpoint_private_access = true
 
-  # Free control-plane logging is minimal by design to avoid CloudWatch
-  # ingestion costs; enable more types if you need deeper audit trails.
   cluster_enabled_log_types = ["api", "authenticator"]
 
   cluster_addons = {

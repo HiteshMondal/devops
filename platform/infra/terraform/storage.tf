@@ -136,6 +136,13 @@ resource "aws_s3_bucket_replication_configuration" "files" {
   rule {
     id     = "replicate-all"
     status = "Enabled"
+    priority = 1
+
+    filter {}
+
+    delete_marker_replication {
+      status = "Disabled"
+    }
 
     destination {
       bucket        = aws_s3_bucket.files_replica[0].arn

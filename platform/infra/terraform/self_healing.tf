@@ -109,13 +109,13 @@ resource "aws_lambda_permission" "sns_invoke_self_healing" {
 resource "aws_cloudwatch_metric_alarm" "asg_unhealthy_nodes" {
   count               = var.enable_self_healing ? 1 : 0
   alarm_name          = "${var.app_name}-asg-node-unhealthy"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 1
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 2
   metric_name         = "GroupInServiceInstances"
   namespace           = "AWS/AutoScaling"
   period              = 300
   statistic           = "Average"
-  threshold           = 0
+  threshold           = var.node_desired_size
   alarm_description   = "Fires when the EKS worker ASG reports fewer in-service instances than desired; triggers node replacement."
   treat_missing_data  = "notBreaching"
 

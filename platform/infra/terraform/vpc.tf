@@ -31,7 +31,7 @@ module "vpc" {
   # Set TF_VAR_enable_nat_gateway=true if you want nodes fully private.
   enable_nat_gateway = var.enable_nat_gateway
   single_nat_gateway = var.enable_nat_gateway
-
+  map_public_ip_on_launch = true
   enable_dns_hostnames = true
   enable_dns_support   = true
 

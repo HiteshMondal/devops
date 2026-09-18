@@ -50,6 +50,7 @@ resource "aws_db_instance" "this" {
   max_allocated_storage = var.db_allocated_storage # disable storage autoscaling to avoid surprise Free Tier overage
   storage_type          = "gp3"
   storage_encrypted     = true
+  kms_key_id            = aws_kms_key.rds.arn
 
   db_name  = var.db_name
   username = var.db_username
@@ -70,4 +71,15 @@ resource "aws_db_instance" "this" {
   apply_immediately          = true
 
   tags = local.common_tags
+}
+
+resource "aws_kms_key" "rds" {
+  description             = "CMK for ${var.app_name} RDS encryption (required for cross-region snapshot copy)"
+  deletion_window_in_days = 7
+  tags                    = local.common_tags
+}
+
+resource "aws_kms_alias" "rds" {
+  name          = "alias/${var.app_name}-rds"
+  target_key_id = aws_kms_key.rds.key_id
 }

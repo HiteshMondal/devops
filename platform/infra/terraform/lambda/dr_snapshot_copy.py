@@ -33,6 +33,7 @@ import boto3
 DB_INSTANCE_IDENTIFIER = os.environ.get("DB_INSTANCE_IDENTIFIER", "")
 DR_REGION = os.environ.get("DR_REGION", "us-west-2")
 DR_RETENTION_DAYS = int(os.environ.get("DR_RETENTION_DAYS", "7"))
+DR_KMS_KEY_ID = os.environ.get("DR_KMS_KEY_ID", "")
 
 rds_primary = boto3.client("rds")
 rds_dr = boto3.client("rds", region_name=DR_REGION)
@@ -50,7 +51,7 @@ def _create_snapshot() -> str:
         DBInstanceIdentifier=DB_INSTANCE_IDENTIFIER,
     )
     waiter = rds_primary.get_waiter("db_snapshot_completed")
-    waiter.wait(DBSnapshotIdentifier=snapshot_id, WaiterConfig={"Delay": 15, "MaxAttempts": 40})
+    waiter.wait(DBSnapshotIdentifier=snapshot_id, WaiterConfig={"Delay": 15, "MaxAttempts": 55})
     return snapshot_id
 
 
@@ -65,6 +66,7 @@ def _copy_to_dr_region(snapshot_id: str) -> str:
         SourceDBSnapshotIdentifier=source_arn,
         TargetDBSnapshotIdentifier=dr_snapshot_id,
         SourceRegion=source_region,
+        KmsKeyId=DR_KMS_KEY_ID,
     )
     return dr_snapshot_id
 

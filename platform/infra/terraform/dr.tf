@@ -18,6 +18,14 @@ data "archive_file" "dr_snapshot_lambda" {
   output_path = "${path.module}/.build/dr_snapshot_copy.zip"
 }
 
+resource "aws_kms_key" "rds_dr" {
+  count                    = var.enable_dr_backup ? 1 : 0
+  provider                 = aws.replica
+  description              = "CMK for ${var.app_name} RDS DR-region snapshot copies"
+  deletion_window_in_days  = 7
+  tags                     = local.common_tags
+}
+
 resource "aws_iam_role" "dr_snapshot_lambda" {
   count = var.enable_dr_backup ? 1 : 0
   name  = "${var.app_name}-dr-snapshot-lambda"
@@ -58,6 +66,18 @@ resource "aws_iam_role_policy" "dr_snapshot_lambda" {
         Resource = "*"
       },
       {
+        Effect = "Allow"
+        Action = [
+          "kms:CreateGrant",
+          "kms:DescribeKey",
+          "kms:Decrypt",
+        ]
+        Resource = [
+          aws_kms_key.rds.arn,
+          aws_kms_key.rds_dr[0].arn,
+        ]
+      },
+      {
         Effect   = "Allow"
         Action   = ["sts:GetCallerIdentity"]
         Resource = "*"
@@ -72,7 +92,7 @@ resource "aws_lambda_function" "dr_snapshot" {
   role             = aws_iam_role.dr_snapshot_lambda[0].arn
   handler          = "dr_snapshot_copy.handler"
   runtime          = "python3.12"
-  timeout          = 300 # snapshot creation + waiter can take a few minutes
+  timeout          = 900 # AWS Lambda's hard maximum
   filename         = data.archive_file.dr_snapshot_lambda[0].output_path
   source_code_hash = data.archive_file.dr_snapshot_lambda[0].output_base64sha256
 
@@ -81,6 +101,7 @@ resource "aws_lambda_function" "dr_snapshot" {
       DB_INSTANCE_IDENTIFIER = aws_db_instance.this.id
       DR_REGION              = var.cloud_storage_replica_region
       DR_RETENTION_DAYS      = tostring(var.dr_snapshot_retention_days)
+      DR_KMS_KEY_ID           = aws_kms_key.rds_dr[0].arn
     }
   }
 

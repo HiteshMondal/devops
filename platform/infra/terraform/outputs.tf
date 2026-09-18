@@ -51,3 +51,13 @@ output "estimated_free_tier_note" {
   description = "Reminder about what is and isn't covered by AWS Free Tier."
   value       = "EKS control plane (~$0.10/hr) is NOT Free Tier eligible and is the one guaranteed cost. Worker node (t3.micro/t2.micro) and RDS (db.t3.micro/db.t4g.micro, <=20GB) are Free Tier eligible for a new AWS account's first 12 months only."
 }
+
+output "postgres_backup_role_arn" {
+  description = "IRSA role ARN for the postgres-backup CronJob ServiceAccount."
+  value       = aws_iam_role.postgres_backup.arn
+}
+
+output "backup_bucket_name" {
+  description = "S3 bucket name for application backups."
+  value       = var.enable_cloud_storage ? aws_s3_bucket.files_primary[0].bucket : null
+}

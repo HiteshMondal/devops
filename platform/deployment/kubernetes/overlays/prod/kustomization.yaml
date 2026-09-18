@@ -16,6 +16,7 @@ resources:
   - pod-disruption-budget.yaml
   - ../../base/devops-app-sealed-secret.yaml
   - ../../base/postgres-sealed-secret.yaml
+  - ../../base/postgres-backup-cronjob.yaml
 
 namespace: devops-app
 
@@ -219,3 +220,24 @@ patches:
       metadata:
         name: postgres-secrets
         namespace: devops-app
+
+  - target:
+      kind: ServiceAccount
+      name: postgres-backup-sa
+    patch: |-
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: postgres-backup-sa
+        annotations:
+          eks.amazonaws.com/role-arn: "REPLACED_BY_DEPLOY_SCRIPT"
+  - target:
+      kind: ConfigMap
+      name: devops-app-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: devops-app-config
+      data:
+        BACKUP_BUCKET: "REPLACED_BY_DEPLOY_SCRIPT"
