@@ -1,11 +1,9 @@
-########################################
 # platform/infra/terraform/rds.tf
 #
 # Standalone database instance. The app only needs DB_HOST/DB_PORT/etc
 # at runtime (injected via Kubernetes ConfigMap/Secret by
 # platform/deployment/kubernetes), so nothing here references app code
 # or Kubernetes manifests, and nothing there needs to reference this file.
-########################################
 
 resource "aws_db_subnet_group" "this" {
   name = "${var.app_name}-db-subnets"

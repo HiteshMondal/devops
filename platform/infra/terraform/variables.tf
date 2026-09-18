@@ -1,18 +1,15 @@
-########################################
 # platform/infra/terraform/variables.tf
 #
 # Every value below can be supplied via a TF_VAR_<name> environment
 # variable. run.sh -> deploy_infra.sh sources the repo's .env file with
 # `set -a`, so anything defined there as TF_VAR_xxx is picked up by
 # Terraform automatically — no tfvars file or manual export required.
-########################################
 
 # Core / naming
 
 variable "aws_region" {
-  description = "AWS region to deploy into. Free-tier resources exist in every region, but pick one close to you."
+  description = "AWS region to deploy into. Supplied by .env through run.sh."
   type        = string
-  default     = "us-east-1"
 }
 
 variable "app_name" {

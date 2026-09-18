@@ -57,17 +57,25 @@ def _create_snapshot() -> str:
 
 def _copy_to_dr_region(snapshot_id: str) -> str:
     source_region = rds_primary.meta.region_name
+    account_id = boto3.client("sts").get_caller_identity()["Account"]
     source_arn = (
-        f"arn:aws:rds:{source_region}:"
-        f"{boto3.client('sts').get_caller_identity()['Account']}:snapshot:{snapshot_id}"
+        f"arn:aws:rds:{source_region}:{account_id}:snapshot:{snapshot_id}"
     )
     dr_snapshot_id = f"{snapshot_id}-copy"
+
     rds_dr.copy_db_snapshot(
         SourceDBSnapshotIdentifier=source_arn,
         TargetDBSnapshotIdentifier=dr_snapshot_id,
         SourceRegion=source_region,
         KmsKeyId=DR_KMS_KEY_ID,
     )
+
+    waiter = rds_dr.get_waiter("db_snapshot_completed")
+    waiter.wait(
+        DBSnapshotIdentifier=dr_snapshot_id,
+        WaiterConfig={"Delay": 30, "MaxAttempts": 120},
+    )
+
     return dr_snapshot_id
 
 

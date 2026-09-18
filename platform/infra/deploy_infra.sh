@@ -45,7 +45,7 @@ fi
 if [[ -n "${AWS_PROFILE:-}" ]]; then
     export AWS_PROFILE
 fi
-export AWS_REGION="${AWS_REGION:-us-east-1}"
+export AWS_REGION="${AWS_REGION:-ap-south-1}"
 export AWS_DEFAULT_REGION="$AWS_REGION"
 
 # Terraform variables
@@ -114,7 +114,7 @@ chronyc tracking
 chronyc activity
 sudo chronyc makestep
 aws sts get-caller-identity
-aws ec2 describe-availability-zones --region us-east-1
+aws ec2 describe-availability-zones --region "$AWS_REGION"
 EOF
     print_subsection "AWS Authentication"
 

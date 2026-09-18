@@ -1,7 +1,5 @@
 #!/bin/bash
 # /platform/cicd/argo/deploy_argo.sh — Argo CD Deployment Script
-# Usage: source in run.sh, then call deploy_argo
-#        Or run directly: ./deploy_argo.sh
 # Should work and be compatible with all Linux computers including WSL.
 # Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others.
 # CONFIGURATION POLICY:
@@ -255,6 +253,59 @@ argocd_login() {
     export ARGOCD_ADMIN_PASS
 }
 
+# Pull Terraform outputs and patch the prod overlay's placeholders.
+# ArgoCD deploys from Git, so this patch must be committed before sync.
+sync_backup_config_from_terraform() {
+    print_subsection "Syncing Backup Config from Terraform Outputs"
+
+    local tf_dir="${PROJECT_ROOT}/platform/infra/terraform"
+    local overlay_dir="${PROJECT_ROOT}/platform/deployment/kubernetes/overlays/prod"
+    local patch_file="${overlay_dir}/backup-config-patch.yaml"
+
+    local role_arn bucket_name
+    role_arn=$(terraform -chdir="${tf_dir}" output -raw postgres_backup_role_arn 2>/dev/null || echo "")
+    bucket_name=$(terraform -chdir="${tf_dir}" output -raw backup_bucket_name 2>/dev/null || echo "")
+
+    if [[ -z "$role_arn" || -z "$bucket_name" || "$bucket_name" == "null" ]]; then
+        print_error "Missing postgres_backup_role_arn or backup_bucket_name in Terraform outputs"
+        print_info "Run infra apply first, or check enable_cloud_storage is true"
+        exit 1
+    fi
+
+    cat > "${patch_file}" <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-backup-sa
+  namespace: devops-app
+  annotations:
+    eks.amazonaws.com/role-arn: "${role_arn}"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: devops-app-config
+  namespace: devops-app
+data:
+  BACKUP_BUCKET: "${bucket_name}"
+EOF
+
+    print_success "Wrote ${patch_file}"
+
+    if git -C "${PROJECT_ROOT}" diff --quiet -- "${patch_file}" 2>/dev/null && \
+       git -C "${PROJECT_ROOT}" ls-files --error-unmatch "${patch_file}" >/dev/null 2>&1; then
+        print_info "backup-config-patch.yaml unchanged — nothing to commit"
+        return 0
+    fi
+
+    print_warning "backup-config-patch.yaml is new or changed and must be committed for ArgoCD to see it"
+    print_warning "Backup configuration changed in the working tree."
+    print_info "ArgoCD deploys from Git, so commit and push this file manually:"
+    print_info "  git add ${patch_file}"
+    print_info "  git commit -m \"chore: sync backup config from terraform outputs\""
+    print_info "  git push origin ${GIT_REPO_BRANCH}"
+}
+
 # GENERATE APPLICATION MANIFESTS
 generate_argocd_apps() {
     local required_vars=(
@@ -475,6 +526,9 @@ deploy_argo() {
 
     print_subsection "Step 4 — Register Git Repository"
     argocd_add_repo
+
+    print_subsection "Step 4b — Sync Backup Config"
+    sync_backup_config_from_terraform
 
     print_subsection "Step 5 — Generate Application Manifests"
     generate_argocd_apps
