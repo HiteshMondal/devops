@@ -6,7 +6,8 @@ metadata:
   labels:
     app: postgres-backup
 spec:
-  schedule: "0 3 * * *"   # daily at 03:00
+  # daily at 03:00
+  schedule: "0 3 * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -61,8 +62,8 @@ spec:
                 runAsNonRoot: true
                 runAsUser: 999
                 capabilities:
-                  drop: ["ALL"]
-
+                  drop:
+                    - ALL
 ---
 apiVersion: v1
 kind: ServiceAccount
