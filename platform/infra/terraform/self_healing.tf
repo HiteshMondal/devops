@@ -75,8 +75,8 @@ resource "aws_lambda_function" "self_healing" {
 
   environment {
     variables = {
-      ASG_NAME                = module.eks.eks_managed_node_groups["default"].node_group_autoscaling_group_names[0]
-      DB_INSTANCE_IDENTIFIER  = aws_db_instance.this.id
+      ASG_NAME               = module.eks.eks_managed_node_groups["default"].node_group_autoscaling_group_names[0]
+      DB_INSTANCE_IDENTIFIER = aws_db_instance.this.id
     }
   }
 

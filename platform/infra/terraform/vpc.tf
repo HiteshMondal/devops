@@ -29,11 +29,11 @@ module "vpc" {
   # No NAT Gateway by default -> $0 networking cost. EKS worker nodes
   # instead run in the public subnets with public IPs (see eks.tf).
   # Set TF_VAR_enable_nat_gateway=true if you want nodes fully private.
-  enable_nat_gateway = var.enable_nat_gateway
-  single_nat_gateway = var.enable_nat_gateway
+  enable_nat_gateway      = var.enable_nat_gateway
+  single_nat_gateway      = var.enable_nat_gateway
   map_public_ip_on_launch = true
-  enable_dns_hostnames = true
-  enable_dns_support   = true
+  enable_dns_hostnames    = true
+  enable_dns_support      = true
 
   # Required tags for the EKS + AWS Load Balancer Controller to
   # auto-discover subnets for public/internal load balancers.

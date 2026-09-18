@@ -15,7 +15,7 @@ module "eks" {
   cluster_name    = local.cluster_name
   cluster_version = var.kubernetes_version
 
-  vpc_id = module.vpc.vpc_id
+  vpc_id      = module.vpc.vpc_id
   enable_irsa = true
 
   # Free-tier posture: nodes in public subnets with public IPs so no

@@ -19,11 +19,11 @@ data "archive_file" "dr_snapshot_lambda" {
 }
 
 resource "aws_kms_key" "rds_dr" {
-  count                    = var.enable_dr_backup ? 1 : 0
-  provider                 = aws.replica
-  description              = "CMK for ${var.app_name} RDS DR-region snapshot copies"
-  deletion_window_in_days  = 7
-  tags                     = local.common_tags
+  count                   = var.enable_dr_backup ? 1 : 0
+  provider                = aws.replica
+  description             = "CMK for ${var.app_name} RDS DR-region snapshot copies"
+  deletion_window_in_days = 7
+  tags                    = local.common_tags
 }
 
 resource "aws_iam_role" "dr_snapshot_lambda" {
@@ -101,7 +101,7 @@ resource "aws_lambda_function" "dr_snapshot" {
       DB_INSTANCE_IDENTIFIER = aws_db_instance.this.id
       DR_REGION              = var.cloud_storage_replica_region
       DR_RETENTION_DAYS      = tostring(var.dr_snapshot_retention_days)
-      DR_KMS_KEY_ID           = aws_kms_key.rds_dr[0].arn
+      DR_KMS_KEY_ID          = aws_kms_key.rds_dr[0].arn
     }
   }
 

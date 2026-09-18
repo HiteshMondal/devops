@@ -116,6 +116,7 @@ sudo chronyc makestep
 aws sts get-caller-identity
 aws ec2 describe-availability-zones --region "$AWS_REGION"
 EOF
+
     print_subsection "AWS Authentication"
 
     print_info "AWS profile: ${AWS_PROFILE:-<none — using env credentials>}"
@@ -147,6 +148,29 @@ EOF
             terraform plan -out=tfplan
             terraform apply tfplan
             print_success "Terraform apply complete"
+
+            print_subsection "Configuring kubectl for EKS"
+            local eks_cluster_name
+            eks_cluster_name=$(terraform output -raw eks_cluster_name 2>/dev/null || echo "")
+
+            if [[ -z "$eks_cluster_name" ]]; then
+                print_error "Could not read eks_cluster_name from Terraform outputs"
+                exit 1
+            fi
+
+            aws eks update-kubeconfig \
+                --region "$AWS_REGION" \
+                --name "$eks_cluster_name"
+
+            local current_ctx
+            current_ctx="$(kubectl config current-context)"
+
+            if [[ "$current_ctx" != *"$eks_cluster_name"* ]]; then
+                print_error "kubectl context '${current_ctx}' does not match EKS cluster '${eks_cluster_name}'"
+                exit 1
+            fi
+
+            print_success "kubectl context set to EKS cluster: ${eks_cluster_name}"
             ;;
         destroy)
             print_warning "Destroying Terraform infrastructure"

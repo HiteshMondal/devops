@@ -262,12 +262,26 @@ sync_backup_config_from_terraform() {
     local overlay_dir="${PROJECT_ROOT}/platform/deployment/kubernetes/overlays/prod"
     local patch_file="${overlay_dir}/backup-config-patch.yaml"
 
+    if [[ ! -d "${tf_dir}/.terraform" ]]; then
+        print_error "Terraform not initialized in ${tf_dir}"
+        print_info "Run: terraform -chdir=\"${tf_dir}\" init"
+        exit 1
+    fi
+
     local role_arn bucket_name
-    role_arn=$(terraform -chdir="${tf_dir}" output -raw postgres_backup_role_arn 2>/dev/null || echo "")
-    bucket_name=$(terraform -chdir="${tf_dir}" output -raw backup_bucket_name 2>/dev/null || echo "")
+    role_arn=$(terraform -chdir="${tf_dir}" output -raw postgres_backup_role_arn 2>&1) || {
+        print_error "Failed to read postgres_backup_role_arn: ${role_arn}"
+        print_info "Run: terraform -chdir=\"${tf_dir}\" apply"
+        exit 1
+    }
+    bucket_name=$(terraform -chdir="${tf_dir}" output -raw backup_bucket_name 2>&1) || {
+        print_error "Failed to read backup_bucket_name: ${bucket_name}"
+        print_info "Check TF_VAR_enable_cloud_storage=true and re-apply"
+        exit 1
+    }
 
     if [[ -z "$role_arn" || -z "$bucket_name" || "$bucket_name" == "null" ]]; then
-        print_error "Missing postgres_backup_role_arn or backup_bucket_name in Terraform outputs"
+        print_error "postgres_backup_role_arn or backup_bucket_name is empty in Terraform state"
         print_info "Run infra apply first, or check enable_cloud_storage is true"
         exit 1
     fi

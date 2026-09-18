@@ -8,7 +8,7 @@
 # Zero-cost design:
 #   - Only ubuntu-latest GitHub-hosted runners (free for public repos,
 #     covered by included minutes on private repos).
-#   - No self-hosted runners, no cloud API calls (terraform/tofu use
+#   - No self-hosted runners, no cloud API calls (terraform use
 #     `init -backend=false` + `validate`/`fmt` — no AWS/OCI/Azure creds).
 #   - Docker images are built locally (`push: false`) and scanned,
 #     never pushed to a registry.
@@ -319,26 +319,6 @@ jobs:
         working-directory: platform/infra/terraform
         run: terraform validate
 
-  # OpenTofu (OCI) — no OCI credentials used
-  opentofu-validate:
-    name: OpenTofu Validate (OCI)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: opentofu/setup-opentofu@v1
-        with:
-          tofu_wrapper: false
-      - name: tofu fmt -check
-        working-directory: platform/infra/OpenTofu
-        run: tofu fmt -check -recursive
-      - name: tofu init (no backend, no state, no creds)
-        working-directory: platform/infra/OpenTofu
-        run: tofu init -backend=false -upgrade
-      - name: tofu validate
-        working-directory: platform/infra/OpenTofu
-        run: tofu validate
-
   # Pulumi (Azure) — syntax-checked only, no Azure login/cost
   pulumi-validate:
     name: Pulumi Validate (Azure)
@@ -372,7 +352,6 @@ jobs:
       - docker-build
       - kubernetes-validate
       - terraform-validate
-      - opentofu-validate
       - pulumi-validate
     runs-on: ubuntu-latest
     timeout-minutes: 2

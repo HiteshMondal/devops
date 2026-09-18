@@ -134,8 +134,8 @@ resource "aws_s3_bucket_replication_configuration" "files" {
   role   = aws_iam_role.s3_replication[0].arn
 
   rule {
-    id     = "replicate-all"
-    status = "Enabled"
+    id       = "replicate-all"
+    status   = "Enabled"
     priority = 1
 
     filter {}
