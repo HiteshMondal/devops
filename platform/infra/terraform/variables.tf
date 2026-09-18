@@ -46,7 +46,7 @@ variable "az_count" {
 variable "kubernetes_version" {
   description = "EKS control plane version."
   type        = string
-  default     = "1.30"
+  default     = "1.33"
 }
 
 variable "node_instance_type" {
@@ -90,7 +90,7 @@ variable "db_engine" {
 variable "db_engine_version" {
   description = "RDS engine version."
   type        = string
-  default     = "16.4"
+  default     = "16.11"
 }
 
 variable "db_instance_class" {
