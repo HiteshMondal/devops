@@ -38,7 +38,6 @@ spec:
       allowEmpty: false
     syncOptions:
       - CreateNamespace=true
-      - Replace=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
@@ -107,7 +106,6 @@ spec:
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
-      - Replace=true
     retry:
       limit: 3
       backoff:
@@ -163,7 +161,6 @@ spec:
       allowEmpty: false
     syncOptions:
       - CreateNamespace=true
-      - Replace=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
@@ -215,7 +212,6 @@ spec:
       allowEmpty: false
     syncOptions:
       - CreateNamespace=true
-      - Replace=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
