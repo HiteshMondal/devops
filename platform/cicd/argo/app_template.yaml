@@ -52,6 +52,11 @@ spec:
       kind: DaemonSet
       jsonPointers:
         - /spec/updateStrategy
+    - group: apps
+      kind: StatefulSet
+      name: loki
+      jsonPointers:
+        - /spec/volumeClaimTemplates
 
 ---
 
