@@ -14,10 +14,7 @@
 # .env is the SINGLE SOURCE OF TRUTH for Ports, Variables, and Secrets.
 # run.sh is the SINGLE AUTHORITY for Local/Production mode and execution flow.
 # This script MUST NOT independently determine the deployment environment.
-#
-# Output (committable):
-#   platform/deployment/kubernetes/base/devops-app-sealed-secret.yaml
-#   platform/deployment/kubernetes/base/postgres-sealed-secret.yaml
+
 
 set -Eeuo pipefail
 IFS=$'\n\t'

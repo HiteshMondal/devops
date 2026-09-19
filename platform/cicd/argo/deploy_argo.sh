@@ -19,7 +19,6 @@ export PROJECT_ROOT
 
 source "${PROJECT_ROOT}/platform/lib/colors.sh"
 source "${PROJECT_ROOT}/platform/lib/logging.sh"
-source "${PROJECT_ROOT}/platform/lib/kube_context.sh"
 
 ARGOCD_SERVER=""
 ARGOCD_ADMIN_PASS=""
@@ -46,7 +45,6 @@ fi
 : "${TRIVY_NAMESPACE:?TRIVY_NAMESPACE missing}"
 : "${ARGOCD_VERSION:=v2.10.0}"
 : "${ARGOCD_ADMIN_PASSWORD:=}"
-: "${DEPLOY_TARGET:=local}"
 : "${NAMESPACE:=devops-app}"
 : "${APP_NAME:=devops-app}"
 : "${ARGOCD_SYNC_WAVE_ENABLED:=true}"
@@ -293,6 +291,10 @@ argocd_login() {
 # Pull Terraform outputs and patch the prod overlay's placeholders.
 # ArgoCD deploys from Git, so this patch must be committed before sync.
 sync_backup_config_from_terraform() {
+    if [[ "${CLOUD_PROVIDER:-}" != "aws" ]]; then
+        print_info "Skipping Terraform backup configuration for ${CLOUD_PROVIDER}"
+        return 0
+    fi
     print_subsection "Syncing Backup Config from Terraform Outputs"
 
     local tf_dir="${PROJECT_ROOT}/platform/infra/terraform"
@@ -617,7 +619,6 @@ cleanup_portforward() {
 
 # MAIN
 deploy_argo() {
-    configure_kubectl_target
     verify_prod_cluster
 
     print_section "ARGO CD DEPLOYMENT" ">"
@@ -686,7 +687,7 @@ deploy_argo() {
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     case "${1:-deploy}" in
         deploy)   deploy_argo ;;
-        teardown) assert_prod_cluster; teardown_argo ;;
+        teardown) verify_prod_cluster; teardown_argo ;;
         *) print_error "Unknown action '${1}' (use: deploy | teardown)"; exit 1 ;;
     esac
 fi

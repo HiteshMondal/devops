@@ -27,7 +27,6 @@ export PROJECT_ROOT
 
 source "${PROJECT_ROOT}/platform/lib/colors.sh"
 source "${PROJECT_ROOT}/platform/lib/logging.sh"
-source "${PROJECT_ROOT}/platform/lib/kube_context.sh"
 
 # Load .env safely
 ENV_FILE="${PROJECT_ROOT}/.env"
@@ -100,32 +99,6 @@ case "$ACTION" in
         exit 1
         ;;
 esac
-
-assert_prod_cluster() {
-    [[ "${DEPLOY_TARGET:-}" == "prod" ]] || return 0
-    [[ "${ALLOW_LOCAL_CLUSTER_FOR_PROD:-false}" == "true" ]] && return 0
-
-    local ctx nodes
-    ctx="$(kubectl config current-context 2>/dev/null || echo "")"
-    nodes="$(kubectl get nodes -o json 2>/dev/null || echo "")"
-
-    if [[ -z "$ctx" || -z "$nodes" ]]; then
-        print_error "DEPLOY_TARGET=prod but no reachable Kubernetes cluster (context: '${ctx:-none}')"
-        exit 1
-    fi
-    if [[ "$ctx" =~ (minikube|kind-|k3d-|docker-desktop|microk8s|rancher-desktop) ]] || \
-       grep -qE 'minikube.k8s.io|kind-control-plane' <<<"$nodes"; then
-        print_error "DEPLOY_TARGET=prod but kubectl points at a local cluster (${ctx})"
-        exit 1
-    fi
-}
-
-connect_cluster() {
-    print_subsection "Selecting Kubernetes Cluster"
-    configure_kubectl_target
-
-    print_success "kubectl context set to: ${K8S_CONTEXT}"
-}
 
 # Kubernetes creates NLBs and EBS volumes that Terraform doesn't know about.
 # They block VPC deletion and keep billing, so remove them before `terraform destroy`.
@@ -219,9 +192,33 @@ EOF
             terraform validate
             terraform plan -out=tfplan
             terraform apply tfplan
+
             print_success "Terraform apply complete"
 
-            connect_cluster
+            cluster="$(terraform output -raw eks_cluster_name 2>/dev/null || true)"
+
+            [[ -n "$cluster" ]] || {
+                print_error "Terraform apply completed but eks_cluster_name is missing from state"
+                exit 1
+            }
+
+            context="eks-${cluster}"
+
+            aws eks update-kubeconfig \
+                --region "$AWS_REGION" \
+                --name "$cluster" \
+                --alias "$context" \
+                >/dev/null
+
+            kubectl config use-context "$context" >/dev/null
+
+            kubectl get nodes >/dev/null 2>&1 || {
+                print_error "EKS cluster '${cluster}' is not reachable through kubectl"
+                exit 1
+            }
+
+            print_success "EKS cluster: ${cluster}"
+            print_success "kubectl context: ${context}"
             ;;
         destroy)
             local cluster
@@ -298,7 +295,43 @@ deploy_pulumi() {
             ;;
         apply)
             pulumi up --yes
-            connect_cluster
+
+            print_success "Pulumi apply complete"
+
+            local cluster resource_group
+
+            cluster="$(
+                pulumi stack output aks_cluster_name \
+                    --stack "$stack" \
+                    2>/dev/null || true
+            )
+
+            resource_group="$(
+                pulumi stack output aks_resource_group_name \
+                    --stack "$stack" \
+                    2>/dev/null || true
+            )
+
+            [[ -n "$cluster" && -n "$resource_group" ]] || {
+                print_error "Pulumi completed but AKS cluster/resource group outputs are missing"
+                exit 1
+            }
+
+            az aks get-credentials \
+                --resource-group "$resource_group" \
+                --name "$cluster" \
+                --overwrite-existing \
+                >/dev/null
+
+            kubectl config use-context "$cluster" >/dev/null
+
+            kubectl get nodes >/dev/null 2>&1 || {
+                print_error "AKS cluster '${cluster}' is not reachable through kubectl"
+                exit 1
+            }
+
+            print_success "AKS cluster: ${cluster}"
+            print_success "kubectl context: ${cluster}"
             ;;
         destroy)
             pulumi destroy --yes

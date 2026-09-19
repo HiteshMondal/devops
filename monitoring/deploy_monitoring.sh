@@ -1,7 +1,7 @@
 #!/bin/bash
 # /monitoring/deploy_monitoring.sh — Universal Monitoring Deployment Script
 
-# Designed to be compatible with major Linux distributions and WSL.
+# Designed to be compatible with all major Linux distributions and WSL.
 # Supports all Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
 # .env is the SINGLE SOURCE OF TRUTH for Ports, Variables, and Secrets.
 # run.sh is the SINGLE AUTHORITY for Local/Production mode and execution flow.
@@ -213,52 +213,6 @@ wait_for_rollout() {
     kubectl rollout status "$resource" -n "$namespace" --timeout=400s
 }
 
-detect_k8s_distribution() {
-    if [[ -n "${K8S_DISTRIBUTION:-}" ]]; then
-        export K8S_DISTRIBUTION
-        return 0
-    fi
-
-    local context
-    context="$(kubectl config current-context 2>/dev/null || true)"
-
-    case "$context" in
-        minikube)
-            K8S_DISTRIBUTION="minikube"
-            ;;
-        kind-*)
-            K8S_DISTRIBUTION="kind"
-            ;;
-        k3s-*)
-            K8S_DISTRIBUTION="k3s"
-            ;;
-        microk8s)
-            K8S_DISTRIBUTION="microk8s"
-            ;;
-        *)
-            # Detect common managed Kubernetes distributions
-            if kubectl get nodes \
-                -o jsonpath='{.items[0].metadata.labels}' 2>/dev/null \
-                | grep -q 'eks.amazonaws.com'; then
-                K8S_DISTRIBUTION="eks"
-            elif kubectl get nodes \
-                -o jsonpath='{.items[0].metadata.labels}' 2>/dev/null \
-                | grep -q 'cloud.google.com/gke'; then
-                K8S_DISTRIBUTION="gke"
-            elif kubectl get nodes \
-                -o jsonpath='{.items[0].metadata.labels}' 2>/dev/null \
-                | grep -q 'kubernetes.azure.com'; then
-                K8S_DISTRIBUTION="aks"
-            else
-                K8S_DISTRIBUTION="k8s"
-            fi
-            ;;
-    esac
-
-    export K8S_DISTRIBUTION
-    print_success "Kubernetes distribution: ${K8S_DISTRIBUTION}"
-}
-
 print_monitoring_access() {
     local svc="$1"
     local namespace="$2"
@@ -332,22 +286,6 @@ print_monitoring_access() {
     print_cmd "${label}" "kubectl port-forward svc/${svc} -n ${namespace} ${port}:${port}"
 }
 
-resolve_k8s_service_config() {
-
-    case "$K8S_DISTRIBUTION" in
-        minikube|kind|k3s|microk8s)
-            MONITORING_SERVICE_TYPE="NodePort"
-            ;;
-        eks|gke|aks)
-            MONITORING_SERVICE_TYPE="LoadBalancer"
-            ;;
-        *)
-            MONITORING_SERVICE_TYPE="NodePort"
-            ;;
-    esac
-
-    export MONITORING_SERVICE_TYPE
-}
 
 create_grafana_dashboards_configmap() {
     local dashboard_dir="$1"
@@ -387,15 +325,11 @@ deploy_monitoring() {
     print_section "Deploy Monitoring Stack"
 
     require_command kubectl
-    detect_k8s_distribution
     setup_helm
-    resolve_k8s_service_config
 
     local namespace="${PROMETHEUS_NAMESPACE:-monitoring}"
-    local service_type="${MONITORING_SERVICE_TYPE}"
 
     print_kv "Cluster Type" "$K8S_DISTRIBUTION"
-    print_kv "Service Type" "$service_type"
 
     print_subsection "Preparing Namespace"
 

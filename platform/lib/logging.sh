@@ -14,10 +14,6 @@ print_divider() {
     echo -e "${BOLD}${BLUE}${_SEP_HEAVY}${RESET}"
 }
 
-echo_separator() {
-    echo -e "${BOLD}${BLUE}${_SEP_HEAVY}${RESET}"
-}
-
 print_thin_divider() {
     echo -e "${DIM}${_SEP_LIGHT}${RESET}"
 }
@@ -74,10 +70,6 @@ print_error() {
     echo -e "  ${BOLD}${BG_RED}${BRIGHT_WHITE} XX ${RESET}  ${RED}$1${RESET}"
 }
 
-print_warn() {
-    print_warning "$1"
-}
-
 # INLINE HELPERS
 
 # Shell command with optional label
@@ -95,30 +87,11 @@ print_url() {
     echo -e "     ${DIM}${label}${RESET}  ${BOLD}${ACCENT_URL}${url}${RESET}"
 }
 
-# Key / value credential line
-print_credential() {
-    local label="$1"
-    local value="$2"
-    echo -e "     ${DIM}${label}${RESET}  ${BOLD}${ACCENT}${value}${RESET}"
-}
-
-# Checklist item
-print_target() {
-    echo -e "  ${BOLD}${BRIGHT_GREEN}(+)${RESET} $1"
-}
-
 # Aligned key = value config row
 print_kv() {
     local label="$1"
     local value="$2"
     printf "  ${DIM}%-22s${RESET}  ${BOLD}${BRIGHT_WHITE}%s${RESET}\n" "${label}" "${value}"
-}
-
-print_deploy_summary() {
-    echo ""
-    print_divider
-    echo -e "  ${BOLD}${WHITE}Deployment Configuration${RESET}"
-    print_thin_divider
 }
 
 # ===========================================================================
@@ -218,46 +191,6 @@ print_access_box() {
     echo ""
 }
 
-# Convenience wrapper: single URL box
-print_url_box() {
-    local title="$1"
-    local url="$2"
-    local note="${3:-}"
-    local lines=("URL:${title}:${url}")
-    [[ -n "$note" ]] && lines+=("NOTE:${note}")
-    print_access_box "${title}" ">>" "${lines[@]}"
-}
-
-print_service_access() {
-    local name="$1"
-    local namespace="$2"
-    local port="$3"
-    local title="$4"
-
-    local url
-    url=$(get_service_url "$name" "$namespace" "$port")
-
-    case "$url" in
-        port-forward:*)
-            local pf="${url#port-forward:}"
-            print_access_box "$title" ">" \
-                "NOTE:Service is ClusterIP — use port-forward" \
-                "SEP:" \
-                "CMD:Start port-forward:|kubectl port-forward svc/${name} ${pf}:${pf} -n ${namespace}" \
-                "URL:Open UI:http://localhost:${pf}"
-            ;;
-        pending-loadbalancer)
-            print_access_box "$title" ">" \
-                "NOTE:LoadBalancer provisioning in progress" \
-                "CMD:Check status:|kubectl get svc ${name} -n ${namespace}"
-            ;;
-        *)
-            print_access_box "$title" ">" \
-                "URL:${title}:${url}"
-            ;;
-    esac
-}
-
 require_command() {
     local cmd="$1"
     local install_hint="${2:-}"
@@ -296,98 +229,6 @@ require_dir() {
         [[ -n "$hint" ]] && print_info "${hint}"
         exit 1
     fi
-}
-
-#  RANDOM NODEPORT 
-random_nodeport() {
-    if command -v shuf >/dev/null 2>&1; then
-        shuf -i 30000-32767 -n 1
-    else
-        echo $(( (RANDOM % 2768) + 30000 ))
-    fi
-}
-
-#  DOCKER IMAGE TAG FROM GIT 
-set_image_tag_from_git() {
-    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        export DOCKER_IMAGE_TAG
-        DOCKER_IMAGE_TAG="$(git rev-parse --short HEAD)"
-    else
-        DOCKER_IMAGE_TAG="local-$(date +%s)"
-        export DOCKER_IMAGE_TAG
-    fi
-}
-
-#  KUSTOMIZE OVERLAY PATH RESOLVER 
-resolve_overlay_name() {
-    case "${DEPLOY_TARGET:-local}" in
-        local)       echo "local" ;;
-        prod|production) echo "prod" ;;
-        *)
-            print_error "Unknown DEPLOY_TARGET '${DEPLOY_TARGET}'. Valid values: local, prod"
-            exit 1
-            ;;
-    esac
-}
-
-#  CI MODE 
-detect_ci_mode() {
-    if [[ "${CI:-false}" == "true" ]] \
-    || [[ -n "${GITHUB_ACTIONS:-}" ]] \
-    || [[ -n "${GITLAB_CI:-}" ]]; then
-        echo "true"
-    else
-        echo "false"
-    fi
-}
-
-#  INTERACTIVE CHECK 
-is_interactive() {
-    [[ -t 0 && -z "${CI:-}" ]]
-}
-
-#  SERVICE TYPE / INGRESS CLASS RESOLUTION 
-resolve_k8s_service_config() {
-    case "${K8S_DISTRIBUTION:-kubernetes}" in
-        minikube|kind|microk8s)
-            export K8S_SERVICE_TYPE="NodePort"
-            export K8S_INGRESS_CLASS="nginx"
-            export K8S_SUPPORTS_LOADBALANCER="false"
-            export MONITORING_SERVICE_TYPE="NodePort"
-            ;;
-        k3s)
-            export K8S_SERVICE_TYPE="NodePort"
-            export K8S_INGRESS_CLASS="traefik"
-            export K8S_SUPPORTS_LOADBALANCER="true"
-            export MONITORING_SERVICE_TYPE="LoadBalancer"
-            ;;
-        eks)
-            export K8S_SERVICE_TYPE="LoadBalancer"
-            export K8S_INGRESS_CLASS="alb"
-            export K8S_SUPPORTS_LOADBALANCER="true"
-            export MONITORING_SERVICE_TYPE="LoadBalancer"
-            ;;
-        gke)
-            export K8S_SERVICE_TYPE="LoadBalancer"
-            export K8S_INGRESS_CLASS="gce"
-            export K8S_SUPPORTS_LOADBALANCER="true"
-            export MONITORING_SERVICE_TYPE="LoadBalancer"
-            ;;
-        aks)
-            export K8S_SERVICE_TYPE="LoadBalancer"
-            export K8S_INGRESS_CLASS="azure"
-            export K8S_SUPPORTS_LOADBALANCER="true"
-            export MONITORING_SERVICE_TYPE="LoadBalancer"
-            ;;
-        *)
-            export K8S_SERVICE_TYPE="ClusterIP"
-            export K8S_INGRESS_CLASS="nginx"
-            export K8S_SUPPORTS_LOADBALANCER="false"
-            export MONITORING_SERVICE_TYPE="ClusterIP"
-            ;;
-    esac
-    : "${INGRESS_CLASS:=${K8S_INGRESS_CLASS}}"
-    export INGRESS_CLASS
 }
 
 #  ACCESS URL RESOLUTION 
@@ -453,23 +294,4 @@ get_service_url() {
                                   || echo "port-forward:$default_port"
             ;;
     esac
-}
-
-#  CONTAINER RUNTIME DETECTION 
-detect_container_runtime() {
-    if command -v docker >/dev/null 2>&1; then
-        if ! docker info >/dev/null 2>&1; then
-            print_error "Docker daemon is not accessible (permission issue)"
-            print_cmd "Fix with:" "sudo usermod -aG docker $USER && newgrp docker"
-            exit 1
-        fi
-        export CONTAINER_RUNTIME="docker"
-    elif command -v podman >/dev/null 2>&1; then
-        export CONTAINER_RUNTIME="podman"
-    else
-        print_error "Neither Docker nor Podman found"
-        print_url "Install Docker:"  "https://docs.docker.com/get-docker/"
-        print_url "Install Podman:"  "https://podman.io/getting-started/installation"
-        exit 1
-    fi
 }

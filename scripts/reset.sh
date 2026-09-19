@@ -84,7 +84,6 @@ SEL_MINIKUBE=false
 SEL_DOCKER_CONTAINERS=false
 SEL_DOCKER_NETWORK_STATE=false
 SEL_PORTS=false
-SEL_REBOOT=false
 
 toggle() {
     local var="$1"
@@ -121,7 +120,6 @@ show_menu() {
         "SEL_DOCKER_CONTAINERS"    "Docker Containers     Remove ALL containers & networks"
         "SEL_DOCKER_NETWORK_STATE" "Docker Network State  Wipe internal state (needs root + restart)"
         "SEL_PORTS"                "Kill Ports            3000  3001  30001-30003"
-        "SEL_REBOOT"               "Reboot                Restart system after cleanup"
     )
 
     local i=1
@@ -160,7 +158,6 @@ select_services() {
         "SEL_DOCKER_CONTAINERS"
         "SEL_DOCKER_NETWORK_STATE"
         "SEL_PORTS"
-        "SEL_REBOOT"
     )
 
     while true; do
@@ -226,7 +223,6 @@ confirm_selection() {
     [[ "$SEL_DOCKER_CONTAINERS"    == true ]] && echo -e "${BOLD}${RED}|${RESET}    ${BOLD}${RED}(X)${RESET}  Docker containers     ALL containers & networks"
     [[ "$SEL_DOCKER_NETWORK_STATE" == true ]] && echo -e "${BOLD}${RED}|${RESET}    ${BOLD}${RED}(X)${RESET}  Docker network state  service restart required"
     [[ "$SEL_PORTS"                == true ]] && echo -e "${BOLD}${RED}|${RESET}    ${BOLD}${RED}(X)${RESET}  Kill ports            3000  3001  30001-30003"
-    [[ "$SEL_REBOOT"               == true ]] && echo -e "${BOLD}${RED}|${RESET}    ${BOLD}${YELLOW}(~)${RESET}  System reboot         after cleanup"
 
     echo -e "${BOLD}${RED}|${RESET}                                                                            ${BOLD}${RED}|${RESET}"
     echo -e "${BOLD}${RED}+============================================================================+${RESET}"
@@ -412,16 +408,6 @@ clean_ports() {
         || print_ok "All target ports are free"
 }
 
-do_reboot() {
-    print_section "System Reboot"
-    echo ""
-    echo -e "  ${BOLD}${YELLOW}System will reboot in 10 seconds.${RESET}"
-    echo -e "  ${DIM}Press CTRL+C to cancel.${RESET}"
-    echo ""
-    sleep 10
-    sudo reboot
-}
-
 maybe_restart_docker() {
     if [[ "$SEL_DOCKER_CONTAINERS" == true && "$SEL_DOCKER_NETWORK_STATE" != true ]]; then
         print_section "Docker Service Restart"
@@ -462,7 +448,6 @@ main() {
     echo -e "${BOLD}${BRIGHT_CYAN}+============================================================================+${RESET}"
     echo ""
 
-    [[ "$SEL_REBOOT" == true ]] && do_reboot
 }
 
 main

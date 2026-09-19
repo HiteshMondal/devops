@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # monitoring/trivy/trivy.sh — Deploy Trivy security scanner with Metrics Exporter.
 
-# Designed to be compatible with major Linux distributions and WSL.
+# Designed to be compatible with all major Linux distributions and WSL.
 # Supports all Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
 # .env is the SINGLE SOURCE OF TRUTH for Ports, Variables, and Secrets.
 # run.sh is the SINGLE AUTHORITY for Local/Production mode and execution flow.
@@ -282,7 +282,7 @@ deploy_trivy() {
             || print_warning "Trivy exporter still starting — check with: kubectl get pods -n ${TRIVY_NAMESPACE}"
     fi
     echo "Trivy Scanning for Vulnerabilities..."
-    sleep 100
+    sleep 90
 }
 
 # MAIN

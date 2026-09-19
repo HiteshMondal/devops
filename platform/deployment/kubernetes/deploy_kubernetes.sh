@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # platform/deployment/kubernetes/deploy_kubernetes.sh
-# Should work and be compatible with all Linux computers including WSL.
+# Designed to be compatible with all major Linux distributions and WSL.
 # Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others.
 
 # CONFIGURATION POLICY:
@@ -275,31 +275,6 @@ EOF
     print_success "Kustomize overlay successfully patched for ${NAMESPACE}"
 }
 
-# Write a Kind cluster config — reusable by run.sh's kind branch
-write_kind_config() {
-    local out="${1:-/tmp/kind-config.yaml}"
-    cat > "${out}" <<EOF
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-  - role: control-plane
-    extraPortMappings:
-      - containerPort: ${KIND_APP_NODE_PORT:-30080}
-        hostPort: ${KIND_APP_NODE_PORT:-30080}
-      - containerPort: ${KIND_METRICS_NODE_PORT:-30300}
-        hostPort: ${KIND_METRICS_NODE_PORT:-30300}
-      - containerPort: ${KIND_PROMETHEUS_NODE_PORT:-30900}
-        hostPort: ${KIND_PROMETHEUS_NODE_PORT:-30900}
-      - containerPort: ${KIND_GRAFANA_NODE_PORT:-30430}
-        hostPort: ${KIND_GRAFANA_NODE_PORT:-30430}
-      - containerPort: 80
-        hostPort: ${KIND_HTTP_PORT:-8081}
-      - containerPort: 443
-        hostPort: ${KIND_HTTPS_PORT:-8443}
-EOF
-    echo "${out}"
-}
-
 # Cleanup temp working copy (including any generated secrets patch) on exit
 DEPLOY_TEMP_DIR=""
 cleanup() {
@@ -309,61 +284,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# KUBERNETES DETECTION
-
-detect_k8s_distribution() {
-
-    if [[ -n "${K8S_DISTRIBUTION:-}" ]]; then
-        return 0
-    fi
-
-    local context 
-    local dist="kubernetes"
-
-    context="$(kubectl config current-context 2>/dev/null || echo "")"
-
-    if kubectl get nodes -o json 2>/dev/null |
-        grep -q '"minikube.k8s.io/version"'; then
-
-        dist="minikube"
-
-    elif [[ "$context" == *"kind"* ]] ||
-         kubectl get nodes --no-headers 2>/dev/null |
-         grep -q "kind-control-plane"; then
-
-        dist="kind"
-
-    elif kubectl get nodes -o json 2>/dev/null |
-        grep -q '"eks.amazonaws.com"'; then
-
-        dist="eks"
-
-    elif kubectl get nodes -o json 2>/dev/null |
-        grep -q '"cloud.google.com/gke"'; then
-
-        dist="gke"
-
-    elif kubectl get nodes -o json 2>/dev/null |
-        grep -q '"kubernetes.azure.com"'; then
-
-        dist="aks"
-
-    elif kubectl get nodes -o json 2>/dev/null |
-        grep -q '"k3s.io"'; then
-
-        dist="k3s"
-
-    elif kubectl get nodes -o json 2>/dev/null |
-        grep -q '"microk8s.io"'; then
-
-        dist="microk8s"
-
-    fi
-
-    export K8S_DISTRIBUTION="$dist"
-    export K8S_CONTEXT="$context"
-}
-
 # Deploy to Kubernetes
 deploy() {
     local env="$1"
@@ -371,8 +291,6 @@ deploy() {
 
     require_cmd kubectl
     detect_container_engine
-    detect_k8s_distribution
-    resolve_k8s_service_config
     validate_required_vars
     build_and_load_image
 

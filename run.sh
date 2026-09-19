@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # run.sh — DevOps Platform Deployment Runner
 
-# Designed to be compatible with major Linux distributions and WSL.
+# Designed to be compatible with all major Linux distributions and WSL.
 # Supports all Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
-# .env is the SINGLE SOURCE OF TRUTH for Ports, Variables, and Secrets.
+# .env is the SINGLE SOURCE OF TRUTH for Ports, configuration, Variables, and Secrets.
 # run.sh is the SINGLE AUTHORITY for Local/Production mode and execution flow.
-# This script MUST NOT independently determine the deployment environment.
 
 set -Eeuo pipefail
 IFS=$'\n\t'
@@ -44,6 +43,8 @@ set -a
 # shellcheck source=/dev/null
 source "$ENV_FILE"
 set +a
+
+export DEVOPS_RUNNER=true
 
 # INTERNAL HELPERS
 
@@ -177,11 +178,18 @@ bootstrap_menu() {
             _prompt_choice 3 3
 
             case "$REPLY" in
-                1) bash "$JENKINS_SCRIPTS/deploy_jenkins.sh" ;;
-                2) bash "$JENKINS_SCRIPTS/reset_jenkins.sh" ;;
-                3) ;;
+                1)
+                    bash "$JENKINS_SCRIPTS/deploy_jenkins.sh"
+                    exit 0
+                    ;;
+                2)
+                    bash "$JENKINS_SCRIPTS/reset_jenkins.sh"
+                    exit 0
+                    ;;
+                3)
+                    continue
+                    ;;
             esac
-            exit 0
             ;;
 
         5)
@@ -243,7 +251,7 @@ configure_environment() {
 
         DEPLOY_MODE="direct"
 
-        ENABLE_IMAGE=true
+        ENABLE_IMAGE=false
         ENABLE_KUBERNETES=true
         ENABLE_MONITORING=true
         ENABLE_LOKI=true
@@ -329,7 +337,7 @@ select_cloud_provider() {
         "AWS|Terraform (EKS + RDS)" \
         "Azure|Pulumi (AKS + PostgreSQL)"
         
-    _prompt_choice 1 3
+    _prompt_choice 1 2
 
     case "$REPLY" in
 
@@ -435,12 +443,45 @@ detect_container_runtime() {
     print_success "Container runtime: ${BOLD}${CONTAINER_RUNTIME}${RESET}"
 }
 
-source "$PROJECT_ROOT/platform/lib/kube_context.sh"
+source "$PROJECT_ROOT/platform/deployment/kubernetes/kube_context.sh"
 
 configure_k8s_cluster() {
     print_subsection "Selecting Kubernetes Cluster"
     configure_kubectl_target
     print_success "Kubernetes context: ${BOLD}${K8S_CONTEXT}${RESET}"
+}
+
+verify_kubernetes_ready() {
+    print_subsection "Verifying Kubernetes Cluster"
+
+    local context
+    context="$(kubectl config current-context 2>/dev/null || true)"
+
+    [[ -n "$context" ]] || {
+        print_error "No Kubernetes context is selected"
+        exit 1
+    }
+
+    print_info "Kubernetes context: ${context}"
+
+    local ready=false
+
+    for _ in {1..12}; do
+        if kubectl cluster-info >/dev/null 2>&1 &&
+           kubectl get nodes >/dev/null 2>&1; then
+            ready=true
+            break
+        fi
+
+        sleep 5
+    done
+
+    [[ "$ready" == true ]] || {
+        print_error "Kubernetes cluster '${context}' is not reachable"
+        exit 1
+    }
+
+    print_success "Kubernetes cluster is ready: ${BOLD}${context}${RESET}"
 }
 
 # ACTION RUNNERS
@@ -571,49 +612,47 @@ _confirm_deployment
 print_subsection "Detecting Runtime Environment"
 detect_container_runtime
 
-# Local deployments require an already-running Kubernetes cluster.
+## Local deployments select their existing local cluster.
 if [[ "$DEPLOY_TARGET" == "local" ]]; then
     configure_k8s_cluster
 fi
 
 print_divider
 
-# EXECUTE IN DEPENDENCY ORDER
+# Production infrastructure creates the cloud Kubernetes cluster
+# and configures kubectl to use it.
+if [[ "$ENABLE_INFRA" == true ]]; then
+    deploy_infra
 
-# Production infrastructure first.
-[[ "$ENABLE_INFRA"      == true ]] && deploy_infra
+    case "$INFRA_ACTION" in
+        plan|destroy)
+            exit 0
+            ;;
+    esac
+fi
 
-# Build/push container image.
-[[ "$ENABLE_IMAGE"      == true ]] && deploy_image
+# From this point onward, every Kubernetes-dependent subsystem
+# is guaranteed to have a reachable current context.
+verify_kubernetes_ready
 
-# Production cloud infrastructure may have created the Kubernetes cluster.
-# Only check Kubernetes connectivity after infrastructure provisioning.
-if [[ "$DEPLOY_TARGET" == "prod" ]]; then
-    if [[ "$ENABLE_ARGO"       == true ||
-          "$ENABLE_KUBERNETES" == true ||
-          "$ENABLE_MONITORING" == true ||
-          "$ENABLE_LOKI"       == true ||
-          "$ENABLE_TRIVY"      == true ]]; then
-        configure_k8s_cluster
-    fi
+if [[ "$ENABLE_IMAGE" == true ]]; then
+    print_subsection "Detecting Runtime Environment"
+    detect_container_runtime
+    deploy_image
 fi
 
 if [[ "$DEPLOY_MODE" == "gitops" ]]; then
-
     print_section "GITOPS PIPELINE"
 
     deploy_sealed_secrets
     deploy_argo
-
 else
-
     print_section "DIRECT KUBERNETES PIPELINE"
 
     deploy_kubernetes
     deploy_monitoring
     deploy_loki
     deploy_trivy
-
 fi
 
 # COMPLETION BANNER

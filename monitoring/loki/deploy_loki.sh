@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # monitoring/loki/deploy_loki.sh — Deploy Loki log aggregation system
 
-# Designed to be compatible with major Linux distributions and WSL.
+# Designed to be compatible with all major Linux distributions and WSL.
 # Supports all Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
 # .env is the SINGLE SOURCE OF TRUTH for Ports, Variables, and Secrets.
 # run.sh is the SINGLE AUTHORITY for Local/Production mode and execution flow.
@@ -24,13 +24,12 @@ export PROJECT_ROOT
 source "${PROJECT_ROOT}/platform/lib/colors.sh"
 source "${PROJECT_ROOT}/platform/lib/logging.sh"
 
-# Defaults
+# Configuration
 : "${LOKI_ENABLED:=true}"
 : "${LOKI_NAMESPACE:=loki}"
 : "${LOKI_VERSION:=3.0.0}"
 : "${LOKI_RETENTION_PERIOD:=168h}"
 : "${LOKI_PORT:=3100}"
-: "${DEPLOY_TARGET:=local}"
 : "${LOKI_STORAGE_SIZE:=10Gi}"
 : "${LOKI_SERVICE_TYPE:=ClusterIP}"
 : "${LOKI_CPU_REQUEST:=100m}"
@@ -38,16 +37,9 @@ source "${PROJECT_ROOT}/platform/lib/logging.sh"
 : "${LOKI_MEMORY_REQUEST:=256Mi}"
 : "${LOKI_MEMORY_LIMIT:=1Gi}"
 
-
 # Delete the Loki StatefulSet and block until the object AND its pods are gone
 _delete_loki_statefulset_and_wait() {
-    local overlay_dir="$1"
-
-    if [[ "$overlay_dir" == "local" ]]; then
-        print_warning "Deleting Loki StatefulSet (emptyDir — log data in memory will be lost)."
-    else
-        print_warning "Deleting Loki StatefulSet to allow spec change. PVCs are preserved."
-    fi
+    print_warning "Deleting Loki StatefulSet (emptyDir — log data in memory will be lost)."
 
     kubectl delete statefulset loki -n "${LOKI_NAMESPACE}" --ignore-not-found
 
@@ -98,7 +90,7 @@ verify_loki_endpoint() {
     fi
 
     local local_port
-    local_port=$(random_nodeport)
+    local_port=$((RANDOM % 2768 + 30000))
 
     print_step "Verifying Loki /ready via port-forward (local port ${local_port})..."
 
@@ -132,52 +124,6 @@ verify_loki_endpoint() {
     if [[ "$ready" == "true" ]]; then
         print_success "Loki HTTP endpoint confirmed reachable"
     fi
-}
-
-detect_k8s_distribution() {
-    if [[ -n "${K8S_DISTRIBUTION:-}" ]]; then
-        export K8S_DISTRIBUTION
-        return 0
-    fi
-
-    local context
-    context="$(kubectl config current-context 2>/dev/null || true)"
-
-    case "$context" in
-        minikube)
-            K8S_DISTRIBUTION="minikube"
-            ;;
-        kind-*)
-            K8S_DISTRIBUTION="kind"
-            ;;
-        k3s-*)
-            K8S_DISTRIBUTION="k3s"
-            ;;
-        microk8s)
-            K8S_DISTRIBUTION="microk8s"
-            ;;
-        *)
-            # Detect common managed Kubernetes distributions
-            if kubectl get nodes \
-                -o jsonpath='{.items[0].metadata.labels}' 2>/dev/null \
-                | grep -q 'eks.amazonaws.com'; then
-                K8S_DISTRIBUTION="eks"
-            elif kubectl get nodes \
-                -o jsonpath='{.items[0].metadata.labels}' 2>/dev/null \
-                | grep -q 'cloud.google.com/gke'; then
-                K8S_DISTRIBUTION="gke"
-            elif kubectl get nodes \
-                -o jsonpath='{.items[0].metadata.labels}' 2>/dev/null \
-                | grep -q 'kubernetes.azure.com'; then
-                K8S_DISTRIBUTION="aks"
-            else
-                K8S_DISTRIBUTION="k8s"
-            fi
-            ;;
-    esac
-
-    export K8S_DISTRIBUTION
-    print_success "Kubernetes distribution: ${K8S_DISTRIBUTION}"
 }
 
 LOKI_TEMP_DIR=""
@@ -248,33 +194,24 @@ deploy_loki() {
         return 0
     fi
 
-    detect_k8s_distribution
-    resolve_k8s_service_config
-
-    local overlay_dir
-    overlay_dir=$(resolve_overlay_name)
+    local overlay_dir="local"
     local overlay_path="${PROJECT_ROOT}/monitoring/loki/overlays/${overlay_dir}"
 
-    print_kv "Distribution"  "${K8S_DISTRIBUTION}"
-    print_kv "Namespace"     "${LOKI_NAMESPACE}"
-    print_kv "Version"       "${LOKI_VERSION}"
-    print_kv "Retention"     "${LOKI_RETENTION_PERIOD}"
-    print_kv "Deploy Target" "${DEPLOY_TARGET}"
-    print_kv "Overlay"       "${overlay_dir}"
+    print_kv "Distribution" "${K8S_DISTRIBUTION}"
+    print_kv "Namespace"    "${LOKI_NAMESPACE}"
+    print_kv "Version"      "${LOKI_VERSION}"
+    print_kv "Retention"    "${LOKI_RETENTION_PERIOD}"
+    print_kv "Overlay"      "${overlay_dir}"
     echo ""
 
     if [[ ! -d "$overlay_path" ]]; then
-        print_error "Kustomize overlay not found: ${overlay_path}"
-        print_info "Valid targets: local, prod"
-        print_info "Set DEPLOY_TARGET in your .env file"
+        print_error "Local Loki overlay not found: ${overlay_path}"
         return 1
     fi
 
-    if [[ "$overlay_dir" == "local" ]]; then
-        print_warning "Local overlay uses emptyDir — Loki log data does NOT persist across pod restarts."
-        print_warning "This is intentional for local development. Do not use DEPLOY_TARGET=local in production."
-        echo ""
-    fi
+    print_warning "Local overlay uses emptyDir — Loki log data does NOT persist across pod restarts."
+    print_warning "This is intentional for local development."
+    echo ""
 
     # Namespace
     print_subsection "Creating Namespace"
@@ -283,7 +220,7 @@ deploy_loki() {
 
     print_subsection "StatefulSet Pre-Delete"
     if kubectl get statefulset loki -n "${LOKI_NAMESPACE}" >/dev/null 2>&1; then
-        _delete_loki_statefulset_and_wait "$overlay_dir"
+        _delete_loki_statefulset_and_wait
     else
         print_info "No existing Loki StatefulSet — fresh install, skipping pre-delete"
     fi

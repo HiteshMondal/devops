@@ -1,3 +1,5 @@
+# /platform/infra/terraform/lambda/backup_verifier.py
+
 import os
 import zlib
 from urllib.parse import unquote_plus
