@@ -26,9 +26,6 @@ module "vpc" {
   public_subnets  = local.public_subnet_cidrs
   private_subnets = local.private_subnet_cidrs
 
-  # No NAT Gateway by default -> $0 networking cost. EKS worker nodes
-  # instead run in the public subnets with public IPs (see eks.tf).
-  # Set TF_VAR_enable_nat_gateway=true if you want nodes fully private.
   enable_nat_gateway      = var.enable_nat_gateway
   single_nat_gateway      = var.enable_nat_gateway
   map_public_ip_on_launch = true

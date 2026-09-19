@@ -72,13 +72,11 @@ load_env() {
 # independently later without resealing the whole Secret.
 _seal_value() {
     local name="$1" namespace="$2" value="$4"
-
-    kubeseal --raw \
+    printf '%s' "${value}" | kubeseal --raw \
         --controller-name="${SEALED_SECRETS_CONTROLLER_NAME}" \
         --controller-namespace="${SEALED_SECRETS_NAMESPACE}" \
         --namespace="${namespace}" \
-        --name="${name}" \
-        <<< "${value}"
+        --name="${name}"
 }
 
 seal_app_secrets() {

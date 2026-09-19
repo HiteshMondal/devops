@@ -17,6 +17,11 @@ tfplan
 terraform.rc
 .tofurc
 
+# Terraform/OpenTofu generated files
+**/.terraform/
+**/.tofu/
+**/.terraform.tfstate.lock.info
+
 # Allow example variable files
 !*.tfvars.example
 
@@ -24,6 +29,9 @@ terraform.rc
 .pulumi/
 Pulumi.*.yaml.bak
 
+# Pulumi Python environments
+**/venv/
+**/.venv/
 
 # KUBERNETES / HELM
 

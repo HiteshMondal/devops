@@ -435,16 +435,11 @@ detect_container_runtime() {
     print_success "Container runtime: ${BOLD}${CONTAINER_RUNTIME}${RESET}"
 }
 
-detect_k8s_cluster() {
-    require_command kubectl
+source "$PROJECT_ROOT/platform/lib/kube_context.sh"
 
-    if ! kubectl cluster-info >/dev/null 2>&1; then
-        print_error "No reachable Kubernetes cluster — check kubeconfig"
-        exit 1
-    fi
-
-    K8S_CONTEXT=$(kubectl config current-context)
-    export K8S_CONTEXT
+configure_k8s_cluster() {
+    print_subsection "Selecting Kubernetes Cluster"
+    configure_kubectl_target
     print_success "Kubernetes context: ${BOLD}${K8S_CONTEXT}${RESET}"
 }
 
@@ -499,22 +494,9 @@ deploy_sealed_secrets() {
         print_error "Sealed Secrets step is production-only"
         exit 1
     fi
-
-    local sealed_secrets_dir="$PROJECT_ROOT/platform/deployment/kubernetes/sealed-secrets"
-
-    # Install the controller only if it isn't already running — safe to
-    # call every run, but skip the network round-trip when possible.
-    if ! kubectl get deployment sealed-secrets-controller -n "${SEALED_SECRETS_NAMESPACE:-kube-system}" >/dev/null 2>&1; then
-        _run_step \
-            "Sealed Secrets Controller (install)" \
-            "$sealed_secrets_dir/install_sealed_secrets.sh"
-    else
-        print_info "Sealed Secrets controller already installed — skipping install"
-    fi
-
-    _run_step \
-        "Sealed Secrets (seal)" \
-        "$sealed_secrets_dir/seal_secrets.sh"
+    local dir="$PROJECT_ROOT/platform/deployment/kubernetes/sealed-secrets"
+    _run_step "Sealed Secrets Controller (install)" "$dir/install_sealed_secrets.sh"
+    _run_step "Sealed Secrets (seal)"               "$dir/seal_secrets.sh"
 }
 
 deploy_argo() {
@@ -591,7 +573,7 @@ detect_container_runtime
 
 # Local deployments require an already-running Kubernetes cluster.
 if [[ "$DEPLOY_TARGET" == "local" ]]; then
-    detect_k8s_cluster
+    configure_k8s_cluster
 fi
 
 print_divider
@@ -612,7 +594,7 @@ if [[ "$DEPLOY_TARGET" == "prod" ]]; then
           "$ENABLE_MONITORING" == true ||
           "$ENABLE_LOKI"       == true ||
           "$ENABLE_TRIVY"      == true ]]; then
-        detect_k8s_cluster
+        configure_k8s_cluster
     fi
 fi
 

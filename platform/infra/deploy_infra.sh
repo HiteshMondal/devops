@@ -27,6 +27,7 @@ export PROJECT_ROOT
 
 source "${PROJECT_ROOT}/platform/lib/colors.sh"
 source "${PROJECT_ROOT}/platform/lib/logging.sh"
+source "${PROJECT_ROOT}/platform/lib/kube_context.sh"
 
 # Load .env safely
 ENV_FILE="${PROJECT_ROOT}/.env"
@@ -100,6 +101,77 @@ case "$ACTION" in
         ;;
 esac
 
+assert_prod_cluster() {
+    [[ "${DEPLOY_TARGET:-}" == "prod" ]] || return 0
+    [[ "${ALLOW_LOCAL_CLUSTER_FOR_PROD:-false}" == "true" ]] && return 0
+
+    local ctx nodes
+    ctx="$(kubectl config current-context 2>/dev/null || echo "")"
+    nodes="$(kubectl get nodes -o json 2>/dev/null || echo "")"
+
+    if [[ -z "$ctx" || -z "$nodes" ]]; then
+        print_error "DEPLOY_TARGET=prod but no reachable Kubernetes cluster (context: '${ctx:-none}')"
+        exit 1
+    fi
+    if [[ "$ctx" =~ (minikube|kind-|k3d-|docker-desktop|microk8s|rancher-desktop) ]] || \
+       grep -qE 'minikube.k8s.io|kind-control-plane' <<<"$nodes"; then
+        print_error "DEPLOY_TARGET=prod but kubectl points at a local cluster (${ctx})"
+        exit 1
+    fi
+}
+
+connect_cluster() {
+    print_subsection "Selecting Kubernetes Cluster"
+    configure_kubectl_target
+
+    print_success "kubectl context set to: ${K8S_CONTEXT}"
+}
+
+# Kubernetes creates NLBs and EBS volumes that Terraform doesn't know about.
+# They block VPC deletion and keep billing, so remove them before `terraform destroy`.
+pre_destroy_cleanup() {
+    local name="$1" vpc left i
+    print_subsection "Pre-destroy cleanup"
+    [[ -n "$name" ]] || return 0
+    aws eks describe-cluster --name "$name" --region "$AWS_REGION" >/dev/null 2>&1 || {
+        print_info "Cluster ${name} not found, nothing to clean"; return 0; }
+
+    aws eks update-kubeconfig --region "$AWS_REGION" --name "$name" >/dev/null
+    vpc="$(terraform output -raw vpc_id 2>/dev/null || echo "")"
+
+    # Argo's own job: stop syncing and remove what it manages (guarded to EKS)
+    bash "${PROJECT_ROOT}/platform/cicd/argo/deploy_argo.sh" teardown || true
+
+    # Anything else that owns cloud resources
+    kubectl get svc -A -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
+        | while IFS=' ' read -r ns n; do kubectl delete svc "$n" -n "$ns" --timeout=180s || true; done
+    kubectl delete pvc -A --all --timeout=180s || true
+
+    if [[ -n "$vpc" ]]; then
+        print_step "Waiting for AWS to remove load balancers in ${vpc}..."
+        for i in {1..30}; do
+            left="$(aws elbv2 describe-load-balancers --region "$AWS_REGION" \
+                --query "length(LoadBalancers[?VpcId=='${vpc}'])" --output text 2>/dev/null || echo 0)"
+            [[ "$left" == "0" ]] && break
+            sleep 10
+        done
+    fi
+}
+
+forget_cluster() {
+    local name="$1" x
+    [[ -n "$name" ]] || return 0
+    for x in $(kubectl config get-contexts -o name 2>/dev/null | grep -F "cluster/${name}"); do
+        kubectl config delete-context "$x" >/dev/null 2>&1 || true
+    done
+    for x in $(kubectl config get-clusters 2>/dev/null | grep -F "cluster/${name}"); do
+        kubectl config delete-cluster "$x" >/dev/null 2>&1 || true
+    done
+    for x in $(kubectl config get-users 2>/dev/null | grep -F "cluster/${name}"); do
+        kubectl config delete-user "$x" >/dev/null 2>&1 || true
+    done
+}
+
 # AWS / Terraform
 deploy_terraform() {
     print_subsection "AWS Troubleshooting Commands"
@@ -149,32 +221,15 @@ EOF
             terraform apply tfplan
             print_success "Terraform apply complete"
 
-            print_subsection "Configuring kubectl for EKS"
-            local eks_cluster_name
-            eks_cluster_name=$(terraform output -raw eks_cluster_name 2>/dev/null || echo "")
-
-            if [[ -z "$eks_cluster_name" ]]; then
-                print_error "Could not read eks_cluster_name from Terraform outputs"
-                exit 1
-            fi
-
-            aws eks update-kubeconfig \
-                --region "$AWS_REGION" \
-                --name "$eks_cluster_name"
-
-            local current_ctx
-            current_ctx="$(kubectl config current-context)"
-
-            if [[ "$current_ctx" != *"$eks_cluster_name"* ]]; then
-                print_error "kubectl context '${current_ctx}' does not match EKS cluster '${eks_cluster_name}'"
-                exit 1
-            fi
-
-            print_success "kubectl context set to EKS cluster: ${eks_cluster_name}"
+            connect_cluster
             ;;
         destroy)
+            local cluster
+            cluster="$(terraform output -raw eks_cluster_name 2>/dev/null || true)"
+            pre_destroy_cleanup "$cluster"
             print_warning "Destroying Terraform infrastructure"
             terraform destroy -auto-approve
+            forget_cluster "$cluster"
             print_success "Terraform destroy complete"
             ;;
     esac
@@ -243,6 +298,7 @@ deploy_pulumi() {
             ;;
         apply)
             pulumi up --yes
+            connect_cluster
             ;;
         destroy)
             pulumi destroy --yes

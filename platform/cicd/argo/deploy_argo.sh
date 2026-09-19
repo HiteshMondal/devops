@@ -19,6 +19,7 @@ export PROJECT_ROOT
 
 source "${PROJECT_ROOT}/platform/lib/colors.sh"
 source "${PROJECT_ROOT}/platform/lib/logging.sh"
+source "${PROJECT_ROOT}/platform/lib/kube_context.sh"
 
 ARGOCD_SERVER=""
 ARGOCD_ADMIN_PASS=""
@@ -98,6 +99,42 @@ assert_portforward_alive() {
         done
         [[ "$ready" != true ]] && { print_error "Port-forward restart failed"; exit 1; }
         print_success "Port-forward restarted (PID ${ARGOCD_PF_PID})"
+    fi
+}
+
+verify_prod_cluster() {
+    [[ "${DEPLOY_TARGET:-}" == "prod" ]] || return 0
+
+    local ctx
+    ctx="$(kubectl config current-context 2>/dev/null || true)"
+
+    [[ -n "$ctx" ]] || {
+        print_error "Kubernetes context is empty after target selection"
+        exit 1
+    }
+
+    case "${CLOUD_PROVIDER:-}" in
+        aws)
+            [[ "$ctx" == eks-* || "$ctx" == *"arn:aws:eks:"* ]] || {
+                print_error "Production target is AWS, but kubectl context is '${ctx}'"
+                exit 1
+            }
+            ;;
+        azure)
+            kubectl get nodes >/dev/null 2>&1 || {
+                print_error "Production target is Azure, but kubectl context '${ctx}' is unreachable"
+                exit 1
+            }
+            ;;
+    esac
+}
+
+teardown_argo() {
+    print_subsection "Argo CD teardown"
+    pkill -f "port-forward svc/argocd-server" 2>/dev/null || true
+    if kubectl get ns "$ARGOCD_NAMESPACE" >/dev/null 2>&1; then
+        # Application finalizers cascade-delete everything Argo created
+        kubectl delete applications.argoproj.io --all -n "$ARGOCD_NAMESPACE" --timeout=300s || true
     fi
 }
 
@@ -279,7 +316,7 @@ sync_backup_config_from_terraform() {
         print_info "Check TF_VAR_enable_cloud_storage=true and re-apply"
         exit 1
     }
-
+    db_host=$(terraform -chdir="${tf_dir}" output -raw db_host)
     if [[ -z "$role_arn" || -z "$bucket_name" || "$bucket_name" == "null" ]]; then
         print_error "postgres_backup_role_arn or backup_bucket_name is empty in Terraform state"
         print_info "Run infra apply first, or check enable_cloud_storage is true"
@@ -302,6 +339,10 @@ metadata:
   namespace: devops-app
 data:
   BACKUP_BUCKET: "${bucket_name}"
+  DB_HOST: "${db_host}"
+  DB_PORT: "${DB_PORT:-5432}"
+  DB_NAME: "${DB_NAME:-devopsdb}"
+  PGSSLMODE: "require"
 EOF
 
     print_success "Wrote ${patch_file}"
@@ -318,6 +359,52 @@ EOF
     print_info "  git add ${patch_file}"
     print_info "  git commit -m \"chore: sync backup config from terraform outputs\""
     print_info "  git push origin ${GIT_REPO_BRANCH}"
+}
+
+_git_push() {
+    local branch="$1" askpass rc
+    if GIT_TERMINAL_PROMPT=0 git -C "$PROJECT_ROOT" push origin "HEAD:${branch}"; then
+        return 0
+    fi
+    [[ -n "${GITHUB_TOKEN:-}" && -n "${GITHUB_USERNAME:-}" ]] || return 1
+    print_step "Retrying push with GITHUB_TOKEN..."
+    askpass="$(mktemp)"
+    printf '#!/bin/sh\ncase "$1" in Username*) printf "%%s" "$GIT_PUSH_USER";; *) printf "%%s" "$GIT_PUSH_TOKEN";; esac\n' > "$askpass"
+    chmod 700 "$askpass"
+    if GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 \
+       GIT_PUSH_USER="$GITHUB_USERNAME" GIT_PUSH_TOKEN="$GITHUB_TOKEN" \
+       git -C "$PROJECT_ROOT" -c credential.helper= push origin "HEAD:${branch}"; then
+        rc=0
+    else
+        rc=1
+    fi
+    rm -f "$askpass"
+    return "$rc"
+}
+
+gitops_publish_changes() {
+    print_subsection "Publishing generated files to Git"
+    local paths=(
+        platform/deployment/kubernetes/overlays/prod
+        platform/deployment/kubernetes/base
+        monitoring
+    )
+    if [[ -z "$(git -C "$PROJECT_ROOT" status --porcelain -- "${paths[@]}")" ]]; then
+        print_success "Git already up to date"
+        return 0
+    fi
+    if [[ "${GITOPS_AUTO_PUSH:-true}" != "true" ]]; then
+        print_warning "GITOPS_AUTO_PUSH=false: Argo CD will deploy the OLD Git state until you commit and push"
+        return 0
+    fi
+    git -C "$PROJECT_ROOT" add -- "${paths[@]}"
+    git -C "$PROJECT_ROOT" commit -q -m "chore: sync prod config" -- "${paths[@]}"
+    if ! _git_push "${GIT_REPO_BRANCH}"; then
+        print_error "git push failed, so Argo CD would deploy stale config. Stopping."
+        print_info  "Fix Git access (or pull --rebase if the remote moved) and re-run"
+        exit 1
+    fi
+    print_success "Pushed to ${GIT_REPO_BRANCH}"
 }
 
 # GENERATE APPLICATION MANIFESTS
@@ -427,28 +514,45 @@ _wait_for_app() {
 # blocks on each app, so this becomes a lightweight final health check.
 wait_for_apps() {
     print_subsection "Final Health Check"
-
     assert_portforward_alive
 
-    local apps=(
-        "${APP_NAME}-${DEPLOY_TARGET}"
-        "${APP_NAME}-monitoring"
-        "${APP_NAME}-loki"
-        "${APP_NAME}-trivy"
-    )
+    local app prod_app="${APP_NAME}-${DEPLOY_TARGET}"
+    local apps=("$prod_app" "${APP_NAME}-monitoring" "${APP_NAME}-loki" "${APP_NAME}-trivy")
 
     for app in "${apps[@]}"; do
-        if argocd_cmd app get "$app" >/dev/null 2>&1; then
-            local health
-            health=$(argocd_cmd app get "$app" \
-                -o json 2>/dev/null | \
-                grep -o '"status":"[^"]*"' | head -1 | \
-                grep -o '"[^"]*"$' | tr -d '"' || echo "Unknown")
-            print_kv "$app" "${health}"
-        fi
+        argocd_cmd app get "$app" --hard-refresh >/dev/null 2>&1 || true
     done
+    _wait_for_app "$prod_app" 420
 
-    print_success "Health check complete — check ArgoCD UI for details"
+    for app in "${apps[@]}"; do
+        print_kv "$app" "$(kubectl get application "$app" -n "$ARGOCD_NAMESPACE" \
+            -o jsonpath='{.status.sync.status} / {.status.health.status}' 2>/dev/null || echo "not found")"
+    done
+    kubectl get pods -n "$NAMESPACE" 2>/dev/null || true
+    print_success "Health check complete"
+}
+
+print_prod_app_url() {
+    local svc="devops-app-service" host="" waited=0 step=10
+    local max="${LB_WAIT_SECONDS:-300}"
+
+    if ! kubectl get svc "$svc" -n "${NAMESPACE}" >/dev/null 2>&1; then
+        print_warning "Service ${svc} does not exist yet, so Argo CD has not synced. Is the prod overlay pushed to Git?"
+        return 0
+    fi
+    print_step "Waiting up to ${max}s for the LoadBalancer address (Ctrl+C to skip)..."
+    while (( waited < max )); do
+        host="$(kubectl get svc "$svc" -n "${NAMESPACE}" \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+        [[ -n "$host" ]] && break
+        sleep "$step"; waited=$((waited + step))
+    done
+    if [[ -z "$host" ]]; then
+        print_warning "No external address after ${max}s. Check: kubectl get svc,pods -n ${NAMESPACE}"
+        return 0
+    fi
+    print_access_box "APPLICATION (PRODUCTION)" ">" "URL:Application UI:http://${host}"
+    print_info "An NLB can take 2-3 more minutes before its DNS name and targets are healthy"
 }
 
 # DISPLAY ACCESS INFORMATION
@@ -513,6 +617,9 @@ cleanup_portforward() {
 
 # MAIN
 deploy_argo() {
+    configure_kubectl_target
+    verify_prod_cluster
+
     print_section "ARGO CD DEPLOYMENT" ">"
 
     print_kv "Target"    "${DEPLOY_TARGET}"
@@ -546,6 +653,9 @@ deploy_argo() {
     print_subsection "Step 4b — Sync Backup Config"
     sync_backup_config_from_terraform
 
+    print_subsection "Step 4c — Publish GitOps changes"
+    gitops_publish_changes
+
     print_subsection "Step 5 — Generate Application Manifests"
     generate_argocd_apps
 
@@ -560,6 +670,7 @@ deploy_argo() {
     if [[ "${CI:-false}" != "true" ]]; then
         print_subsection "Step 7 — Final Health Check"
         wait_for_apps
+        print_prod_app_url
     else
         print_info "CI mode — skipping health check (ArgoCD will auto-sync)"
     fi
@@ -573,5 +684,9 @@ deploy_argo() {
 
 # Direct execution
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    deploy_argo
+    case "${1:-deploy}" in
+        deploy)   deploy_argo ;;
+        teardown) assert_prod_cluster; teardown_argo ;;
+        *) print_error "Unknown action '${1}' (use: deploy | teardown)"; exit 1 ;;
+    esac
 fi

@@ -163,7 +163,7 @@ variable "db_skip_final_snapshot" {
 # Cost-control switches
 
 variable "enable_nat_gateway" {
-  description = "Create a NAT Gateway for private-subnet egress. NAT Gateway is NOT Free Tier eligible (~$0.045/hr + data). Off by default; worker nodes run in public subnets with public IPs instead to keep this deployable at $0 infra cost beyond the EKS control plane."
+  description = "Create a NAT Gateway for private-subnet egress. NAT Gateway is NOT Free Tier eligible (~$0.045/hr + data). Worker nodes run in public subnets with public IPs instead to keep this deployable at $0 infra cost beyond the EKS control plane."
   type        = bool
   default     = true
 }
@@ -193,7 +193,7 @@ variable "enable_self_healing" {
 # Multi-Cloud (same-cloud, cross-region) Disaster Recovery
 
 variable "enable_dr_backup" {
-  description = "Deploy a scheduled Lambda (via EventBridge) that snapshots RDS and copies the snapshot to var.cloud_storage_replica_region for disaster recovery. Snapshot storage beyond the 20GB Free Tier allocation is billed (~$0.095/GB-month), so keep retention short via dr_snapshot_retention_days."
+  description = "Snapshots RDS and copies the snapshot to var.cloud_storage_replica_region for disaster recovery. Snapshot storage beyond the 20GB Free Tier allocation is billed (~$0.095/GB-month), so keep retention short via dr_snapshot_retention_days."
   type        = bool
   default     = true
 }
@@ -208,4 +208,11 @@ variable "dr_snapshot_retention_days" {
   description = "How many days to keep copied DR snapshots in the replica region before the cleanup step (run inside the same Lambda) deletes them."
   type        = number
   default     = 7
+}
+
+# variables.tf
+variable "console_principal_arn" {
+  description = "IAM user/role ARN for console access to EKS resources. Leave empty if you use the same identity as your CLI credentials."
+  type        = string
+  default     = ""
 }

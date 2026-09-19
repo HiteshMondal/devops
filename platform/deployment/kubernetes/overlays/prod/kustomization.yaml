@@ -222,3 +222,43 @@ patches:
       metadata:
         name: postgres-secrets
         namespace: devops-app
+
+  - target:
+      kind: StatefulSet
+      name: postgres}
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: postgres
+
+  - target:
+      kind: Service
+      name: postgres-service}
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: postgres-service
+
+  - target:
+      kind: PersistentVolumeClaim
+      name: app-data-pvc}
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: app-data-pvc
+
+  - target:
+      kind: Deployment
+      name: devops-app}
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/volumes/0
+        value:
+          name: app-data
+          emptyDir: {}

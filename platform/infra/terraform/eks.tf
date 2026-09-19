@@ -31,6 +31,7 @@ module "eks" {
     coredns    = { most_recent = true }
     kube-proxy = { most_recent = true }
     vpc-cni    = { most_recent = true }
+    metrics-server = { most_recent = true }
   }
 
   eks_managed_node_groups = {
@@ -50,7 +51,21 @@ module "eks" {
       }
 
       tags = local.common_tags
+
+      node_repair_config = { enabled = true }
     }
+  }
+
+  access_entries = {
+    for k, arn in { console = var.console_principal_arn } : k => {
+      principal_arn = arn
+      policy_associations = {
+        admin = {
+          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    } if arn != ""
   }
 
   # Grants the identity running `terraform apply` cluster-admin so the
@@ -73,4 +88,26 @@ resource "aws_security_group_rule" "nodes_app_port_ingress" {
   protocol                 = "tcp"
   security_group_id        = module.eks.node_security_group_id
   source_security_group_id = module.eks.node_security_group_id
+}
+
+module "ebs_csi_irsa" {
+  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+  version = "~> 5.39"
+
+  role_name             = "${local.cluster_name}-ebs-csi"
+  attach_ebs_csi_policy = true
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks.oidc_provider_arn
+      namespace_service_accounts = ["kube-system:ebs-csi-controller-sa"]
+    }
+  }
+  tags = local.common_tags
+}
+
+resource "aws_eks_addon" "ebs_csi" {
+  cluster_name             = module.eks.cluster_name
+  addon_name               = "aws-ebs-csi-driver"
+  service_account_role_arn = module.ebs_csi_irsa.iam_role_arn
+  depends_on               = [module.eks]
 }

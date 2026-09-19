@@ -13,3 +13,7 @@ metadata:
   namespace: devops-app
 data:
   BACKUP_BUCKET: "devops-app-files-ap-south-1"
+  DB_HOST: "devops-app-db.c32qeq6ykatq.ap-south-1.rds.amazonaws.com"
+  DB_PORT: "5432"
+  DB_NAME: "devopsdb"
+  PGSSLMODE: "require"
