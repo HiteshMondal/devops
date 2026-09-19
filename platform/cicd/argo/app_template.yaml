@@ -234,3 +234,9 @@ spec:
       kind: Ingress
       jsonPointers:
         - /status
+    - group: ""
+      kind: PersistentVolumeClaim
+      name: app-data-pvc
+      jsonPointers:
+        - /spec/volumeName
+        - /spec/storageClassName

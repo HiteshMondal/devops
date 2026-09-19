@@ -362,7 +362,9 @@ argocd_add_repo() {
         return 0
     fi
 
-    if [[ -f "${HOME}/.ssh/id_ed25519" ]]; then
+    if argocd_cmd repo add "$REPO_URL" 2>/dev/null; then
+        print_step "Added repo anonymously (public repo)"
+    elif [[ -f "${HOME}/.ssh/id_ed25519" ]]; then
         print_step "Adding repo via SSH key (ed25519)"
         argocd_cmd repo add "$REPO_URL" \
             --ssh-private-key-path "${HOME}/.ssh/id_ed25519" \
@@ -374,7 +376,7 @@ argocd_add_repo() {
             --insecure-ignore-host-key || true
     elif [[ -n "${GITHUB_TOKEN:-}" ]]; then
         print_step "Adding repo via GitHub token"
-        argocd_cmd repo add "$REPO_URL" --username git --password "$GITHUB_TOKEN" || true
+        argocd_cmd repo add "$REPO_URL" --username "${GITHUB_USERNAME:-git}" --password "$GITHUB_TOKEN" || true
     elif [[ -n "${GITLAB_TOKEN:-}" ]]; then
         print_step "Adding repo via GitLab token"
         argocd_cmd repo add "$REPO_URL" --username oauth2 --password "$GITLAB_TOKEN" || true
