@@ -1,0 +1,61 @@
+# platform/cicd/argo/ingress-nginx-app.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ingress-nginx
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: ingress-nginx
+    managed-by: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"   # before the app itself (sync-wave 1)
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes.github.io/ingress-nginx
+    chart: ingress-nginx
+    targetRevision: 4.13.3
+    helm:
+      releaseName: ingress-nginx
+      values: |
+        controller:
+          ingressClassResource:
+            name: nginx
+            default: true
+          service:
+            type: LoadBalancer
+            annotations:
+              service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+              service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+              service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"
+            externalTrafficPolicy: Local
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          replicaCount: 2
+          # Free-tier-friendly: 2 replicas, no autoscaling — this project
+          # runs one app service, so the controller itself doesn't need
+          # to scale independently.
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ingress-nginx
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

@@ -185,7 +185,7 @@ variable "cloud_storage_replica_region" {
 # Self-Healing Infrastructure (CloudWatch Alarms -> Lambda remediation)
 
 variable "enable_self_healing" {
-  description = "Deploy CloudWatch Alarms + a Python Lambda that automatically remediates unhealthy EKS worker nodes (terminate -> ASG replaces) and RDS failures (reboot). Lambda free tier (1M requests + 400,000 GB-s/month) covers this comfortably, so cost stays ~$0."
+  description = "Node self-healing is provided natively by node_repair_config (eks.tf); pod self-healing is provided natively by Kubernetes liveness/readiness probes (deployment.yaml)."
   type        = bool
   default     = true
 }

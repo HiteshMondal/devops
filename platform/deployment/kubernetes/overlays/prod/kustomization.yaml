@@ -141,19 +141,10 @@ patches:
       kind: Service
       metadata:
         name: devops-app-service
-        annotations:
-          service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
-          service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
-          service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "http"
-          cloud.google.com/neg: '{"ingress": true}'
-          cloud.google.com/backend-config: '{"default": "backend-config"}'
-          service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+        annotations: {}
       spec:
-        type: LoadBalancer
-        sessionAffinity: ClientIP
-        sessionAffinityConfig:
-          clientIP:
-            timeoutSeconds: 10800
+        type: ClusterIP
+        sessionAffinity: None
         ports:
         - port: 80
           targetPort: 8000

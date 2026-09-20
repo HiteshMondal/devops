@@ -484,6 +484,17 @@ argocd_add_repo() {
 
 # APPLY APPLICATIONS
 apply_argocd_apps() {
+    local f="$PROJECT_ROOT/platform/cicd/argo/ingress-nginx-app.yaml"
+    if [[ -f "$f" ]]; then
+        print_subsection "Applying ingress-nginx controller Application"
+        kubectl apply -n "$ARGOCD_NAMESPACE" -f "$f"
+        print_success "ingress-nginx Application applied"
+    else
+        print_info "ingress-nginx-app.yaml not present — skipping (devops-app-service will need its own LoadBalancer type if used)"
+    fi
+    kubectl apply -n "$ARGOCD_NAMESPACE" -f "$f"
+    print_success "ingress-nginx Application applied"
+
     print_subsection "Applying Argo CD Applications"
 
     local OUTPUT="$PROJECT_ROOT/platform/cicd/argo/generated/apps.yaml"
@@ -536,7 +547,7 @@ wait_for_apps() {
 
 show_application_url() {
     print_subsection "Application Access"
-    local svc="${APP_NAME}-service" host="" url="" i
+    local svc="ingress-nginx-controller" ns_override="ingress-nginx" host="" url="" i
     print_step "Waiting for the LoadBalancer address (usually 2–5 min)..."
     for i in {1..60}; do
         host=$(kubectl get svc "$svc" -n "$NAMESPACE" -o \
@@ -556,16 +567,16 @@ show_application_url() {
 }
 
 print_prod_app_url() {
-    local svc="devops-app-service" host="" waited=0 step=10
+    local svc="ingress-nginx-controller" ns="ingress-nginx" host="" waited=0 step=10
     local max="${LB_WAIT_SECONDS:-300}"
 
-    if ! kubectl get svc "$svc" -n "${NAMESPACE}" >/dev/null 2>&1; then
+    if ! kubectl get svc "$svc" -n "${ns}" >/dev/null 2>&1; then
         print_warning "Service ${svc} does not exist yet, so Argo CD has not synced. Is the prod overlay pushed to Git?"
         return 0
     fi
     print_step "Waiting up to ${max}s for the LoadBalancer address (Ctrl+C to skip)..."
     while (( waited < max )); do
-        host="$(kubectl get svc "$svc" -n "${NAMESPACE}" \
+        host="$(kubectl get svc "$svc" -n "${ns}" \
             -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
         [[ -n "$host" ]] && break
         sleep "$step"; waited=$((waited + step))
@@ -691,8 +702,10 @@ deploy_argo() {
 
     if [[ "${CI:-false}" != "true" ]]; then
         print_subsection "Step 7 — Final Health Check"
+        show_application_url &
+        local url_pid=$!
         wait_for_apps
-        show_application_url
+        wait "$url_pid" 2>/dev/null || true
         print_prod_app_url
     else
         print_info "CI mode — skipping health check (ArgoCD will auto-sync)"
