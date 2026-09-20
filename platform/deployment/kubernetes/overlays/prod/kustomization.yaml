@@ -225,7 +225,7 @@ patches:
 
   - target:
       kind: StatefulSet
-      name: postgres}
+      name: postgres
     patch: |-
       $patch: delete
       apiVersion: apps/v1
@@ -235,7 +235,7 @@ patches:
 
   - target:
       kind: Service
-      name: postgres-service}
+      name: postgres-service
     patch: |-
       $patch: delete
       apiVersion: v1
@@ -245,7 +245,7 @@ patches:
 
   - target:
       kind: PersistentVolumeClaim
-      name: app-data-pvc}
+      name: app-data-pvc
     patch: |-
       $patch: delete
       apiVersion: v1
@@ -255,7 +255,7 @@ patches:
 
   - target:
       kind: Deployment
-      name: devops-app}
+      name: devops-app
     patch: |-
       - op: replace
         path: /spec/template/spec/volumes/0

@@ -114,7 +114,9 @@ pre_destroy_cleanup() {
     # Anything else that owns cloud resources
     kubectl get svc -A -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
         | while IFS=' ' read -r ns n; do kubectl delete svc "$n" -n "$ns" --timeout=180s || true; done
-    kubectl delete pvc -A --all --timeout=180s || true
+    kubectl delete applications.argoproj.io --all -n "${ARGOCD_NAMESPACE:-argocd}" --timeout=300s || true
+    kubectl delete svc -A --field-selector spec.type=LoadBalancer --timeout=300s || true
+    kubectl delete pvc -A --all --timeout=300s || true
 
     if [[ -n "$vpc" ]]; then
         print_step "Waiting for AWS to remove load balancers in ${vpc}..."
@@ -298,13 +300,13 @@ deploy_pulumi() {
                 pulumi stack output aks_cluster_name \
                     --stack "$stack" \
                     2>/dev/null || true
-            )
+            )"
 
             resource_group="$(
                 pulumi stack output aks_resource_group_name \
                     --stack "$stack" \
                     2>/dev/null || true
-            )
+            )"
 
             [[ -n "$cluster" && -n "$resource_group" ]] || {
                 print_error "Pulumi completed but AKS cluster/resource group outputs are missing"

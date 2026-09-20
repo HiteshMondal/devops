@@ -7,55 +7,50 @@ metadata:
 spec:
   schedule: "0 3 * * *"
   concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 3
+  successfulJobsHistoryLimit: 2
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
       backoffLimit: 2
+      activeDeadlineSeconds: 900
       template:
         metadata:
-          labels: {app: postgres-backup}
+          labels: { app: postgres-backup }
         spec:
           restartPolicy: OnFailure
           serviceAccountName: postgres-backup-sa
-          securityContext: {runAsNonRoot: true, runAsUser: 999, fsGroup: 999}
+          securityContext: { runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, fsGroup: 999 }
           volumes:
-            - name: dump
-              emptyDir: {}
+            - { name: work, emptyDir: {} }
           initContainers:
-            - name: pg-dump
+            - name: dump
               image: postgres:16-alpine
               command: ["/bin/sh", "-c"]
               args:
                 - |
                   set -eu
-                  pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USERNAME" -d "$DB_NAME" -f /dump/db.sql
-                  gzip /dump/db.sql
-                  test -s /dump/db.sql.gz
+                  pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$PGUSER" -d "$DB_NAME" -f /work/dump.sql
+                  gzip -f /work/dump.sql
               envFrom:
-                - configMapRef: {name: devops-app-config}
-                - secretRef: {name: devops-app-secrets}
+                - configMapRef: { name: devops-app-config }   # DB_HOST, DB_PORT, DB_NAME, PGSSLMODE
               env:
-                - name: PGPASSWORD
-                  valueFrom: {secretKeyRef: {name: devops-app-secrets, key: DB_PASSWORD}}
-              volumeMounts: [{name: dump, mountPath: /dump}]
-              resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {cpu: 500m, memory: 256Mi}}
-              securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+                - { name: PGUSER,     valueFrom: { secretKeyRef: { name: devops-app-secrets, key: DB_USERNAME } } }
+                - { name: PGPASSWORD, valueFrom: { secretKeyRef: { name: devops-app-secrets, key: DB_PASSWORD } } }
+              volumeMounts: [{ name: work, mountPath: /work }]
+              securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
           containers:
-            - name: s3-upload
+            - name: upload
               image: amazon/aws-cli:2.17.62
               command: ["/bin/sh", "-c"]
               args:
                 - |
                   set -eu
-                  aws s3 cp /dump/db.sql.gz "s3://${BACKUP_BUCKET}/postgres/$(date -u +%Y%m%d-%H%M%S).sql.gz"
-              env:
-                - {name: HOME, value: /tmp}
-                - name: BACKUP_BUCKET
-                  valueFrom: {configMapKeyRef: {name: devops-app-config, key: BACKUP_BUCKET}}
-              volumeMounts: [{name: dump, mountPath: /dump}]
-              resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {cpu: 300m, memory: 256Mi}}
-              securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+                  aws s3 cp /work/dump.sql.gz "s3://${BACKUP_BUCKET}/postgres/$(date -u +%Y%m%d-%H%M%S).sql.gz"
+              envFrom:
+                - configMapRef: { name: devops-app-config }   # BACKUP_BUCKET
+              env: [{ name: HOME, value: /tmp }]
+              volumeMounts: [{ name: work, mountPath: /work }]
+              securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
 
 ---
 apiVersion: v1

@@ -14,6 +14,7 @@ resource "aws_s3_bucket" "files_primary" {
   count  = var.enable_cloud_storage ? 1 : 0
   bucket = "${var.app_name}-files-${var.aws_region}"
   tags   = local.common_tags
+  force_destroy = var.force_destroy_storage
 }
 
 resource "aws_s3_bucket_versioning" "files_primary" {
@@ -60,6 +61,7 @@ resource "aws_s3_bucket" "files_replica" {
   provider = aws.replica
   bucket   = "${var.app_name}-files-${var.cloud_storage_replica_region}"
   tags     = local.common_tags
+  force_destroy = var.force_destroy_storage
 }
 
 resource "aws_s3_bucket_versioning" "files_replica" {
@@ -159,4 +161,24 @@ output "cloud_storage_primary_bucket" {
 output "cloud_storage_replica_bucket" {
   description = "Cross-region replica bucket (null when disabled)."
   value       = var.enable_cloud_storage ? aws_s3_bucket.files_replica[0].bucket : null
+}
+
+variable "force_destroy_storage" {
+  description = "Delete all objects and versions on destroy. True for learning; set false to protect real data."
+  type        = bool
+  default     = true
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "files_primary" {
+  count      = var.enable_cloud_storage ? 1 : 0
+  bucket     = aws_s3_bucket.files_primary[0].id
+  depends_on = [aws_s3_bucket_versioning.files_primary]
+
+  rule {
+    id     = "expire-old-versions"
+    status = "Enabled"
+    filter {}
+    noncurrent_version_expiration { noncurrent_days = 7 }
+    abort_incomplete_multipart_upload { days_after_initiation = 1 }
+  }
 }

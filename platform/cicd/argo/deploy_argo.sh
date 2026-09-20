@@ -534,6 +534,27 @@ wait_for_apps() {
     print_success "Health check complete"
 }
 
+show_application_url() {
+    print_subsection "Application Access"
+    local svc="${APP_NAME}-service" host="" url="" i
+    print_step "Waiting for the LoadBalancer address (usually 2–5 min)..."
+    for i in {1..60}; do
+        host=$(kubectl get svc "$svc" -n "$NAMESPACE" -o \
+          jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+        [[ -n "$host" ]] && break; sleep 5
+    done
+    if [[ -z "$host" ]]; then
+        print_warning "No LoadBalancer address yet"
+        print_info "Check: kubectl get svc ${svc} -n ${NAMESPACE} -w"; return 0
+    fi
+    url="http://${host}"
+    print_step "Waiting for ${url}/api/v1/health ..."
+    for i in {1..60}; do
+        curl -fsS -m 5 "${url}/api/v1/health" >/dev/null 2>&1 && break; sleep 5
+    done
+    print_access_box "APPLICATION (PRODUCTION)" ">" "URL:Application UI:${url}"
+}
+
 print_prod_app_url() {
     local svc="devops-app-service" host="" waited=0 step=10
     local max="${LB_WAIT_SECONDS:-300}"
@@ -671,6 +692,7 @@ deploy_argo() {
     if [[ "${CI:-false}" != "true" ]]; then
         print_subsection "Step 7 — Final Health Check"
         wait_for_apps
+        show_application_url
         print_prod_app_url
     else
         print_info "CI mode — skipping health check (ArgoCD will auto-sync)"

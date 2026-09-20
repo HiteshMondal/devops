@@ -49,25 +49,25 @@ variable "kubernetes_version" {
 variable "node_instance_type" {
   description = "Worker node instance type. t3.micro/t2.micro are AWS Free Tier eligible (750 hrs/month for 12 months on a new account)."
   type        = string
-  default     = "t3.micro"
+  default     = "t3.large"
 }
 
 variable "node_desired_size" {
   description = "Desired worker node count. Keep at 1 to stay inside the Free Tier's 750 instance-hours/month."
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "node_min_size" {
   description = "Minimum worker node count."
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "node_max_size" {
   description = "Maximum worker node count."
   type        = number
-  default     = 2
+  default     = 3
 }
 
 variable "app_port" {
