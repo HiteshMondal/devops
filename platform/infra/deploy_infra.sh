@@ -35,16 +35,12 @@ if [[ -f "$ENV_FILE" ]]; then
     # shellcheck source=/dev/null
     source "$ENV_FILE"
     set +o allexport
-    [[ -z "${AWS_PROFILE:-}" ]] && unset AWS_PROFILE
 else
     print_error ".env file not found at ${ENV_FILE}"
     exit 1
 fi
 
 # AWS authentication
-if [[ -n "${AWS_PROFILE:-}" ]]; then
-    export AWS_PROFILE
-fi
 export AWS_REGION="${AWS_REGION:-ap-south-1}"
 export AWS_DEFAULT_REGION="$AWS_REGION"
 
@@ -164,7 +160,6 @@ EOF
 
     print_subsection "AWS Authentication"
 
-    print_info "AWS profile: ${AWS_PROFILE:-<none — using env credentials>}"
     print_info "AWS region:  ${AWS_REGION}"
 
     aws sts get-caller-identity >/dev/null
@@ -178,7 +173,6 @@ EOF
 
     cd "$tf_dir"
 
-    print_info "AWS profile: ${AWS_PROFILE:-<none — using env credentials>}"
     print_info "AWS region:  ${AWS_REGION}"
 
     terraform init -upgrade

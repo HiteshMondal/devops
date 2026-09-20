@@ -33,6 +33,7 @@ resources:
   - secrets.yaml
   - postgres-secret.yaml
   - postgres-statefulset.yaml
+  - storageclass.yaml
 images:
   - name: devops-app
     newName: devops-app

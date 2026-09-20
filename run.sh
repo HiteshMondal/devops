@@ -43,7 +43,6 @@ set -a
 # shellcheck source=/dev/null
 source "$ENV_FILE"
 set +a
-
 export DEVOPS_RUNNER=true
 
 # INTERNAL HELPERS
@@ -466,18 +465,18 @@ verify_kubernetes_ready() {
 
     local ready=false
 
+    local last_err=""
     for _ in {1..12}; do
-        if kubectl cluster-info >/dev/null 2>&1 &&
-           kubectl get nodes >/dev/null 2>&1; then
+        if last_err="$(kubectl get nodes 2>&1 >/dev/null)"; then
             ready=true
             break
         fi
-
         sleep 5
     done
 
     [[ "$ready" == true ]] || {
         print_error "Kubernetes cluster '${context}' is not reachable"
+        print_info "Last error: ${last_err}"
         exit 1
     }
 

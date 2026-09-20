@@ -70,8 +70,7 @@ load_env() {
 _seal_value() {
     local name="$1" namespace="$2" value="$4"
     printf '%s' "${value}" | kubeseal --raw \
-        --controller-name="${SEALED_SECRETS_CONTROLLER_NAME}" \
-        --controller-namespace="${SEALED_SECRETS_NAMESPACE}" \
+        --cert="${SEALED_SECRETS_CERT}" \
         --namespace="${namespace}" \
         --name="${name}"
 }
@@ -158,6 +157,32 @@ EOF
     print_success "Wrote ${BASE_DIR}/postgres-sealed-secret.yaml"
 }
 
+_fetch_cert_via_portforward() {
+    local local_port=8081 pf_pid
+    kubectl port-forward -n "${SEALED_SECRETS_NAMESPACE}" \
+        "service/${SEALED_SECRETS_CONTROLLER_NAME}" \
+        "${local_port}:8080" >/dev/null 2>&1 &
+    pf_pid=$!
+
+    local ready=false
+    for _ in {1..10}; do
+        if curl -sf "http://127.0.0.1:${local_port}/v1/cert.pem" >/dev/null 2>&1; then
+            ready=true
+            break
+        fi
+        sleep 1
+    done
+
+    if [[ "$ready" != true ]]; then
+        kill "$pf_pid" 2>/dev/null || true
+        return 1
+    fi
+
+    curl -sf "http://127.0.0.1:${local_port}/v1/cert.pem"
+    kill "$pf_pid" 2>/dev/null || true
+    wait "$pf_pid" 2>/dev/null || true
+}
+
 main() {
     print_section "SEALED SECRETS — SEAL" ">"
 
@@ -170,6 +195,13 @@ main() {
     fi
 
     load_env
+
+    SEALED_SECRETS_CERT="$(mktemp)"
+    if ! _fetch_cert_via_portforward > "${SEALED_SECRETS_CERT}"; then
+        print_error "Failed to fetch sealed-secrets certificate via port-forward"
+        exit 1
+    fi
+
     seal_app_secrets
     seal_postgres_secrets
 
