@@ -15,7 +15,6 @@ resources:
   - network-policy.yaml
   - pod-disruption-budget.yaml
   - devops-app-sealed-secret.yaml
-  - postgres-sealed-secret.yaml
   - postgres-backup-cronjob.yaml
 
 namespace: devops-app
@@ -23,7 +22,7 @@ namespace: devops-app
 images:
   - name: devops-app
     newName: hiteshmondaldocker/devops-app
-    newTag: latest
+    newTag: 25abdd9
 
 patches:
   - path: backup-config-patch.yaml
@@ -160,38 +159,8 @@ patches:
       kind: Ingress
       name: devops-app-ingress
     patch: |-
-      apiVersion: networking.k8s.io/v1
-      kind: Ingress
-      metadata:
-        name: devops-app-ingress
-        annotations:
-          alb.ingress.kubernetes.io/scheme: internet-facing
-          alb.ingress.kubernetes.io/target-type: ip
-          alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
-          alb.ingress.kubernetes.io/ssl-redirect: '443'
-          alb.ingress.kubernetes.io/healthcheck-path: /health
-          kubernetes.io/ingress.global-static-ip-name: "devops-app-ip"
-          networking.gke.io/managed-certificates: "devops-app-cert"
-          appgw.ingress.kubernetes.io/ssl-redirect: "true"
-          nginx.ingress.kubernetes.io/ssl-redirect: "true"
-          cert-manager.io/cluster-issuer: letsencrypt-prod
-      spec:
-        ingressClassName: nginx
-        tls:
-        - hosts:
-          - devops-app.local
-          secretName: devops-app-tls
-        rules:
-        - host: devops-app.local
-          http:
-            paths:
-            - path: /
-              pathType: Prefix
-              backend:
-                service:
-                  name: devops-app-service
-                  port:
-                    number: 80
+      - op: remove
+        path: /spec/rules/0/host
   - target:
       kind: Secret
       name: devops-app-secrets
