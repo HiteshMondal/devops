@@ -8,12 +8,15 @@
 #   - It locates the project root itself instead of assuming a fixed layout.
 #   - It sources the repo's shared shell helpers (colors/logging) only if
 #     they exist, and falls back to plain output otherwise.
-#   - It reads configuration from docker/jenkins.env and/or the
-#     project-root .env, both optional — it runs with sane defaults even
-#     if neither exists.
 # It does not modify, get invoked by, or depend on the runtime state of
 # run.sh, install.sh, or any other script in the repository, so changes
 # elsewhere in the codebase cannot break it.
+
+# Designed to be compatible with all major Linux distributions and WSL.
+# Supports all Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
+# Should run on any computer without manual editing. Only configuration in the .env file is required.
+# .env is the SINGLE SOURCE OF TRUTH for Ports, configuration, Variables, and Secrets.
+# run.sh is the SINGLE AUTHORITY for Local/Production mode and execution flow.
 
 set -Eeuo pipefail
 IFS=$'\n\t'

@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 
 # platform/deployment/kubernetes/deploy_kubernetes.sh
-# Designed to be compatible with all major Linux distributions and WSL.
-# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others.
 
-# CONFIGURATION POLICY:
-# .env is the SINGLE SOURCE OF TRUTH for Ports, Variables, and Secrets.
+# Designed to be compatible with all major Linux distributions and WSL.
+# Supports all Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
+# Should run on any computer without manual editing. Only configuration in the .env file is required.
+# .env is the SINGLE SOURCE OF TRUTH for Ports, configuration, Variables, and Secrets.
 # run.sh is the SINGLE AUTHORITY for Local/Production mode and execution flow.
-# This script MUST NOT independently determine the deployment environment.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -202,7 +201,7 @@ patch_overlay() {
     tmp_kustomize=$(mktemp)
     sed \
         -e "s|newName:.*|newName: ${DOCKERHUB_USERNAME}/${APP_NAME}|g" \
-        -e "s|newTag:.*|newTag: ${DOCKER_IMAGE_TAG}|g" \
+        -e "s|newTag:.*|newTag: \"${DOCKER_IMAGE_TAG}\"|g" \
         "${kustomization_file}" > "${tmp_kustomize}"
     mv "${tmp_kustomize}" "${kustomization_file}"
 

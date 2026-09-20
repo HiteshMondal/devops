@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # configure_jenkins.sh — Jenkins secrets helper (self-contained)
-#
-# Convenience helper for populating docker/jenkins.env:
-#   - Generates a strong random JENKINS_ADMIN_PASSWORD if one isn't set.
-#   - Base64-encodes a kubeconfig file into KUBECONFIG_CONTENTS_BASE64.
-#
-# Never required to run deploy_jenkins.sh — jenkins.env can always be
-# edited by hand instead. Safe to re-run; it only fills in blank/default
-# values and never overwrites a value you've already set.
+
+# Designed to be compatible with all major Linux distributions and WSL.
+# Supports all Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
+# Should run on any computer without manual editing. Only configuration in the .env file is required.
+# .env is the SINGLE SOURCE OF TRUTH for Ports, configuration, Variables, and Secrets.
+# run.sh is the SINGLE AUTHORITY for Local/Production mode and execution flow.
+
 
 set -Eeuo pipefail
 IFS=$'\n\t'

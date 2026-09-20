@@ -1,11 +1,11 @@
 #!/bin/bash
 # /platform/cicd/argo/deploy_argo.sh — Argo CD Deployment Script
-# Should work and be compatible with all Linux computers including WSL.
-# Supports all Kubernetes tools: Minikube, Kind, K3s, K8s, EKS, GKE, AKS, MicroK8s or others.
-# CONFIGURATION POLICY:
-# .env is the SINGLE SOURCE OF TRUTH for Ports, Variables, and Secrets.
+
+# Designed to be compatible with all major Linux distributions and WSL.
+# Supports all Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
+# Should run on any computer without manual editing. Only configuration in the .env file is required.
+# .env is the SINGLE SOURCE OF TRUTH for Ports, configuration, Variables, and Secrets.
 # run.sh is the SINGLE AUTHORITY for Local/Production mode and execution flow.
-# This script MUST NOT independently determine the deployment environment.
 
 set -euo pipefail
 
@@ -318,7 +318,11 @@ sync_backup_config_from_terraform() {
         print_info "Check TF_VAR_enable_cloud_storage=true and re-apply"
         exit 1
     }
-    db_host=$(terraform -chdir="${tf_dir}" output -raw db_host)
+    db_host=$(terraform -chdir="${tf_dir}" output -raw db_host 2>&1) || {
+        print_error "Failed to read db_host: ${db_host}"
+        print_info "Run: terraform -chdir=\"${tf_dir}\" apply"
+        exit 1
+    }
     if [[ -z "$role_arn" || -z "$bucket_name" || "$bucket_name" == "null" ]]; then
         print_error "postgres_backup_role_arn or backup_bucket_name is empty in Terraform state"
         print_info "Run infra apply first, or check enable_cloud_storage is true"
@@ -377,7 +381,7 @@ sync_image_tag_to_overlay() {
 
     tmp="$(mktemp)"
     sed -e "s|^\( *newName:\).*|\1 ${user}/${APP_NAME}|" \
-        -e "s|^\( *newTag:\).*|\1 ${tag}|" "$kfile" > "$tmp"
+        -e "s|^\( *newTag:\).*|\1 \"${tag}\"|" "$kfile" > "$tmp"
     cat "$tmp" > "$kfile"
     rm -f "$tmp"
 

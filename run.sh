@@ -3,6 +3,7 @@
 
 # Designed to be compatible with all major Linux distributions and WSL.
 # Supports all Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
+# Should run on any computer without manual editing. Only configuration in the .env file is required.
 # .env is the SINGLE SOURCE OF TRUTH for Ports, configuration, Variables, and Secrets.
 # run.sh is the SINGLE AUTHORITY for Local/Production mode and execution flow.
 
