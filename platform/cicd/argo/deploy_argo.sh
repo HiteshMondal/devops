@@ -176,10 +176,10 @@ install_argocd_server() {
     local ARGO_MANIFEST="$PROJECT_ROOT/platform/cicd/argo/install_argocd.yaml"
     if [[ -f "$ARGO_MANIFEST" ]]; then
         print_step "Applying local ArgoCD manifest..."
-        kubectl apply -n "$ARGOCD_NAMESPACE" -f "$ARGO_MANIFEST"
+        kubectl apply -n "$ARGOCD_NAMESPACE" --server-side --force-conflicts -f "$ARGO_MANIFEST"
     else
         print_step "Applying upstream manifest (${ARGOCD_VERSION})..."
-        kubectl apply -n "$ARGOCD_NAMESPACE" \
+        kubectl apply -n "$ARGOCD_NAMESPACE" --server-side --force-conflicts \
             -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
     fi
 
@@ -363,6 +363,27 @@ EOF
     print_info "  git push origin ${GIT_REPO_BRANCH}"
 }
 
+# Point the prod overlay at the image that was just pushed.
+# gitops_publish_changes commits overlays/prod, so Argo CD sees the change.
+sync_image_tag_to_overlay() {
+    local kfile="${PROJECT_ROOT}/platform/deployment/kubernetes/overlays/prod/kustomization.yaml"
+    local user="${DOCKERHUB_USERNAME:-}" tag="${DOCKER_IMAGE_TAG:-latest}" tmp
+
+    [[ -f "$kfile" ]] || { print_error "Missing ${kfile}"; exit 1; }
+    if [[ -z "$user" ]]; then
+        print_warning "DOCKERHUB_USERNAME is empty, leaving the image reference unchanged"
+        return 0
+    fi
+
+    tmp="$(mktemp)"
+    sed -e "s|^\( *newName:\).*|\1 ${user}/${APP_NAME}|" \
+        -e "s|^\( *newTag:\).*|\1 ${tag}|" "$kfile" > "$tmp"
+    cat "$tmp" > "$kfile"
+    rm -f "$tmp"
+
+    print_success "Prod image: ${user}/${APP_NAME}:${tag}"
+}
+
 _git_push() {
     local branch="$1" askpass rc
     if GIT_TERMINAL_PROMPT=0 git -C "$PROJECT_ROOT" push origin "HEAD:${branch}"; then
@@ -492,8 +513,6 @@ apply_argocd_apps() {
     else
         print_info "ingress-nginx-app.yaml not present — skipping (devops-app-service will need its own LoadBalancer type if used)"
     fi
-    kubectl apply -n "$ARGOCD_NAMESPACE" -f "$f"
-    print_success "ingress-nginx Application applied"
 
     print_subsection "Applying Argo CD Applications"
 
@@ -545,38 +564,18 @@ wait_for_apps() {
     print_success "Health check complete"
 }
 
-show_application_url() {
-    print_subsection "Application Access"
-    local svc="ingress-nginx-controller" ns_override="ingress-nginx" host="" url="" i
-    print_step "Waiting for the LoadBalancer address (usually 2–5 min)..."
-    for i in {1..60}; do
-        host=$(kubectl get svc "$svc" -n "$NAMESPACE" -o \
-          jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-        [[ -n "$host" ]] && break; sleep 5
-    done
-    if [[ -z "$host" ]]; then
-        print_warning "No LoadBalancer address yet"
-        print_info "Check: kubectl get svc ${svc} -n ${NAMESPACE} -w"; return 0
-    fi
-    url="http://${host}"
-    print_step "Waiting for ${url}/api/v1/health ..."
-    for i in {1..60}; do
-        curl -fsS -m 5 "${url}/api/v1/health" >/dev/null 2>&1 && break; sleep 5
-    done
-    print_access_box "APPLICATION (PRODUCTION)" ">" "URL:Application UI:${url}"
-}
-
 print_prod_app_url() {
-    local svc="ingress-nginx-controller" ns="ingress-nginx" host="" waited=0 step=10
+    local svc="ingress-nginx-controller" ns="ingress-nginx" host="" code="" waited=0 step=10 i
     local max="${LB_WAIT_SECONDS:-300}"
 
-    if ! kubectl get svc "$svc" -n "${ns}" >/dev/null 2>&1; then
+    if ! kubectl get svc "$svc" -n "$ns" >/dev/null 2>&1; then
         print_warning "Service ${svc} does not exist yet, so Argo CD has not synced. Is the prod overlay pushed to Git?"
         return 0
     fi
+
     print_step "Waiting up to ${max}s for the LoadBalancer address (Ctrl+C to skip)..."
     while (( waited < max )); do
-        host="$(kubectl get svc "$svc" -n "${ns}" \
+        host="$(kubectl get svc "$svc" -n "$ns" \
             -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
         [[ -n "$host" ]] && break
         sleep "$step"; waited=$((waited + step))
@@ -585,8 +584,20 @@ print_prod_app_url() {
         print_warning "No external address after ${max}s. Check: kubectl get svc,pods -n ${NAMESPACE}"
         return 0
     fi
+
+    print_step "Waiting for http://${host}/api/v1/health (NLB DNS and targets can take a few minutes)..."
+    for i in {1..30}; do
+        code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://${host}/api/v1/health" 2>/dev/null || true)"
+        [[ "$code" == "200" ]] && break
+        sleep 10
+    done
+
     print_access_box "APPLICATION (PRODUCTION)" ">" "URL:Application UI:http://${host}"
-    print_info "An NLB can take 2-3 more minutes before its DNS name and targets are healthy"
+    case "$code" in
+        200) print_success "Health endpoint returned 200" ;;
+        404) print_warning "nginx returned 404: the Ingress host rule does not match this hostname. Check the prod Ingress patch." ;;
+        *)   print_warning "Health endpoint returned '${code:-no response}'. Targets may still be registering." ;;
+    esac
 }
 
 # DISPLAY ACCESS INFORMATION
@@ -686,7 +697,10 @@ deploy_argo() {
     print_subsection "Step 4b — Sync Backup Config"
     sync_backup_config_from_terraform
 
-    print_subsection "Step 4c — Publish GitOps changes"
+    print_subsection "Step 4c — Sync Image Tag"
+    sync_image_tag_to_overlay
+
+    print_subsection "Step 4d — Publish GitOps changes"
     gitops_publish_changes
 
     print_subsection "Step 5 — Generate Application Manifests"
@@ -702,10 +716,7 @@ deploy_argo() {
 
     if [[ "${CI:-false}" != "true" ]]; then
         print_subsection "Step 7 — Final Health Check"
-        show_application_url &
-        local url_pid=$!
         wait_for_apps
-        wait "$url_pid" 2>/dev/null || true
         print_prod_app_url
     else
         print_info "CI mode — skipping health check (ArgoCD will auto-sync)"

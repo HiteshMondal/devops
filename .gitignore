@@ -21,6 +21,7 @@ terraform.rc
 **/.terraform/
 **/.tofu/
 **/.terraform.tfstate.lock.info
+.build/
 
 # Allow example variable files
 !*.tfvars.example

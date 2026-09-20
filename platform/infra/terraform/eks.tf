@@ -17,10 +17,6 @@ module "eks" {
 
   vpc_id      = module.vpc.vpc_id
   enable_irsa = true
-
-  # Free-tier posture: nodes in public subnets with public IPs so no
-  # NAT Gateway is required. The cluster API endpoint stays reachable
-  # both publicly (for kubectl/CI) and from inside the VPC.
   subnet_ids                      = var.enable_nat_gateway ? module.vpc.private_subnets : module.vpc.public_subnets
   cluster_endpoint_public_access  = true
   cluster_endpoint_private_access = true
@@ -30,7 +26,10 @@ module "eks" {
   cluster_addons = {
     coredns    = { most_recent = true }
     kube-proxy = { most_recent = true }
-    vpc-cni    = { most_recent = true }
+    vpc-cni = {
+      most_recent          = true
+      configuration_values = jsonencode({ enableNetworkPolicy = "true" })
+    }
     metrics-server = { most_recent = true }
   }
 
@@ -74,6 +73,7 @@ module "eks" {
   enable_cluster_creator_admin_permissions = true
 
   tags = local.common_tags
+  cloudwatch_log_group_retention_in_days = 7
 }
 
 # Allows the app's pods (via the worker node security group) to reach

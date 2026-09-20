@@ -40,6 +40,21 @@ else
     exit 1
 fi
 
+# Validate required values BEFORE anything below dereferences them
+: "${INFRA_ACTION:=plan}"
+: "${CLOUD_PROVIDER:=aws}"
+: "${DEPLOY_TARGET:?DEPLOY_TARGET must be provided by run.sh}"
+: "${APP_NAME:?APP_NAME missing in .env}"
+: "${APP_PORT:?APP_PORT missing in .env}"
+: "${DB_USERNAME:?DB_USERNAME missing in .env}"
+: "${DB_PASSWORD:?DB_PASSWORD missing in .env}"
+: "${DB_NAME:?DB_NAME missing in .env}"
+: "${DB_PORT:?DB_PORT missing in .env}"
+
+if [[ -z "${TF_VAR_alert_email:-}" ]]; then
+    print_warning "TF_VAR_alert_email is empty: CloudWatch alarms will notify nobody"
+fi
+
 # AWS authentication
 export AWS_REGION="${AWS_REGION:-ap-south-1}"
 export AWS_DEFAULT_REGION="$AWS_REGION"
@@ -49,16 +64,9 @@ export TF_VAR_db_username="$DB_USERNAME"
 export TF_VAR_db_password="$DB_PASSWORD"
 export TF_VAR_db_name="$DB_NAME"
 export TF_VAR_db_port="$DB_PORT"
-
 export TF_VAR_app_name="$APP_NAME"
 export TF_VAR_app_port="$APP_PORT"
 export TF_VAR_aws_region="$AWS_REGION"
-export TF_VAR_deploy_target="$DEPLOY_TARGET"
-
-# Defaults
-: "${INFRA_ACTION:=plan}"
-: "${CLOUD_PROVIDER:=aws}"
-: "${DEPLOY_TARGET:?DEPLOY_TARGET must be provided by run.sh}"
 
 ACTION="${1:-${INFRA_ACTION}}"
 PROVIDER="${2:-${CLOUD_PROVIDER}}"
@@ -99,7 +107,7 @@ esac
 # Kubernetes creates NLBs and EBS volumes that Terraform doesn't know about.
 # They block VPC deletion and keep billing, so remove them before `terraform destroy`.
 pre_destroy_cleanup() {
-    local name="$1" vpc left i
+    local name="$1" vpc left="" i
     print_subsection "Pre-destroy cleanup"
     [[ -n "$name" ]] || return 0
     aws eks describe-cluster --name "$name" --region "$AWS_REGION" >/dev/null 2>&1 || {
@@ -108,16 +116,22 @@ pre_destroy_cleanup() {
     aws eks update-kubeconfig --region "$AWS_REGION" --name "$name" >/dev/null
     vpc="$(terraform output -raw vpc_id 2>/dev/null || echo "")"
 
-    # Argo's own job: stop syncing and remove what it manages (guarded to EKS)
+    # Argo CD: cascade-delete everything it manages (including ingress-nginx and its NLB)
     bash "${PROJECT_ROOT}/platform/cicd/argo/deploy_argo.sh" teardown || true
 
-    # Anything else that owns cloud resources
-    kubectl get svc -A -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
-        | while IFS=' ' read -r ns n; do kubectl delete svc "$n" -n "$ns" --timeout=180s || true; done
+    # Fallback if teardown bailed early: Argo's selfHeal would recreate anything deleted below
     kubectl delete applications.argoproj.io --all -n "${ARGOCD_NAMESPACE:-argocd}" --timeout=300s || true
-    kubectl delete svc -A --field-selector spec.type=LoadBalancer --timeout=300s || true
+
+    # Any remaining LoadBalancer Services
+    kubectl get svc -A -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
+        | while IFS=' ' read -r ns n; do
+            [[ -n "$ns" ]] && kubectl delete svc "$n" -n "$ns" --timeout=180s || true
+        done
+
+    # PVCs, so the EBS CSI driver deletes the volumes
     kubectl delete pvc -A --all --timeout=300s || true
 
+    # Wait until AWS has actually removed the load balancers
     if [[ -n "$vpc" ]]; then
         print_step "Waiting for AWS to remove load balancers in ${vpc}..."
         for i in {1..30}; do
@@ -126,6 +140,7 @@ pre_destroy_cleanup() {
             [[ "$left" == "0" ]] && break
             sleep 10
         done
+        [[ "$left" == "0" ]] || print_warning "Load balancers still present in ${vpc}: VPC deletion may fail"
     fi
 }
 
@@ -177,7 +192,7 @@ EOF
 
     print_info "AWS region:  ${AWS_REGION}"
 
-    terraform init -upgrade
+    terraform init
 
     case "$ACTION" in
         plan)

@@ -43,17 +43,17 @@ variable "az_count" {
 variable "kubernetes_version" {
   description = "EKS control plane version."
   type        = string
-  default     = "1.33"
+  default     = "1.35"
 }
 
 variable "node_instance_type" {
-  description = "Worker node instance type. t3.micro/t2.micro are AWS Free Tier eligible (750 hrs/month for 12 months on a new account)."
+  description = "Worker node instance type."
   type        = string
   default     = "t3.large"
 }
 
 variable "node_desired_size" {
-  description = "Desired worker node count. Keep at 1 to stay inside the Free Tier's 750 instance-hours/month."
+  description = "Desired worker node count."
   type        = number
   default     = 2
 }
@@ -91,13 +91,13 @@ variable "db_engine_version" {
 }
 
 variable "db_instance_class" {
-  description = "RDS instance class. db.t3.micro/db.t4g.micro are AWS Free Tier eligible (750 hrs/month for 12 months on a new account)."
+  description = "RDS instance class. db.t3.micro is the cheapest general-purpose class (~$0.02/hr). Free Tier applies only if your AWS account plan includes it."
   type        = string
   default     = "db.t3.micro"
 }
 
 variable "db_allocated_storage" {
-  description = "Allocated storage in GB. 20GB gp2/gp3 is the Free Tier ceiling."
+  description = "Allocated storage in GB (gp3). 20 is the RDS minimum for PostgreSQL on gp3."
   type        = number
   default     = 20
 }
@@ -163,7 +163,7 @@ variable "db_skip_final_snapshot" {
 # Cost-control switches
 
 variable "enable_nat_gateway" {
-  description = "Create a NAT Gateway for private-subnet egress. NAT Gateway is NOT Free Tier eligible (~$0.045/hr + data). Worker nodes run in public subnets with public IPs instead to keep this deployable at $0 infra cost beyond the EKS control plane."
+  description = "Create a NAT Gateway so worker nodes can live in private subnets (~$0.045-0.056/hr + data)."
   type        = bool
   default     = true
 }
@@ -177,35 +177,21 @@ variable "enable_cloud_storage" {
 }
 
 variable "cloud_storage_replica_region" {
-  description = "Destination AWS region for S3 Cross-Region Replication. Must differ from var.aws_region."
+  description = "Destination AWS region for S3 Cross-Region Replication and RDS backup replication. Must differ from var.aws_region."
   type        = string
-  default     = "us-west-2"
-}
-
-# Self-Healing Infrastructure (CloudWatch Alarms -> Lambda remediation)
-
-variable "enable_self_healing" {
-  description = "Node self-healing is provided natively by node_repair_config (eks.tf); pod self-healing is provided natively by Kubernetes liveness/readiness probes (deployment.yaml)."
-  type        = bool
-  default     = true
+  default     = "ap-southeast-1"
 }
 
 # Multi-Cloud (same-cloud, cross-region) Disaster Recovery
 
 variable "enable_dr_backup" {
-  description = "Snapshots RDS and copies the snapshot to var.cloud_storage_replica_region for disaster recovery. Snapshot storage beyond the 20GB Free Tier allocation is billed (~$0.095/GB-month), so keep retention short via dr_snapshot_retention_days."
+  description = "Uses native RDS backup replication."
   type        = bool
   default     = true
 }
 
-variable "dr_backup_schedule_expression" {
-  description = "EventBridge schedule expression for the DR snapshot job."
-  type        = string
-  default     = "rate(1 day)"
-}
-
 variable "dr_snapshot_retention_days" {
-  description = "How many days to keep copied DR snapshots in the replica region before the cleanup step (run inside the same Lambda) deletes them."
+  description = "How many days to keep copied DR snapshots in the replica region before the cleanup step deletes them."
   type        = number
   default     = 7
 }

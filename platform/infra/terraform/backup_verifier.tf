@@ -41,6 +41,7 @@ resource "aws_lambda_function" "backup_verifier" {
   source_code_hash = data.archive_file.backup_verifier[0].output_base64sha256
   environment { variables = { METRIC_NAMESPACE = "DevopsApp/Backups" } }
   tags = local.common_tags
+  depends_on = [aws_cloudwatch_log_group.backup_verifier]
 }
 
 resource "aws_lambda_permission" "s3_invoke_backup_verifier" {
@@ -63,4 +64,11 @@ resource "aws_s3_bucket_notification" "backup_uploaded" {
     filter_suffix       = ".sql.gz"
   }
   depends_on = [aws_lambda_permission.s3_invoke_backup_verifier]
+}
+
+resource "aws_cloudwatch_log_group" "backup_verifier" {
+  count             = var.enable_cloud_storage ? 1 : 0
+  name              = "/aws/lambda/${var.app_name}-backup-verifier"
+  retention_in_days = 7
+  tags              = local.common_tags
 }

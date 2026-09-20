@@ -519,8 +519,24 @@ deploy_infra() {
 deploy_image() {
     print_subsection "Container Image Build & Push"
 
-    if [[ "$CONTAINER_RUNTIME" == "podman" ]]; then
+    [[ "${DEPLOY_TARGET:-}" == "prod" && "${DOCKER_IMAGE_TAG:-latest}" == "latest" ]] || return 0
 
+    local sha
+    sha="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
+    if [[ -z "$sha" ]]; then
+        print_warning "Not a git checkout, keeping image tag 'latest'"
+        return 0
+    fi
+    # Uncommitted app changes: make the tag unique so it never overwrites a commit's tag
+    if [[ -n "$(git -C "$PROJECT_ROOT" status --porcelain -- app)" ]]; then
+        sha="${sha}-$(date +%Y%m%d%H%M%S)"
+    fi
+
+    DOCKER_IMAGE_TAG="$sha"
+    export DOCKER_IMAGE_TAG
+    print_info "Image tag: ${DOCKER_IMAGE_TAG}"
+
+    if [[ "$CONTAINER_RUNTIME" == "podman" ]]; then
         bash "$PROJECT_ROOT/platform/deployment/docker/build_and_push_image_podman.sh"
     else
         bash "$PROJECT_ROOT/platform/deployment/docker/build_and_push_image.sh"
@@ -661,7 +677,7 @@ PROM_LINE=$(
     if [[ "$ENABLE_MONITORING" == true ]]; then
         echo "CMD:Prometheus port-forward:|kubectl port-forward svc/prometheus 9090:9090 -n ${PROMETHEUS_NAMESPACE:-monitoring}"
     else
-        echo "TEXT:Monitoring not deployed in this run"
+        echo "TEXT:Argo deploys Monitoring in this run"
     fi
 )
 

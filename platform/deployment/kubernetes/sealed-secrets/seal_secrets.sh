@@ -2,10 +2,10 @@
 
 # platform/deployment/kubernetes/sealed-secrets/seal_secrets.sh
 #
-# Generates SealedSecret manifests (safe to commit to git) for
-# devops-app-secrets and postgres-secrets, encrypted against the
-# cluster's Sealed Secrets controller public key.
-#
+# Generates a SealedSecret manifest (safe to commit to git) for
+# devops-app-secrets, encrypted against the cluster's Sealed Secrets
+# controller public key. Prod uses RDS, so there is no postgres-secrets here.
+
 # Values come from .env if set, otherwise random ones are generated —
 # same fallback behavior as deploy_kubernetes.sh's patch_overlay(), so
 # behavior is consistent between direct mode and GitOps mode.
@@ -119,53 +119,17 @@ EOF
     print_success "Wrote ${BASE_DIR}/devops-app-sealed-secret.yaml"
 }
 
-seal_postgres_secrets() {
-    print_step "Sealing postgres-secrets..."
-
-    local pg_user pg_password pg_db
-    pg_user="${DB_USERNAME:-devops}"
-    pg_password="${DB_PASSWORD:-$(_rand_b64 16)}"
-    pg_db="${DB_NAME:-devopsdb}"
-
-    local enc_pg_user enc_pg_password enc_pg_db
-    enc_pg_user=$(_seal_value     "postgres-secrets" "${NAMESPACE}" "POSTGRES_USER"     "${pg_user}")
-    enc_pg_password=$(_seal_value "postgres-secrets" "${NAMESPACE}" "POSTGRES_PASSWORD" "${pg_password}")
-    enc_pg_db=$(_seal_value       "postgres-secrets" "${NAMESPACE}" "POSTGRES_DB"       "${pg_db}")
-
-    cat > "${BASE_DIR}/postgres-sealed-secret.yaml" <<EOF
-apiVersion: bitnami.com/v1alpha1
-kind: SealedSecret
-metadata:
-  name: postgres-secrets
-  namespace: ${NAMESPACE}
-  labels:
-    app: postgres
-spec:
-  encryptedData:
-    POSTGRES_USER: ${enc_pg_user}
-    POSTGRES_PASSWORD: ${enc_pg_password}
-    POSTGRES_DB: ${enc_pg_db}
-  template:
-    metadata:
-      name: postgres-secrets
-      namespace: ${NAMESPACE}
-      labels:
-        app: postgres
-    type: Opaque
-EOF
-
-    print_success "Wrote ${BASE_DIR}/postgres-sealed-secret.yaml"
-}
-
 _fetch_cert_via_portforward() {
-    local local_port=8081 pf_pid
+    local local_port pf_pid ready=false
+    # Random high port: a fixed 8081 clashes with KIND_HTTP_PORT from .env
+    local_port=$(( 18000 + RANDOM % 2000 ))
+
     kubectl port-forward -n "${SEALED_SECRETS_NAMESPACE}" \
         "service/${SEALED_SECRETS_CONTROLLER_NAME}" \
         "${local_port}:8080" >/dev/null 2>&1 &
     pf_pid=$!
 
-    local ready=false
-    for _ in {1..10}; do
+    for _ in {1..15}; do
         if curl -sf "http://127.0.0.1:${local_port}/v1/cert.pem" >/dev/null 2>&1; then
             ready=true
             break
@@ -188,6 +152,7 @@ main() {
 
     require_cmd kubeseal
     require_cmd kubectl
+    require_cmd curl
 
     if ! kubectl cluster-info >/dev/null 2>&1; then
         print_error "No reachable Kubernetes cluster — check kubeconfig"
@@ -197,20 +162,18 @@ main() {
     load_env
 
     SEALED_SECRETS_CERT="$(mktemp)"
+    trap 'rm -f "${SEALED_SECRETS_CERT}"' EXIT
     if ! _fetch_cert_via_portforward > "${SEALED_SECRETS_CERT}"; then
         print_error "Failed to fetch sealed-secrets certificate via port-forward"
         exit 1
     fi
 
     seal_app_secrets
-    seal_postgres_secrets
 
     print_divider
-    print_success "SealedSecret manifests generated — these ARE safe to commit."
-    print_info "Next steps:"
-    print_info "  1. Remove secrets.yaml and postgres-secret.yaml from base/kustomization.yaml"
-    print_info "  2. Add devops-app-sealed-secret.yaml and postgres-sealed-secret.yaml instead"
-    print_info "  3. git add/commit the two *-sealed-secret.yaml files"
+    print_success "SealedSecret manifest generated — safe to commit."
+    print_info "run.sh commits and pushes it for you (deploy_argo.sh, Step 4d)."
+    print_info "Manual: git add ${BASE_DIR}/devops-app-sealed-secret.yaml && git commit && git push"
 }
 
 main "$@"

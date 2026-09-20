@@ -180,5 +180,36 @@ resource "aws_s3_bucket_lifecycle_configuration" "files_primary" {
     filter {}
     noncurrent_version_expiration { noncurrent_days = 7 }
     abort_incomplete_multipart_upload { days_after_initiation = 1 }
+    expiration { expired_object_delete_marker = true }
+  }
+
+  rule {
+    id     = "expire-db-dumps"
+    status = "Enabled"
+    filter { prefix = "postgres/" }
+    expiration { days = 14 }
+  }
+}
+
+# Lifecycle actions are not replicated, so the replica needs its own rules.
+resource "aws_s3_bucket_lifecycle_configuration" "files_replica" {
+  count      = var.enable_cloud_storage ? 1 : 0
+  provider   = aws.replica
+  bucket     = aws_s3_bucket.files_replica[0].id
+  depends_on = [aws_s3_bucket_versioning.files_replica]
+
+  rule {
+    id     = "expire-replicated-dumps"
+    status = "Enabled"
+    filter { prefix = "postgres/" }
+    expiration { days = 14 }
+    noncurrent_version_expiration { noncurrent_days = 7 }
+  }
+
+  rule {
+    id     = "clean-delete-markers"
+    status = "Enabled"
+    filter {}
+    expiration { expired_object_delete_marker = true }
   }
 }
