@@ -388,29 +388,8 @@ sync_image_tag_to_overlay() {
     print_success "Prod image: ${user}/${APP_NAME}:${tag}"
 }
 
-_git_push() {
-    local branch="$1" askpass rc
-    if GIT_TERMINAL_PROMPT=0 git -C "$PROJECT_ROOT" push origin "HEAD:${branch}"; then
-        return 0
-    fi
-    [[ -n "${GITHUB_TOKEN:-}" && -n "${GITHUB_USERNAME:-}" ]] || return 1
-    print_step "Retrying push with GITHUB_TOKEN..."
-    askpass="$(mktemp)"
-    printf '#!/bin/sh\ncase "$1" in Username*) printf "%%s" "$GIT_PUSH_USER";; *) printf "%%s" "$GIT_PUSH_TOKEN";; esac\n' > "$askpass"
-    chmod 700 "$askpass"
-    if GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 \
-       GIT_PUSH_USER="$GITHUB_USERNAME" GIT_PUSH_TOKEN="$GITHUB_TOKEN" \
-       git -C "$PROJECT_ROOT" -c credential.helper= push origin "HEAD:${branch}"; then
-        rc=0
-    else
-        rc=1
-    fi
-    rm -f "$askpass"
-    return "$rc"
-}
-
 gitops_publish_changes() {
-    print_subsection "Publishing generated files to Git"
+    print_subsection "Git Status Check"
     local paths=(
         platform/deployment/kubernetes/overlays/prod
         platform/deployment/kubernetes/base
@@ -420,18 +399,10 @@ gitops_publish_changes() {
         print_success "Git already up to date"
         return 0
     fi
-    if [[ "${GITOPS_AUTO_PUSH:-true}" != "true" ]]; then
-        print_warning "GITOPS_AUTO_PUSH=false: Argo CD will deploy the OLD Git state until you commit and push"
-        return 0
-    fi
-    git -C "$PROJECT_ROOT" add -- "${paths[@]}"
-    git -C "$PROJECT_ROOT" commit -q -m "chore: sync prod config" -- "${paths[@]}"
-    if ! _git_push "${GIT_REPO_BRANCH}"; then
-        print_error "git push failed, so Argo CD would deploy stale config. Stopping."
-        print_info  "Fix Git access (or pull --rebase if the remote moved) and re-run"
-        exit 1
-    fi
-    print_success "Pushed to ${GIT_REPO_BRANCH}"
+    print_warning "Uncommitted changes detected — Argo CD will deploy the OLD Git state until you push"
+    print_info "git add ${paths[*]}"
+    print_info "git commit -m \"your message\""
+    print_info "git push origin ${GIT_REPO_BRANCH}"
 }
 
 # GENERATE APPLICATION MANIFESTS
@@ -551,6 +522,9 @@ _wait_for_app() {
 wait_for_apps() {
     print_subsection "Final Health Check"
     assert_portforward_alive
+
+    print_step "Waiting for ingress-nginx before checking devops-app-prod (Ingress health depends on it)..."
+    _wait_for_app "ingress-nginx" 300
 
     local app prod_app="${APP_NAME}-${DEPLOY_TARGET}"
     local apps=("$prod_app" "${APP_NAME}-monitoring" "${APP_NAME}-loki" "${APP_NAME}-trivy")

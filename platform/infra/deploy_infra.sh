@@ -110,28 +110,31 @@ pre_destroy_cleanup() {
     local name="$1" vpc left="" i
     print_subsection "Pre-destroy cleanup"
     [[ -n "$name" ]] || return 0
-    aws eks describe-cluster --name "$name" --region "$AWS_REGION" >/dev/null 2>&1 || {
-        print_info "Cluster ${name} not found, nothing to clean"; return 0; }
 
-    aws eks update-kubeconfig --region "$AWS_REGION" --name "$name" >/dev/null
     vpc="$(terraform output -raw vpc_id 2>/dev/null || echo "")"
 
-    # Argo CD: cascade-delete everything it manages (including ingress-nginx and its NLB)
-    bash "${PROJECT_ROOT}/platform/cicd/argo/deploy_argo.sh" teardown || true
+    if aws eks describe-cluster --name "$name" --region "$AWS_REGION" >/dev/null 2>&1; then
+        aws eks update-kubeconfig --region "$AWS_REGION" --name "$name" >/dev/null
 
-    # Fallback if teardown bailed early: Argo's selfHeal would recreate anything deleted below
-    kubectl delete applications.argoproj.io --all -n "${ARGOCD_NAMESPACE:-argocd}" --timeout=300s || true
+        # Argo CD: cascade-delete everything it manages (including ingress-nginx and its NLB)
+        bash "${PROJECT_ROOT}/platform/cicd/argo/deploy_argo.sh" teardown || true
 
-    # Any remaining LoadBalancer Services
-    kubectl get svc -A -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
-        | while IFS=' ' read -r ns n; do
-            [[ -n "$ns" ]] && kubectl delete svc "$n" -n "$ns" --timeout=180s || true
-        done
+        # Fallback if teardown bailed early: Argo's selfHeal would recreate anything deleted below
+        kubectl delete applications.argoproj.io --all -n "${ARGOCD_NAMESPACE:-argocd}" --timeout=300s || true
 
-    # PVCs, so the EBS CSI driver deletes the volumes
-    kubectl delete pvc -A --all --timeout=300s || true
+        # Any remaining LoadBalancer Services
+        kubectl get svc -A -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
+            | while IFS=' ' read -r ns n; do
+                [[ -n "$ns" ]] && kubectl delete svc "$n" -n "$ns" --timeout=180s || true
+            done
 
-    # Wait until AWS has actually removed the load balancers
+        # PVCs, so the EBS CSI driver deletes the volumes
+        kubectl delete pvc -A --all --timeout=300s || true
+    else
+        print_info "Cluster ${name} not found via EKS API — continuing with direct AWS cleanup"
+    fi
+
+    # Wait until AWS has actually removed the load balancers Kubernetes created
     if [[ -n "$vpc" ]]; then
         print_step "Waiting for AWS to remove load balancers in ${vpc}..."
         for i in {1..30}; do
@@ -140,8 +143,54 @@ pre_destroy_cleanup() {
             [[ "$left" == "0" ]] && break
             sleep 10
         done
-        [[ "$left" == "0" ]] || print_warning "Load balancers still present in ${vpc}: VPC deletion may fail"
+
+        # Force-delete anything still left — don't just warn
+        if [[ "$left" != "0" ]]; then
+            print_warning "Load balancers still present in ${vpc} — force-deleting"
+            for arn in $(aws elbv2 describe-load-balancers --region "$AWS_REGION" \
+                --query "LoadBalancers[?VpcId=='${vpc}'].LoadBalancerArn" --output text 2>/dev/null); do
+                aws elbv2 delete-load-balancer --region "$AWS_REGION" --load-balancer-arn "$arn" || true
+            done
+            for i in {1..15}; do
+                left="$(aws elbv2 describe-load-balancers --region "$AWS_REGION" \
+                    --query "length(LoadBalancers[?VpcId=='${vpc}'])" --output text 2>/dev/null || echo 0)"
+                [[ "$left" == "0" ]] && break
+                sleep 10
+            done
+        fi
+
+        # Force-delete any classic ELBs too (ingress-nginx pre-NLB defaults, older charts)
+        for clb in $(aws elb describe-load-balancers --region "$AWS_REGION" \
+            --query "LoadBalancerDescriptions[?VPCId=='${vpc}'].LoadBalancerName" --output text 2>/dev/null); do
+            print_warning "Deleting classic ELB: ${clb}"
+            aws elb delete-load-balancer --region "$AWS_REGION" --load-balancer-name "$clb" || true
+        done
+
+        # Orphaned EBS volumes left by the EBS CSI driver if PVC deletion didn't finish in time
+        for vol in $(aws ec2 describe-volumes --region "$AWS_REGION" \
+            --filters "Name=tag:kubernetes.io/cluster/${name},Values=owned" "Name=status,Values=available" \
+            --query "Volumes[].VolumeId" --output text 2>/dev/null); do
+            print_warning "Deleting orphaned EBS volume: ${vol}"
+            aws ec2 delete-volume --region "$AWS_REGION" --volume-id "$vol" || true
+        done
+
+        # Orphaned Elastic IPs (NAT gateway EIPs sometimes survive if release lags)
+        for alloc in $(aws ec2 describe-addresses --region "$AWS_REGION" \
+            --filters "Name=tag:kubernetes.io/cluster/${name},Values=owned" \
+            --query "Addresses[].AllocationId" --output text 2>/dev/null); do
+            print_warning "Releasing orphaned Elastic IP: ${alloc}"
+            aws ec2 release-address --region "$AWS_REGION" --allocation-id "$alloc" || true
+        done
     fi
+
+    # Belt-and-suspenders: any RDS instance matching this app's naming convention,
+    # in case Terraform state ever drifts from reality.
+    for dbid in $(aws rds describe-db-instances --region "$AWS_REGION" \
+        --query "DBInstances[?starts_with(DBInstanceIdentifier, '${APP_NAME:-devops-app}')].DBInstanceIdentifier" \
+        --output text 2>/dev/null); do
+        print_warning "Found RDS instance matching app name outside expected teardown: ${dbid}"
+        print_info "Leaving this to 'terraform destroy' itself — not force-deleting a database automatically"
+    done
 }
 
 forget_cluster() {

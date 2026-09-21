@@ -12,12 +12,15 @@ A clear log line always states which backend ended up active — check
 """
 import logging
 import os
+import time
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import config
+
+from .circuit_breaker import CircuitOpenError, CircuitState, db_circuit_breaker
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -41,22 +44,41 @@ def _build_postgres_url() -> str | None:
     )
 
 
-def _try_postgres_engine():
+def _try_postgres_engine(retries: int = 5, base_delay: float = 2.0):
+    """Attempt to connect to Postgres with exponential backoff.
+
+    RDS can take longer than a single short timeout to accept connections
+    (cold start, post-failover, brief network blips), so a single 3s
+    attempt was too eager to give up. This retries before conceding.
+    """
     url = _build_postgres_url()
     if not url:
         return None
 
-    try:
-        engine = create_engine(url, pool_pre_ping=True, connect_args={"connect_timeout": 3})
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        return engine
-    except Exception as exc:  # noqa: BLE001 — any failure means "not available"
-        logger.warning(
-            "Postgres unreachable at %s:%s/%s (%s) — falling back to SQLite",
-            config.DB_HOST, config.DB_PORT, config.DB_NAME, exc,
-        )
-        return None
+    last_exc = None
+    for attempt in range(1, retries + 1):
+        try:
+            engine = create_engine(url, pool_pre_ping=True, connect_args={"connect_timeout": 5})
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            if attempt > 1:
+                logger.info("Postgres became reachable on attempt %d/%d", attempt, retries)
+            return engine
+        except Exception as exc:  # noqa: BLE001 — any failure means "not yet available"
+            last_exc = exc
+            if attempt < retries:
+                delay = base_delay * (2 ** (attempt - 1))
+                logger.warning(
+                    "Postgres unreachable at %s:%s/%s (attempt %d/%d): %s — retrying in %.1fs",
+                    config.DB_HOST, config.DB_PORT, config.DB_NAME, attempt, retries, exc, delay,
+                )
+                time.sleep(delay)
+
+    logger.error(
+        "Postgres unreachable at %s:%s/%s after %d attempts: %s",
+        config.DB_HOST, config.DB_PORT, config.DB_NAME, retries, last_exc,
+    )
+    return None
 
 
 def _build_engine():
@@ -64,6 +86,13 @@ def _build_engine():
     if pg_engine is not None:
         logger.info("Database backend: Postgres (%s:%s/%s)", config.DB_HOST, config.DB_PORT, config.DB_NAME)
         return pg_engine
+
+    if config.APP_ENV == "production":
+        raise RuntimeError(
+            f"Postgres unreachable at {config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME} "
+            "in production — refusing to silently fall back to SQLite. "
+            "Check RDS status, security groups, and credentials."
+        )
 
     dirname = os.path.dirname(config.DB_SQLITE_PATH)
     if dirname:
@@ -97,12 +126,20 @@ def init_db() -> None:
 
 @contextmanager
 def get_session():
+    if db_circuit_breaker.state == CircuitState.OPEN:
+        raise CircuitOpenError(
+            "Database circuit breaker is open — refusing new session"
+        )
+
     session: Session = SessionLocal()
     try:
         yield session
         session.commit()
     except Exception:
         session.rollback()
+        db_circuit_breaker._record_failure()
         raise
+    else:
+        db_circuit_breaker._record_success()
     finally:
         session.close()

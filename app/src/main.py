@@ -3,11 +3,6 @@
 Run with: uvicorn src.main:app --host 0.0.0.0 --port $APP_PORT
 (this is exactly what the Dockerfile's CMD does).
 
-Structure kept intentionally small:
-  config.py    — env-driven settings (unchanged contract with the platform)
-  database.py  — SQLite engine/session (swap for Postgres later if needed)
-  models.py    — Project, ContactMessage
-  static/app.js — the entire frontend (HTML/CSS generated client-side)
 """
 import logging
 import os
@@ -34,6 +29,8 @@ from .database import get_session, init_db
 from .metrics import PrometheusMiddleware, metrics_response
 from .middleware import RequestContextLogMiddleware
 from .models import ContactMessage, Project, User
+
+from .circuit_breaker import CircuitOpenError
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -97,15 +94,13 @@ def health():
 @app.get("/ready")
 @app.get("/api/v1/ready")
 def ready(session: DBSession):
-    """Readiness probe — deep-checks the database connection so
-    Kubernetes stops routing traffic here if the DB is unreachable."""
     checks = {}
     overall_ok = True
 
     try:
         session.execute(text("SELECT 1"))
         checks["database"] = "ok"
-    except Exception as exc:  # noqa: BLE001 — any failure means "not ready"
+    except Exception as exc:
         checks["database"] = "unreachable"
         overall_ok = False
         logger.warning("Readiness DB check failed: %s", exc)
@@ -248,3 +243,11 @@ def submit_contact(
     )
 
     return {"status": "received", "id": entry.id}
+
+
+@app.exception_handler(CircuitOpenError)
+async def circuit_open_handler(request, exc):
+    return JSONResponse(
+        status_code=503,
+        content={"status": "unavailable", "detail": str(exc)},
+    )
