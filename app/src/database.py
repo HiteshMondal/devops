@@ -16,12 +16,11 @@ import time
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.exc import InterfaceError, OperationalError
-
-from .config import config
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .circuit_breaker import CircuitOpenError, CircuitState, db_circuit_breaker
+from .config import config
 
 logger = logging.getLogger("uvicorn.error")
 
