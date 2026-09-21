@@ -15,8 +15,8 @@ module "eks" {
   cluster_name    = local.cluster_name
   cluster_version = var.kubernetes_version
 
-  vpc_id      = module.vpc.vpc_id
-  enable_irsa = true
+  vpc_id                          = module.vpc.vpc_id
+  enable_irsa                     = true
   subnet_ids                      = var.enable_nat_gateway ? module.vpc.private_subnets : module.vpc.public_subnets
   cluster_endpoint_public_access  = true
   cluster_endpoint_private_access = true
@@ -57,7 +57,7 @@ module "eks" {
 
   access_entries = {
     for k, arn in { console = var.console_principal_arn } : k => {
-      principal_arn = arn
+      principal_arn         = arn
       policy_associations = {
         admin = {
           policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
@@ -72,7 +72,7 @@ module "eks" {
   # without any extra IAM wiring.
   enable_cluster_creator_admin_permissions = true
 
-  tags = local.common_tags
+  tags                                   = local.common_tags
   cloudwatch_log_group_retention_in_days = 7
 }
 

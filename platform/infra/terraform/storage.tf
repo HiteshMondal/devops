@@ -11,9 +11,9 @@
 # Primary bucket (var.aws_region)
 
 resource "aws_s3_bucket" "files_primary" {
-  count  = var.enable_cloud_storage ? 1 : 0
-  bucket = "${var.app_name}-files-${var.aws_region}"
-  tags   = local.common_tags
+  count         = var.enable_cloud_storage ? 1 : 0
+  bucket        = "${var.app_name}-files-${var.aws_region}"
+  tags          = local.common_tags
   force_destroy = var.force_destroy_storage
 }
 
@@ -57,10 +57,10 @@ provider "aws" {
 }
 
 resource "aws_s3_bucket" "files_replica" {
-  count    = var.enable_cloud_storage ? 1 : 0
-  provider = aws.replica
-  bucket   = "${var.app_name}-files-${var.cloud_storage_replica_region}"
-  tags     = local.common_tags
+  count         = var.enable_cloud_storage ? 1 : 0
+  provider      = aws.replica
+  bucket        = "${var.app_name}-files-${var.cloud_storage_replica_region}"
+  tags          = local.common_tags
   force_destroy = var.force_destroy_storage
 }
 

@@ -1,93 +1,167 @@
 <div align="center">
 
-```text
-            ██████╗ ███████╗██╗   ██╗ ██████╗ ██████╗ ███████╗
-            ██╔══██╗██╔════╝██║   ██║██╔═══██╗██╔══██╗██╔════╝
-            ██║  ██║█████╗  ██║   ██║██║   ██║██████╔╝███████╗
-            ██║  ██║██╔══╝  ╚██╗ ██╔╝██║   ██║██╔═══╝ ╚════██║
-            ██████╔╝███████╗ ╚████╔╝ ╚██████╔╝██║     ███████║
-            ╚═════╝ ╚══════╝  ╚═══╝   ╚═════╝ ╚═╝     ╚══════╝
-```
-
 # ☁️ Multi-Cloud Application & Infrastructure Platform
 
-### 🚀 Production-Grade DevOps · Kubernetes · GitOps · Observability · Cloud
+### 🚀 Production-ready DevOps · Kubernetes · GitOps · Observability · Cloud
 
-<p>
-  <img src="https://img.shields.io/badge/Kubernetes-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white" alt="Kubernetes"/>
+</p>
+  <img src="https://img.shields.io/badge/Bash-121011?style=for-the-badge&logo=gnubash&logoColor=white" alt="Bash"/>
+  <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
   <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"/>
+  <img src="https://img.shields.io/badge/Kubernetes-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white" alt="Kubernetes"/>
   <img src="https://img.shields.io/badge/Jenkins-D24939?style=for-the-badge&logo=jenkins&logoColor=white" alt="Jenkins"/>
   <img src="https://img.shields.io/badge/ArgoCD-EF7B4D?style=for-the-badge&logo=argo&logoColor=white" alt="ArgoCD"/>
-  <img src="https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white" alt="Prometheus"/>
-  <img src="https://img.shields.io/badge/Grafana-F46800?style=for-the-badge&logo=grafana&logoColor=white" alt="Grafana"/>
-  <img src="https://img.shields.io/badge/Loki-F2CC0C?style=for-the-badge&logo=grafana&logoColor=black" alt="Loki"/>
-</p>
+<p>
 
 <p>
   <img src="https://img.shields.io/badge/AWS-FF9900?style=for-the-badge&logo=amazonaws&logoColor=white" alt="AWS"/>
   <img src="https://img.shields.io/badge/Azure-0078D4?style=for-the-badge&logo=microsoftazure&logoColor=white" alt="Azure"/>
   <img src="https://img.shields.io/badge/Terraform-844FBA?style=for-the-badge&logo=terraform&logoColor=white" alt="Terraform"/>
   <img src="https://img.shields.io/badge/Pulumi-8A3391?style=for-the-badge&logo=pulumi&logoColor=white" alt="Pulumi"/>
+</p>
+
+<p>
+  <img src="https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white" alt="Prometheus"/>
+  <img src="https://img.shields.io/badge/Grafana-F46800?style=for-the-badge&logo=grafana&logoColor=white" alt="Grafana"/>
+  <img src="https://img.shields.io/badge/Loki-F2CC0C?style=for-the-badge&logo=grafana&logoColor=black" alt="Loki"/>
   <img src="https://img.shields.io/badge/Trivy-1904DA?style=for-the-badge&logo=aqua&logoColor=white" alt="Trivy"/>
 </p>
 
 </div>
 
-<br>
+<div align="center">
 
-> **One command. Any environment. Any cloud.**
-> Deploy the application, infrastructure, Kubernetes workloads,
-> observability stack, logging, and security tooling through a unified workflow.
+> **A hands-on end-to-end platform that takes an application from code → container → Kubernetes → cloud infrastructure → GitOps delivery → observability → security → Disaster recovery → Backup**
 
-<br>
-
-```bash
-./run.sh
-```
-
-### ⚡ Quick Start
-
-```bash
-git clone https://github.com/HiteshMondal/devops.git
-cd devops
-
-cp .env.example .env
-nano .env          # fill in required values
-
-chmod +x run.sh
-./run.sh
-```
-`.env` is the single source of truth for ports, variables, and secrets. `run.sh` is the single authority for local/production mode — no other script decides the environment on its own.
-
-<br>
-
-### 🧩 Platform Capabilities
-
-| Layer                  | Technology                           | What it does                                                                                                                                                                                                |
-| :--------------------- | :----------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 🚀 **Application**     | **FastAPI · Python · Uvicorn**       | Runs the Python web application and API services with asynchronous request handling, application configuration, authentication, database integration, health endpoints, and application metrics.            |
-| 📦 **Containers**      | **Docker · Podman**                  | Packages the application and supporting services into reproducible OCI containers, then builds, tags, and pushes images for local or Kubernetes deployment.                                                 |
-| ☸️ **Orchestration**   | **Kubernetes · Kustomize**           | Runs the application as Kubernetes workloads and manages Deployments, Services, HPA, PVCs, Ingress, PostgreSQL, secrets, network policies, and environment-specific overlays without duplicating manifests. |
-| 🔄 **CI/CD & GitOps**  | **GitHub Actions**                   | Runs multi-job CI pipelines on every Git push to automate application tests, container builds, security checks, infrastructure validation, and Kubernetes manifest validation.                              |
-|                        | **GitLab CI**                        | Provides a staged CI workflow for automated testing, image/container workflows, security validation, infrastructure operations, and deployment-related checks.                                              |
-|                        | **Argo CD**                          | Implements GitOps-based continuous delivery by continuously reconciling Kubernetes resources with the desired state stored in Git and deploying changes to the cluster.                                     |
-|                        | **Jenkins**                          | Runs multi-stage CI/CD pipelines for end-to-end validation, infrastructure workflows, container operations, and main-branch release/deployment checks.                                                      |
-| 🏗️ **Infrastructure** | **Terraform · Pulumi**             | Defines cloud infrastructure as code so networking, Kubernetes clusters, databases, storage, and related resources can be provisioned, changed, and reproduced declaratively.                               |
-|                        | **Pulumi · Python**                  | Defines infrastructure and cloud automation using Python, including self-healing workflows, disaster-recovery automation, monitoring-driven actions, storage, and serverless functions.                     |
-| 📊 **Observability**   | **Prometheus**                       | Collects and stores time-series metrics from Kubernetes and application components, enabling health monitoring, capacity analysis, and alerting.                                                            |
-|                        | **Grafana**                          | Visualizes infrastructure, Kubernetes, application, and security data through dashboards, with 25+ monitoring panels and 10+ configured alerts.                                                             |
-|                        | **Loki**                             | Aggregates Kubernetes/application logs into a centralized log store so logs can be queried and correlated with operational events and metrics.                                                              |
-| 🛡️ **Security**       | **Trivy**                            | Scans container images for known vulnerabilities and integrates security checks into CI/CD; the project includes scanning and monitoring workflows for 20+ images.                                          |
-| ☁️ **Cloud**           | **AWS · Azure** | Provides the cloud platforms targeted by the infrastructure layer for Kubernetes, databases, storage, networking, disaster recovery, and automated cloud operations.                                        |
-  
-
-<br>
-
-**🎯 Develop → 📦 Containerize → ☸️ Deploy → 🔄 GitOps → 📊 Observe → 🛡️ Secure**
+</div>
 
 ---
 
-## Architecture
+## 🌐 What This Project Is
+
+This project is a **complete DevOps and cloud engineering platform built around a real FastAPI application**.
+
+Instead of demonstrating isolated tools, it connects them into one operational workflow:
+
+```text
+👨‍💻 Code
+   ↓
+🐍 FastAPI Application
+   ↓
+🐳 Containerize
+   ↓
+🧪 CI / Security Validation
+   ↓
+☸️ Kubernetes
+   ↓
+🔄 GitOps with Argo CD
+   ↓
+☁️ AWS / Azure Infrastructure
+   ↓
+📊 Metrics + Logs + Dashboards
+   ↓
+🛡️ Security + Alerts
+   ↓
+🔁 Backup + Disaster Recovery
+```
+
+The platform supports both **local Kubernetes environments** and **cloud deployments**, with infrastructure provisioned through **Terraform on AWS** and **Pulumi/Python on Azure**.
+
+---
+
+## 🎯 What It Does
+
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Technology</th>
+<th>What it does</th>
+</tr>
+</thead>
+
+<tbody>
+
+<tr>
+<td><strong>🚀 Application</strong></td>
+<td>
+<code>Python</code> · <code>FastAPI</code> · <code>Uvicorn</code><br>
+<code>SQLAlchemy</code>
+</td>
+<td>
+<strong>API & Runtime</strong><br>
+JWT/Bcrypt authentication · PostgreSQL / SQLite integration · Health & readiness endpoints · Prometheus metrics · Request-ID logging · Contact webhook
+</td>
+</tr>
+
+<tr>
+<td><strong>📦 Containers / Orchestration</strong></td>
+<td>
+<code>Docker</code> · <code>Podman</code><br>
+<code>Kubernetes</code> · <code>Kustomize</code>
+<code> Helm </code>
+</td>
+<td>
+<strong>Build & Deploy</strong><br>
+OCI image build/tagging for DockerHub or local runtime · Deployments · Services · Ingress · HPA · PVC-backed PostgreSQL StatefulSet · NetworkPolicy · PDB · Sealed Secrets · Kubernetes Event-driven Autoscaling
+</td>
+</tr>
+
+<tr>
+<td><strong>🔄 CI/CD & GitOps</strong></td>
+<td>
+<code>GitHub Actions</code> · <code>GitLab CI</code><br>
+<code>Jenkins</code> · <code>Argo CD</code>
+</td>
+<td>
+<strong>GitHub Actions</strong> — ShellCheck · YAML lint · Ruff · Python compile · Pytest · Docker build · Trivy HIGH/CRITICAL gate · Kustomize/Kubeconform · Terraform validation · Pulumi Python compile<br><br>
+
+<strong>GitLab CI</strong> — Environment hygiene · ShellCheck · YAML/Terraform/K8s validation · Ruff/Black/isort/Hadolint · Pytest + coverage with ephemeral PostgreSQL · pip-audit · Bandit · Gitleaks · Trivy FS · Docker build + image scan<br><br>
+
+<strong>Jenkins</strong> — Toolchain checks · Tests · DockerHub build/push · Trivy image scan · Direct local <code>kubectl</code> deployment or production GitOps handoff · Separate AWS/Azure infrastructure <code>plan/apply/destroy</code> pipeline with destructive-action confirmation<br><br>
+
+<strong>Argo CD</strong> — Git repository registration · Application generation/application · Sync waves: App → Monitoring → Loki → Trivy · Auto-sync · Prune · Self-heal · Retry · Health checks
+
+</td>
+</tr>
+
+<tr>
+<td><strong>🏗️ Infrastructure / Cloud</strong></td>
+<td>
+<code>Terraform</code> · AWS<br>
+<code>Pulumi</code> · Python · Azure
+</td>
+<td>
+<strong>☁️ AWS</strong> — Multi-AZ VPC · Public/private subnets · NAT · DNS · EKS managed nodes · CoreDNS/kube-proxy/VPC-CNI/metrics-server · Node Repair · IRSA/EBS CSI · Private RDS PostgreSQL · KMS/encryption · Backups · Versioned private S3 · Cross-region replication · Lifecycle policies · Lambda backup verification · CloudWatch metrics/alarms · SNS notifications · RDS cross-region backup replication<br><br>
+
+<strong>☁️ Azure</strong> — Resource Group · VNet · AKS/PostgreSQL subnets · Private DNS · AKS Kubenet/RBAC/VMSS/autoscaling · PostgreSQL Flexible Server · Private networking · 7-day + geo-redundant backups · GRS storage/private Blob · Azure Monitor Action Groups · Self-healing Functions for AKS node reconciliation/PostgreSQL restart · Scheduled DR backup checkpoints replicated through GRS
+
+</td>
+</tr>
+
+<tr>
+<td><strong>📊 Observability / Security</strong></td>
+<td>
+<code>Prometheus</code> · <code>Grafana</code><br>
+<code>Promtail</code> · <code>Loki</code> · <code>Trivy</code>
+</td>
+<td>
+<strong>Metrics</strong> — Application + Kubernetes metrics · Alert rules · Grafana dashboards<br><br>
+<strong>Logs</strong> — Promtail ships Kubernetes/application logs to Loki for centralized querying<br><br>
+<strong>Security</strong> — Trivy CI image scanning + scheduled cluster scans · JSON reports exposed through Prometheus exporter
+</td>
+</tr>
+
+</tbody>
+</table>
+
+<br>
+
+
+---
+
+
+## 👷‍♀️ Architecture
 
 ```
                               ┌──────────────────────┐
@@ -106,7 +180,7 @@ chmod +x run.sh
                     ┌────────────────────┴────────────────────┐
                     │                                         │
             DEPLOY_TARGET=local                     DEPLOY_TARGET=prod
-        (Minikube/Kind/K3s/MicroK8s)                 (EKS/GKE/AKS/OKE)
+        (Minikube/Kind/K3s/MicroK8s)                      (EKS/AKS)
                     │                                         │
           configure_environment()                  configure_environment()
           DEPLOY_MODE=direct                        DEPLOY_MODE=gitops
@@ -160,70 +234,41 @@ chmod +x run.sh
                           credentials, kubectl commands
 ```
 
+
 ---
 
-## Prerequisites
 
-Before deploying the platform, ensure the required tools and credentials are available for your target environment.
+## 🧰 Prerequisites
 
-### 🧰 Required for All Deployments
+| Target                     | Requirements                                                             |
+| :------------------------- | :----------------------------------------------------------------------- |
+| 🖥️ **All**                | `Linux` · `Bash` · `Git` · `kubectl` · `Docker / Podman`                 |
+| ☸️ **Local K8s**           | Choose one: `Minikube` · `Kind` · `K3s` · `MicroK8s` + running cluster   |
+| ☁️ **AWS**                 | `AWS CLI` · `Terraform` · AWS credentials · `EKS + RDS` permissions      |
+| ☁️ **Azure**               | `Azure CLI` · `Pulumi` · Azure auth · `AKS + PostgreSQL` permissions     |
+| 🔄 **Production / GitOps** | Git repo access · Container registry · Registry credentials · Cloud auth |
+| 🐳 **Docker**              | Non-`sudo` access: `sudo usermod -aG docker $USER` → `newgrp docker`     |
+| ✅ **Verify**               | `./scripts/install.sh` — checks required tools                           |
 
-* **Linux** — supported host operating system
-* **Bash** — required to run the deployment scripts
-* **Git** — required to clone and manage the repository
-* **kubectl** — Kubernetes command-line interface
-* **Docker or Podman** — container runtime
-
-### 🖥️ Local Kubernetes
-
-Choose one supported local Kubernetes distribution:
-
-* **Minikube**
-* **Kind**
-* **K3s**
-* **MicroK8s**
-
-A running Kubernetes cluster is required before starting a local deployment.
-
-### ☁️ AWS
-
-For AWS deployments:
-
-* **AWS CLI**
-* **Terraform**
-* Configured **AWS credentials**
-* Appropriate AWS permissions to provision **EKS and RDS**
-
-### ☁️ Azure
-
-For Azure deployments:
-
-* **Azure CLI**
-* **Pulumi**
-* Configured **Azure authentication**
-* Appropriate Azure permissions to provision **AKS and PostgreSQL**
+> ⚠️ Review infrastructure plans before `apply`; cloud deployments require valid credentials and permissions.
 
 
-### 🔄 Production / GitOps
+---
 
-Production deployments additionally require:
-
-* Access to the configured **Git repository**
-* Access to the configured **container registry**
-* Valid **registry credentials**
-* Cloud provider authentication for the selected infrastructure
-
-> **Note:** Cloud deployments require provider-specific credentials and permissions. Review the generated infrastructure plan before applying changes.
-
-
-### 🐳 Docker Permissions
-
-If using Docker, configure your user to run Docker without `sudo`:
+### ⚡ Quick Start
 
 ```bash
-sudo usermod -aG docker $USER
-newgrp docker
+git clone https://github.com/HiteshMondal/devops.git
+cd devops
+
+cp .env.example .env
+nano .env          # fill in required values
+
+# Automate infrastructure lifecycle, runtime detection, debugging, inspection, Kubernetes deployment and observability stack, logging
+chmod +x run.sh
+./run.sh
 ```
+`.env` is the single source of truth for ports, variables, and secrets. `run.sh` is the single authority for local/production mode — no other script decides the environment on its own.
 
 ---
 
@@ -239,7 +284,7 @@ run.sh
  ├─ 5. Confirm and run
 ```
 
-### Local — Direct Deployment
+### Local Environments — Direct Deployment
 
 Applies manifests straight to your cluster with `kubectl`.
 
@@ -248,25 +293,6 @@ Applies manifests straight to your cluster with `kubectl`.
 - Deploy Prometheus + Grafana
 - Deploy Loki + Promtail
 - Deploy Trivy
-
-### Production — GitOps
-
-Provisions infra, then hands off to ArgoCD. Argo manages the app, monitoring, logging, and security from Git.
-
-- Provision infrastructure (Terraform / Pulumi)
-- Build & push image
-- Deploy ArgoCD
-- ArgoCD syncs everything else from the main repo
-
-### Jenkins CICD (Optional Docker-based Jenkins)
-
-Full GitOps end-to-end CI/CD and main-branch validation
-
----
-
-## Environments
-
-### Local Clusters
 
 | Distribution | Ingress | Service Type |
 |---|---|---|
@@ -277,12 +303,26 @@ Full GitOps end-to-end CI/CD and main-branch validation
 
 ### Production Clouds
 
+Provisions infra, then hands off to ArgoCD. Argo manages the app, monitoring, logging, and security from Git.
+
+- Provision infrastructure (Terraform / Pulumi)
+- Build & push image
+- Deploy ArgoCD
+- ArgoCD syncs everything else from the main repo
+
 | Provider | IaC | Cluster | Database |
 |---|---|---|---|
 | AWS | Terraform | EKS | RDS PostgreSQL |
 | Azure | Pulumi | AKS | PostgreSQL Flexible Server |
 
+### Jenkins CICD (Optional Docker-based Jenkins)
+
+Full GitOps end-to-end CI/CD and main-branch validation
+
+
 ---
+
+
 
 ## Project Structure
 
@@ -298,81 +338,36 @@ Full GitOps end-to-end CI/CD and main-branch validation
 │   ├── Dockerfile
 │   ├── pyproject.toml
 │   ├── requirements.txt
-│   ├── src
-│   │   ├── auth.py
-│   │   ├── config.py
-│   │   ├── database.py
-│   │   ├── main.py
-│   │   ├── metrics.py
-│   │   ├── middleware.py
-│   │   ├── models.py
+│   ├── src                     # main.py, auth.py, config.py, middleware.py, 
+|   |   |                         circuit_breaker.py, database.py, metrics.py, models.py
 │   │   └── static
 │   │       └── app.js
 │   └── tests
 |
 ├── monitoring
 │   ├── deploy_monitoring.sh    # Monitoring orchestrator
+|   |
 │   ├── dashboards              # json dashboards
+|   |
 │   ├── grafana
-│   │   ├── grafana.yaml
-│   │   └── loki-dashboard-configmap.yaml
 |   |
 │   ├── loki
 │   │   ├── base
-│   │   │   ├── kustomization.yaml
-│   │   │   └── loki-deployment.yaml
 │   │   ├── deploy_loki.sh
 │   │   └── overlays
 │   │       ├── local
-│   │       │   ├── kustomization.yaml
-│   │       │   ├── loki-resources-patch.yaml
-│   │       │   └── loki-storage-patch.yaml
 │   │       └── prod
-│   │           ├── kustomization.yaml
-│   │           ├── loki-resources-patch.yaml
-│   │           ├── loki-retention-patch.yaml
-│   │           └── loki-storage-patch.yaml
 |   |
-│   ├── prometheus
-│   │   ├── agents.yaml
-│   │   ├── alerts.yaml
-│   │   ├── prometheus.yaml
-│   │   └── prometheus.yml.tpl
+│   ├── prometheus              # agents, alerts, prometheus
 |   |
 │   └── trivy
-│       ├── deployment.yaml
-│       ├── Dockerfile
-│       ├── trivy-exporter.py
-│       ├── trivy-runner
-│       │   ├── Dockerfile
-│       │   └── scan.sh
-│       ├── trivy-scan.yaml
-│       └── trivy.sh
 |
 |
 ├── platform
-│   ├── cicd
+│   ├── cicd                    # Argo CD, Jenkins
 │   │   ├── argo
-│   │   │   ├── app_template.yaml
-│   │   │   ├── deploy_argo.sh
-│   │   │   └── generated
-│   │   │       └── apps.yaml
 │   │   ├── github
 │   │   └── jenkins
-│   │       ├── casc
-│   │       │   └── jenkins.yaml
-│   │       ├── docker
-│   │       │   ├── docker-compose.k8s-network.yml
-│   │       │   ├── docker-compose.yml
-│   │       │   ├── Dockerfile
-│   │       │   └── plugins.txt
-│   │       ├── pipelines
-│   │       │   ├── Jenkinsfile
-│   │       │   └── Jenkinsfile.infra
-│   │       └── scripts
-│   │           ├── configure_jenkins.sh
-│   │           ├── deploy_jenkins.sh
-│   │           └── reset_jenkins.sh
 |   |
 |   |
 │   ├── deployment
@@ -385,62 +380,18 @@ Full GitOps end-to-end CI/CD and main-branch validation
 │   │   └── kubernetes
 │   │       ├── deploy_kubernetes.sh   # Kubernetes orchestrator
 │   │       ├── base
-│   │       │   ├── app-data-pvc.yaml
-│   │       │   ├── configmap.yaml
-│   │       │   ├── deployment.yaml
-│   │       │   ├── devops-app-sealed-secret.yaml
-│   │       │   ├── hpa.yaml
-│   │       │   ├── ingress.yaml
-│   │       │   ├── kustomization.yaml
-│   │       │   ├── namespace.yaml
-│   │       │   ├── postgres-sealed-secret.yaml
-│   │       │   ├── postgres-secret.yaml
-│   │       │   ├── postgres-statefulset.yaml
-│   │       │   ├── secrets.yaml
-│   │       │   └── service.yaml
 │   │       ├── overlays
 │   │       │   ├── local
 │   │       │   └── prod
 │   │       └── sealed-secrets
-│   │           ├── install_sealed_secrets.sh
-│   │           └── seal_secrets.sh
 |   |
 |   |
 │   ├── infra
 │   │   ├── deploy_infra.sh     # Infrastructure orchestrator
 |   |   |
 │   │   ├── Pulumi
-│   │   │   ├── dr.py
-│   │   │   ├── env_loader.py
-│   │   │   ├── function_packaging.py
-│   │   │   ├── functions
-│   │   │   │   ├── dr_backup
-│   │   │   │   ├── host.json
-│   │   │   │   └── self_healing
-│   │   │   ├── __main__.py
-│   │   │   ├── monitoring_alerts.py
-│   │   │   ├── pulumi.prod.yaml
-│   │   │   ├── Pulumi.yaml
-│   │   │   ├── requirements.txt
-│   │   │   ├── self_healing.py
-│   │   │   ├── storage.py
 |   |   |
 │   │   └── terraform
-│   │       ├── dr.tf
-│   │       ├── eks.tf
-│   │       ├── lambda
-│   │       │   ├── dr_snapshot_copy.py
-│   │       │   └── self_healing.py
-│   │       ├── main.tf
-│   │       ├── outputs.tf
-│   │       ├── provider.tf
-│   │       ├── rds.tf
-│   │       ├── self_healing.tf
-│   │       ├── storage.tf
-│   │       ├── terraform.tfstate
-│   │       ├── tfplan
-│   │       ├── variables.tf
-│   │       └── vpc.tf
 |   |
 │   └── lib
 |

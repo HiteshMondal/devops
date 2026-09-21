@@ -9,7 +9,7 @@ resource "aws_iam_role" "backup_verifier" {
   count = var.enable_cloud_storage ? 1 : 0
   name  = "${var.app_name}-backup-verifier"
   assume_role_policy = jsonencode({
-    Version = "2012-10-17"
+    Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Principal = { Service = "lambda.amazonaws.com" }, Action = "sts:AssumeRole" }]
   })
   tags = local.common_tags
@@ -25,7 +25,7 @@ resource "aws_iam_role_policy" "backup_verifier" {
       { Effect = "Allow", Action = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"], Resource = "arn:aws:logs:*:*:*" },
       { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${aws_s3_bucket.files_primary[0].arn}/postgres/*" },
       { Effect = "Allow", Action = ["cloudwatch:PutMetricData"], Resource = "*",
-        Condition = { StringEquals = { "cloudwatch:namespace" = "DevopsApp/Backups" } } }
+      Condition = { StringEquals = { "cloudwatch:namespace" = "DevopsApp/Backups" } } }
     ]
   })
 }
@@ -40,7 +40,7 @@ resource "aws_lambda_function" "backup_verifier" {
   filename         = data.archive_file.backup_verifier[0].output_path
   source_code_hash = data.archive_file.backup_verifier[0].output_base64sha256
   environment { variables = { METRIC_NAMESPACE = "DevopsApp/Backups" } }
-  tags = local.common_tags
+  tags       = local.common_tags
   depends_on = [aws_cloudwatch_log_group.backup_verifier]
 }
 
