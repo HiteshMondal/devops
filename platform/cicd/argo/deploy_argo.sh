@@ -388,21 +388,78 @@ sync_image_tag_to_overlay() {
     print_success "Prod image: ${user}/${APP_NAME}:${tag}"
 }
 
-gitops_publish_changes() {
-    print_subsection "Git Status Check"
-    local paths=(
-        platform/deployment/kubernetes/overlays/prod
-        platform/deployment/kubernetes/base
-        monitoring
-    )
-    if [[ -z "$(git -C "$PROJECT_ROOT" status --porcelain -- "${paths[@]}")" ]]; then
-        print_success "Git already up to date"
-        return 0
+_fetch_remote_branch() {
+    local url
+    url="$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null || true)"
+
+    if [[ "$url" == https://* && -n "${GITHUB_TOKEN:-}" ]]; then
+        GITOPS_GIT_USER="${GITHUB_USERNAME:-git}" \
+        GITOPS_GIT_TOKEN="$GITHUB_TOKEN" \
+        GIT_TERMINAL_PROMPT=0 \
+            git -C "$PROJECT_ROOT" \
+                -c credential.helper= \
+                -c 'credential.helper=!f() { printf "username=%s\npassword=%s\n" "$GITOPS_GIT_USER" "$GITOPS_GIT_TOKEN"; }; f' \
+                fetch --quiet origin "$GIT_REPO_BRANCH"
+    else
+        GIT_TERMINAL_PROMPT=0 \
+            git -C "$PROJECT_ROOT" fetch --quiet origin "$GIT_REPO_BRANCH"
     fi
-    print_warning "Uncommitted changes detected — Argo CD will deploy the OLD Git state until you push"
-    print_info "git add ${paths[*]}"
-    print_info "git commit -m \"your message\""
-    print_info "git push origin ${GIT_REPO_BRANCH}"
+}
+
+gitops_publish_changes() {
+    print_subsection "Verifying GitHub matches the generated GitOps files"
+
+    git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+        print_error "${PROJECT_ROOT} is not a Git checkout; Argo CD can only deploy what is in Git"
+        exit 1
+    }
+
+    local p
+    local -a paths=()
+    for p in platform/deployment/kubernetes/overlays/prod \
+             platform/deployment/kubernetes/base \
+             monitoring; do
+        [[ -e "${PROJECT_ROOT}/${p}" ]] && paths+=("$p")
+    done
+
+    local changed f
+    while true; do
+        if ! _fetch_remote_branch; then
+            print_error "Could not fetch origin/${GIT_REPO_BRANCH} to compare against"
+            print_info  "Check network access and, for private HTTPS repos, GITHUB_TOKEN in .env"
+            exit 1
+        fi
+
+        # Working tree vs. what is on GitHub (covers uncommitted, committed-but-unpushed and new files)
+        changed="$(
+            {
+                git -C "$PROJECT_ROOT" diff --name-only FETCH_HEAD -- "${paths[@]}"
+                git -C "$PROJECT_ROOT" ls-files --others --exclude-standard -- "${paths[@]}"
+            } | sort -u
+        )"
+
+        if [[ -z "$changed" ]]; then
+            print_success "origin/${GIT_REPO_BRANCH} matches the local GitOps files. Argo CD will deploy them"
+            return 0
+        fi
+
+        print_warning "These files differ from origin/${GIT_REPO_BRANCH}; Argo CD would deploy the OLD versions:"
+        while IFS= read -r f; do
+            print_info "  ${f}"
+        done <<< "$changed"
+        print_info "Review them, then commit and push when you are happy:"
+        print_info "  git add ${paths[*]}"
+        print_info "  git commit -m \"chore: sync prod gitops files\""
+        print_info "  git push origin ${GIT_REPO_BRANCH}"
+
+        if [[ "${CI:-false}" == "true" ]] || ! { : </dev/tty; } 2>/dev/null; then
+            print_error "Non-interactive run: push the files above, then re-run"
+            exit 1
+        fi
+
+        printf "  Press Enter after pushing to re-check (Ctrl+C to abort): "
+        read -r _ </dev/tty
+    done
 }
 
 # GENERATE APPLICATION MANIFESTS

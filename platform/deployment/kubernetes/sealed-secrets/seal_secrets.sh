@@ -172,8 +172,7 @@ main() {
 
     print_divider
     print_success "SealedSecret manifest generated — safe to commit."
-    print_info "run.sh commits and pushes it for you (deploy_argo.sh, Step 4d)."
-    print_info "Manual: git add ${BASE_DIR}/devops-app-sealed-secret.yaml && git commit && git push"
+    print_info "Commit and push it yourself. deploy_argo.sh (Step 4d) waits until origin/${GIT_REPO_BRANCH:-main} matches before creating the Argo CD Applications."
 }
 
 main "$@"

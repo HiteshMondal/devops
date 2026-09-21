@@ -17,6 +17,7 @@ from contextlib import contextmanager
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.exc import InterfaceError, OperationalError
 
 from .config import config
 
@@ -135,9 +136,13 @@ def get_session():
     try:
         yield session
         session.commit()
-    except Exception:
+    except (OperationalError, InterfaceError):
+        # Connectivity failures only: this is what the breaker protects against.
         session.rollback()
         db_circuit_breaker._record_failure()
+        raise
+    except Exception:
+        session.rollback()
         raise
     else:
         db_circuit_breaker._record_success()
