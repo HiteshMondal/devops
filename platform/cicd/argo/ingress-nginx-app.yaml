@@ -22,6 +22,8 @@ spec:
       releaseName: ingress-nginx
       values: |
         controller:
+          admissionWebhooks:
+            enabled: false
           ingressClassResource:
             name: nginx
             default: true

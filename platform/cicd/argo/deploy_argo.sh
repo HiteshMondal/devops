@@ -217,6 +217,11 @@ argocd_login() {
     else
         admin_pass=$(kubectl -n "$ARGOCD_NAMESPACE" get secret argocd-initial-admin-secret \
             -o jsonpath="{.data.password}" 2>/dev/null | base64 -d 2>/dev/null || echo "")
+        if [[ -z "$admin_pass" ]]; then
+            print_error "Could not retrieve ArgoCD initial admin password"
+            print_info "Set ARGOCD_ADMIN_PASSWORD in your .env file"
+            exit 1
+        fi
         echo ""
         print_access_box "ARGO CD DEFAULT ADMIN CREDENTIALS" ">" \
             "CRED:Username:admin" \
@@ -224,11 +229,6 @@ argocd_login() {
             "SEP:" \
             "TEXT:Password retrieved from: argocd-initial-admin-secret" \
             "NOTE:Change this password after your first login"
-        if [[ -z "$admin_pass" ]]; then
-            print_error "Could not retrieve ArgoCD initial admin password"
-            print_info "Set ARGOCD_ADMIN_PASSWORD in your .env file"
-            exit 1
-        fi
     fi
 
     ARGOCD_SERVER=$(kubectl get svc argocd-server -n "$ARGOCD_NAMESPACE" \
@@ -307,7 +307,7 @@ sync_backup_config_from_terraform() {
         exit 1
     fi
 
-    local role_arn bucket_name
+    local role_arn bucket_name db_host
     role_arn=$(terraform -chdir="${tf_dir}" output -raw postgres_backup_role_arn 2>&1) || {
         print_error "Failed to read postgres_backup_role_arn: ${role_arn}"
         print_info "Run: terraform -chdir=\"${tf_dir}\" apply"
@@ -352,23 +352,9 @@ data:
 EOF
 
     print_success "Wrote ${patch_file}"
-
-    if git -C "${PROJECT_ROOT}" diff --quiet -- "${patch_file}" 2>/dev/null && \
-       git -C "${PROJECT_ROOT}" ls-files --error-unmatch "${patch_file}" >/dev/null 2>&1; then
-        print_info "backup-config-patch.yaml unchanged — nothing to commit"
-        return 0
-    fi
-
-    print_warning "backup-config-patch.yaml is new or changed and must be committed for ArgoCD to see it"
-    print_warning "Backup configuration changed in the working tree."
-    print_info "ArgoCD deploys from Git, so commit and push this file manually:"
-    print_info "  git add ${patch_file}"
-    print_info "  git commit -m \"chore: sync backup config from terraform outputs\""
-    print_info "  git push origin ${GIT_REPO_BRANCH}"
+    print_info "Step 4d verifies this file is on origin/${GIT_REPO_BRANCH} before Argo CD is started"
 }
 
-# Point the prod overlay at the image that was just pushed.
-# gitops_publish_changes commits overlays/prod, so Argo CD sees the change.
 sync_image_tag_to_overlay() {
     local kfile="${PROJECT_ROOT}/platform/deployment/kubernetes/overlays/prod/kustomization.yaml"
     local user="${DOCKERHUB_USERNAME:-}" tag="${DOCKER_IMAGE_TAG:-latest}" tmp
@@ -555,6 +541,33 @@ apply_argocd_apps() {
     print_success "ArgoCD Applications applied to cluster"
 }
 
+diagnose_app() {
+    local app="$1" ns pod
+    ns="$(kubectl get application "$app" -n "$ARGOCD_NAMESPACE" \
+        -o jsonpath='{.spec.destination.namespace}' 2>/dev/null || true)"
+
+    print_subsection "Diagnostics: ${app}"
+
+    print_info "Operation state:"
+    kubectl get application "$app" -n "$ARGOCD_NAMESPACE" -o jsonpath='{.status.operationState.phase}{": "}{.status.operationState.message}{"\n"}{range .status.operationState.syncResult.resources[?(@.hookType)]}{"  hook "}{.kind}{"/"}{.name}{": "}{.hookPhase}{" "}{.message}{"\n"}{end}{range .status.conditions[*]}{"  condition "}{.type}{": "}{.message}{"\n"}{end}' 2>&1 || true
+
+    [[ -n "$ns" ]] || return 0
+    kubectl get ns "$ns" >/dev/null 2>&1 || { print_info "Namespace ${ns} does not exist yet"; return 0; }
+
+    print_info "Pods in ${ns}:"
+    kubectl get pods -n "$ns" -o wide 2>&1 || true
+
+    while IFS= read -r pod; do
+        [[ -n "$pod" ]] || continue
+        print_info "Pod ${pod} (not Running):"
+        kubectl get pod "$pod" -n "$ns" -o jsonpath='{range .status.conditions[?(@.type=="PodScheduled")]}{"  scheduled="}{.status}{" "}{.reason}{": "}{.message}{"\n"}{end}{range .status.containerStatuses[*]}{"  "}{.name}{": waiting="}{.state.waiting.reason}{" terminated="}{.state.terminated.reason}{" exit="}{.state.terminated.exitCode}{" restarts="}{.restartCount}{"\n"}{end}' 2>&1 || true
+        kubectl logs "$pod" -n "$ns" --all-containers --tail=20 2>&1 | sed 's/^/    /' || true
+    done < <(kubectl get pods -n "$ns" --field-selector=status.phase!=Running -o name 2>/dev/null | sed 's|^pod/||')
+
+    print_info "Recent Warning events in ${ns}:"
+    kubectl get events -n "$ns" --field-selector type=Warning --sort-by=.lastTimestamp 2>&1 | tail -n 15 || true
+}
+
 # SYNC APPLICATIONS — sequential with wait between each app.
 _wait_for_app() {
     local app="$1"
@@ -572,7 +585,10 @@ _wait_for_app() {
         --sync \
         --health \
         --timeout "$timeout" \
-        || print_warning "Timeout or issue waiting for ${app} — ArgoCD will continue to self-heal"
+        || {
+            print_warning "Timeout or issue waiting for ${app} — ArgoCD will continue to self-heal"
+            diagnose_app "$app"
+        }
 }
 
 # blocks on each app, so this becomes a lightweight final health check.

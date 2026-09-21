@@ -520,20 +520,20 @@ deploy_infra() {
 deploy_image() {
     print_subsection "Container Image Build & Push"
 
-    [[ "${DEPLOY_TARGET:-}" == "prod" && "${DOCKER_IMAGE_TAG:-latest}" == "latest" ]] || return 0
+    DOCKER_IMAGE_TAG="${DOCKER_IMAGE_TAG:-latest}"
 
-    local sha
-    sha="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
-    if [[ -z "$sha" ]]; then
-        print_warning "Not a git checkout, keeping image tag 'latest'"
-        return 0
+    if [[ "${DEPLOY_TARGET:-}" == "prod" && "$DOCKER_IMAGE_TAG" == "latest" ]]; then
+        local sha
+        sha="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
+        if [[ -z "$sha" ]]; then
+            print_warning "Not a git checkout, keeping image tag 'latest'"
+        else
+            if [[ -n "$(git -C "$PROJECT_ROOT" status --porcelain -- app)" ]]; then
+                sha="${sha}-$(date +%Y%m%d%H%M%S)"
+            fi
+            DOCKER_IMAGE_TAG="$sha"
+        fi
     fi
-    # Uncommitted app changes: make the tag unique so it never overwrites a commit's tag
-    if [[ -n "$(git -C "$PROJECT_ROOT" status --porcelain -- app)" ]]; then
-        sha="${sha}-$(date +%Y%m%d%H%M%S)"
-    fi
-
-    DOCKER_IMAGE_TAG="$sha"
     export DOCKER_IMAGE_TAG
     print_info "Image tag: ${DOCKER_IMAGE_TAG}"
 
