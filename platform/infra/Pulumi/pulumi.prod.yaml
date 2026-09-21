@@ -1,9 +1,10 @@
 config:
-  azure-native:location: eastus
+  azure-native:location: centralindia
   # Everything below is optional — if omitted, values fall back to .env,
   # then to the built-in defaults in __main__.py. Uncomment to pin a value
   # for this stack specifically without touching .env or the code.
-  # devops-platform-azure:AZURE_LOCATION: eastus
+  # devops-platform-azure:AZURE_LOCATION: centralindia
+  # devops-platform-azure:AZURE_DR_LOCATION: southeastasia
   # devops-platform-azure:AZURE_AKS_VM_SIZE: Standard_B2s
   # devops-platform-azure:AZURE_AKS_NODE_COUNT: "1"
   # devops-platform-azure:AZURE_POSTGRES_SKU: Standard_B1ms

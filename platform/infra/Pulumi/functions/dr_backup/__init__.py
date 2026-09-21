@@ -71,7 +71,7 @@ def main(mytimer: func.TimerRequest) -> None:
     )
     container_client = blob_service.get_container_client(STORAGE_CONTAINER_NAME)
 
-    blob_name = f"dr-checkpoints/{checkpoint['checked_at_utc']}.json"
+    blob_name = "dr-checkpoints/latest.json"
     container_client.upload_blob(name=blob_name, data=json.dumps(checkpoint), overwrite=True)
 
     logging.info("DR checkpoint recorded: %s", json.dumps(checkpoint))

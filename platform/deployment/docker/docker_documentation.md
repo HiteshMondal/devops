@@ -332,6 +332,82 @@ Dockerfile → docker build → Image → docker push → Registry
 
 ## Dockerfile Deep Dive
 
+### Dockerfile Example
+
+```dockerfile
+ARG PYTHON_VERSION=3.12
+ARG DEBIAN_VERSION=bookworm
+
+FROM node:22-bookworm AS frontend-build
+
+WORKDIR /src
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+
+FROM python:${PYTHON_VERSION}-slim-${DEBIAN_VERSION} AS runtime
+
+LABEL org.opencontainers.image.title="myapp" \
+      org.opencontainers.image.description="Example Docker image template" \
+      org.opencontainers.image.version="1.0.0" \
+      org.opencontainers.image.source="https://example.com/myapp"
+
+ARG APP_PORT=8080
+ARG APP_VERSION=dev
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    APP_ENV=production \
+    APP_VERSION=${APP_VERSION} \
+    PORT=${APP_PORT}
+
+WORKDIR /app
+
+# Install Python dependencies
+COPY requirements.txt ./
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Frontend build output
+COPY --from=frontend-build /src/dist ./static
+
+# Application source
+COPY . .
+
+# Run as an unprivileged user
+RUN groupadd --gid 10001 appuser \
+    && useradd \
+        --uid 10001 \
+        --gid 10001 \
+        --create-home \
+        --shell /usr/sbin/nologin \
+        appuser \
+    && chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 8080
+
+VOLUME ["/app/data"]
+
+HEALTHCHECK \
+    --interval=30s \
+    --timeout=5s \
+    --start-period=10s \
+    --retries=3 \
+    CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\", \"8080\")}/health', timeout=3)" || exit 1
+
+ENTRYPOINT ["python", "-m", "app"]
+
+CMD ["--host", "0.0.0.0", "--port", "8080"]
+
+STOPSIGNAL SIGTERM
+```
+
 ### The Project's Dockerfile
 
 ```dockerfile
@@ -1164,6 +1240,204 @@ In Kubernetes (production), the container filesystem is ephemeral by default in 
 ---
 
 ## Docker Compose
+
+### Example
+
+```yaml
+x-common-env: &common-env
+  APP_ENV: ${APP_ENV:-development}
+  TZ: ${TZ:-UTC}
+
+x-common-logging: &common-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.12}
+        APP_PORT: ${APP_PORT:-8080}
+      cache_from:
+        - type=local,src=.docker-cache
+      cache_to:
+        - type=local,dest=.docker-cache,mode=max
+
+    image: example/app:local
+
+    environment:
+      <<: *common-env
+      PORT: ${APP_PORT:-8080}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+    env_file:
+      - path: .env
+        required: false
+
+    ports:
+      - "${APP_PORT:-8080}:8080"
+
+    volumes:
+      # Development source mount.
+      # This intentionally hides the image's /app contents.
+      - .:/app
+      - app-data:/app/data
+
+    working_dir: /app
+
+    init: true
+
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    restart: unless-stopped
+
+    networks:
+      - backend
+      - frontend
+
+    logging: *common-logging
+
+    stop_grace_period: 20s
+
+  db:
+    image: postgres:17
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-app}"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    restart: unless-stopped
+
+    networks:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+
+    volumes:
+      - redis-data:/data
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+    restart: unless-stopped
+
+    networks:
+      - backend
+
+  nginx:
+    image: nginx:alpine
+
+    profiles:
+      - proxy
+
+    depends_on:
+      app:
+        condition: service_healthy
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+
+    networks:
+      - frontend
+      - backend
+
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.12}
+        APP_PORT: ${APP_PORT:-8080}
+
+    image: example/app:local
+
+    # Replaces the Dockerfile ENTRYPOINT.
+    entrypoint: ["python", "-m", "app.migrate"]
+
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-app}
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    networks:
+      - backend
+
+    profiles:
+      - tools
+
+networks:
+  frontend:
+    driver: bridge
+
+  backend:
+    driver: bridge
+
+volumes:
+  app-data:
+
+  postgres-data:
+    driver: local
+
+  redis-data:
+    driver: local
+```
 
 ### The Project's Compose File
 

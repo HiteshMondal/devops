@@ -1121,24 +1121,405 @@ The AWS path provisions a VPC across multiple AZs, an EKS cluster with managed n
 
 ---
 
-## kubectl Quick Reference
+## kubectl Commands Reference
+
+### Cluster and Context
 
 ```bash
-kubectl get pods -n devops-app -o wide          # list with node/IP
-kubectl describe pod <pod>                       # events + config detail
-kubectl logs <pod> -c <container> --previous     # logs from last crash
-kubectl exec -it <pod> -- sh                     # shell into a container
-kubectl port-forward svc/devops-app-service 8080:80
-kubectl rollout status deployment/devops-app
-kubectl rollout undo deployment/devops-app
-kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
-kubectl cordon <node>                            # mark unschedulable, no eviction
-kubectl top pods / kubectl top nodes             # requires metrics-server
-kubectl get events --sort-by='.lastTimestamp' -n devops-app  # recent cluster events
-kubectl debug -it <pod> --image=busybox --target=<container> # attach ephemeral debug container
+kubectl cluster-info                                  # cluster API and core service information
+kubectl version --short                               # client/server version information
+kubectl get nodes                                     # list cluster nodes
+kubectl get nodes -o wide                             # nodes with IP/runtime details
+kubectl describe node <node>                          # detailed node information
+kubectl get namespaces                                # list namespaces
+kubectl get ns                                        # short form
+kubectl get all -n devops-app                         # common namespaced resources
+kubectl api-resources                                 # list resource types supported by the cluster
+kubectl api-versions                                  # list available API versions
+```
+
+### Context and kubeconfig
+
+```bash
+kubectl config get-contexts                            # list kubeconfig contexts
+kubectl config current-context                         # show current context
+kubectl config use-context <context-name>             # switch cluster/context
+kubectl config view                                   # display kubeconfig
+kubectl config get-clusters                            # list configured clusters
+kubectl config get-users                               # list configured users
+```
+
+### Pods
+
+```bash
+kubectl get pods                                      # list Pods
+kubectl get pods -n devops-app -o wide               # Pods with node/IP
+kubectl get pods -A                                  # Pods in all namespaces
+kubectl get pods -w                                  # watch Pod changes
+kubectl get pods -l app=devops-app                   # filter by label
+kubectl get pod <pod> -o yaml                        # full Pod manifest
+kubectl describe pod <pod>                           # events + configuration
+kubectl logs <pod>                                   # current container logs
+kubectl logs <pod> --previous                        # logs from previous crashed container
+kubectl logs <pod> -c <container>                    # logs from a specific container
+kubectl logs -f <pod>                                # follow logs
+kubectl logs -f <pod> -c <container>                # follow specific container
+kubectl exec -it <pod> -- sh                         # shell into a container
+kubectl exec -it <pod> -c <container> -- sh          # shell into a specific container
+kubectl cp <pod>:/path/file ./file                   # copy file from Pod
+kubectl cp ./file <pod>:/path/file                   # copy file into Pod
+kubectl port-forward pod/<pod> 8080:8000            # forward local port to Pod
+kubectl delete pod <pod>                             # delete a Pod
 kubectl get pods --field-selector=status.phase=Running
-kubectl api-resources                            # list all resource types
-kubectl explain deployment.spec.strategy          # inline field docs
+kubectl debug -it <pod> --image=busybox --target=<container>
+```
+
+### Deployments
+
+```bash
+kubectl get deployments                              # list Deployments
+kubectl get deploy                                  # short form
+kubectl get deploy -n devops-app                    # Deployments in namespace
+kubectl describe deployment <deployment>            # detailed Deployment information
+kubectl get deployment <deployment> -o yaml        # show manifest
+kubectl create deployment my-app --image=nginx      # create Deployment imperatively
+kubectl scale deployment/<deployment> --replicas=3  # change replica count
+kubectl set image deployment/<deployment> \
+  <container>=<image>:<tag>                         # update container image
+kubectl rollout status deployment/<deployment>      # watch rollout
+kubectl rollout history deployment/<deployment>     # show rollout revisions
+kubectl rollout undo deployment/<deployment>        # rollback
+kubectl rollout undo deployment/<deployment> --to-revision=2
+kubectl rollout pause deployment/<deployment>       # pause rollout
+kubectl rollout resume deployment/<deployment>      # resume rollout
+kubectl rollout restart deployment/<deployment>     # restart Pods
+```
+
+### ReplicaSets
+
+```bash
+kubectl get replicasets                              # list ReplicaSets
+kubectl get rs                                      # short form
+kubectl describe rs <replicaset>                    # detailed information
+kubectl get rs -o wide                              # show Pods and other details
+kubectl delete rs <replicaset>                      # delete ReplicaSet
+kubectl edit rs <replicaset>                        # edit live ReplicaSet
+```
+
+### StatefulSets, DaemonSets and Jobs
+
+```bash
+kubectl get statefulsets                             # list StatefulSets
+kubectl get sts                                     # short form
+kubectl describe statefulset <statefulset>
+
+kubectl get daemonsets                              # list DaemonSets
+kubectl get ds                                     # short form
+kubectl describe daemonset <daemonset>
+
+kubectl get jobs                                    # list Jobs
+kubectl get job <job>                              # inspect a Job
+kubectl describe job <job>                         # detailed Job information
+kubectl delete job <job>                           # delete a Job
+
+kubectl get cronjobs                                # list CronJobs
+kubectl get cj                                     # short form
+kubectl describe cronjob <cronjob>                 # detailed CronJob information
+kubectl create job <job> --from=cronjob/<cronjob>  # run a CronJob manually
+```
+
+### Services and Networking
+
+```bash
+kubectl get services                                 # list Services
+kubectl get svc                                     # short form
+kubectl get svc -n devops-app                       # Services in namespace
+kubectl describe service <service>                  # Service details
+kubectl get endpoints                               # legacy Endpoint resources
+kubectl get endpointslices                          # EndpointSlice resources
+kubectl describe endpointslice <name>
+
+kubectl port-forward svc/<service> 8080:80          # forward local port to Service
+kubectl expose deployment <deployment> --port=80    # create a Service for a Deployment
+
+kubectl get ingress                                  # list Ingress resources
+kubectl get ing                                     # short form
+kubectl describe ingress <ingress>                  # Ingress details
+
+kubectl get networkpolicy                            # list NetworkPolicies
+kubectl get netpol                                   # short form
+kubectl describe networkpolicy <policy>             # inspect NetworkPolicy
+```
+
+### ConfigMaps and Secrets
+
+```bash
+kubectl get configmaps                               # list ConfigMaps
+kubectl get cm                                      # short form
+kubectl describe configmap <configmap>              # inspect ConfigMap
+kubectl get configmap <configmap> -o yaml           # show ConfigMap contents
+
+kubectl get secrets                                  # list Secrets
+kubectl get secret <secret> -o yaml                 # show Secret manifest
+kubectl describe secret <secret>                    # inspect Secret metadata
+kubectl create secret generic <name> \
+  --from-literal=KEY=value                          # create generic Secret
+kubectl create secret tls <name> \
+  --cert=cert.pem --key=key.pem                     # create TLS Secret
+```
+
+To decode a Secret value:
+
+```bash
+kubectl get secret <secret> \
+  -o jsonpath='{.data.KEY}' | base64 --decode
+```
+
+### Namespaces
+
+```bash
+kubectl get namespaces                              # list Namespaces
+kubectl get ns                                     # short form
+kubectl describe namespace <namespace>             # namespace details
+kubectl create namespace <namespace>              # create Namespace
+kubectl delete namespace <namespace>              # delete Namespace
+kubectl config set-context --current --namespace=<namespace>
+```
+
+### Storage
+
+```bash
+kubectl get persistentvolumes                         # list PVs
+kubectl get pv                                       # short form
+kubectl describe pv <pv>                             # PV details
+
+kubectl get persistentvolumeclaims                    # list PVCs
+kubectl get pvc                                      # short form
+kubectl describe pvc <pvc>                           # PVC details
+
+kubectl get storageclasses                            # list StorageClasses
+kubectl get sc                                      # short form
+kubectl describe storageclass <storageclass>         # StorageClass details
+```
+
+### Create, Apply and Delete Resources
+
+```bash
+kubectl create -f redis.yaml                         # create from YAML
+kubectl apply -f deployment.yaml                     # create/update from YAML
+kubectl apply -f ./kubernetes/                       # apply a directory
+kubectl apply -k overlays/local                      # apply Kustomize overlay
+kubectl diff -f deployment.yaml                      # preview changes
+kubectl delete -f deployment.yaml                    # delete resources defined in YAML
+kubectl delete pod <pod>                             # delete a Pod
+kubectl delete deployment <deployment>              # delete a Deployment
+kubectl delete service <service>                    # delete a Service
+```
+
+### Imperative Commands
+
+```bash
+kubectl run nginx --image=nginx                      # create a Pod
+kubectl run my-pod --image=nginx:alpine              # create Pod with specific image
+
+kubectl create deployment my-app --image=nginx       # create Deployment
+kubectl create namespace devops-app                  # create Namespace
+
+kubectl expose deployment my-app --port=80          # expose Deployment as Service
+```
+
+### Labels and Annotations
+
+```bash
+kubectl get pods -l app=devops-app                   # select by label
+kubectl label pod <pod> env=prod                     # add/change label
+kubectl label pod <pod> env-                         # remove label
+kubectl annotate pod <pod> description="test"        # add annotation
+kubectl annotate pod <pod> description-              # remove annotation
+```
+
+### Resource Usage and Capacity
+
+```bash
+kubectl top pods                                     # Pod CPU/memory usage
+kubectl top pods -n devops-app                       # namespace Pod usage
+kubectl top nodes                                    # Node CPU/memory usage
+
+kubectl describe node <node>                         # capacity + allocatable + requests/limits
+kubectl get resourcequota                            # list ResourceQuotas
+kubectl describe resourcequota <quota>              # quota usage
+kubectl get limitrange                              # list LimitRanges
+kubectl describe limitrange <limitrange>            # inspect limits
+```
+
+`kubectl top` requires the Metrics API, commonly provided by Metrics Server.
+
+### Events and Troubleshooting
+
+```bash
+kubectl get events                                   # cluster events
+kubectl get events --sort-by='.lastTimestamp'       # newest events
+kubectl get events -n devops-app --sort-by='.lastTimestamp'
+
+kubectl describe pod <pod>                           # Pod events and conditions
+kubectl describe node <node>                         # node events and conditions
+
+kubectl get pods --all-namespaces                    # find Pods across cluster
+kubectl get pods -o wide                             # identify which node hosts a Pod
+
+kubectl get pod <pod> -o jsonpath='{.status.phase}'
+kubectl get pod <pod> -o jsonpath='{.status.containerStatuses[*].state}'
+```
+
+### Scheduling and Node Maintenance
+
+```bash
+kubectl cordon <node>                                # mark Node unschedulable
+kubectl uncordon <node>                              # allow scheduling again
+kubectl drain <node> --ignore-daemonsets \
+  --delete-emptydir-data                             # safely evict workloads
+kubectl taint nodes <node> key=value:NoSchedule      # add taint
+kubectl taint nodes <node> key=value:NoSchedule-     # remove taint
+```
+
+### Health and Readiness
+
+```bash
+kubectl get pods                                     # check READY/STATUS
+kubectl describe pod <pod>                           # inspect probes and conditions
+kubectl get endpointslice                            # check whether Pods are registered
+kubectl get deployment <deployment>                 # check AVAILABLE/READY replicas
+kubectl rollout status deployment/<deployment>      # verify rollout
+```
+
+### RBAC and Security
+
+```bash
+kubectl auth can-i get pods                          # test current permissions
+kubectl auth can-i create deployments
+kubectl auth can-i get pods --as=system:serviceaccount:devops-app:devops-app-sa
+
+kubectl get serviceaccounts                          # list ServiceAccounts
+kubectl get roles                                    # namespace Roles
+kubectl get rolebindings                             # RoleBindings
+kubectl get clusterroles                             # ClusterRoles
+kubectl get clusterrolebindings                      # ClusterRoleBindings
+
+kubectl describe role <role>
+kubectl describe rolebinding <rolebinding>
+```
+
+### Inspect Resource Definitions
+
+```bash
+kubectl explain pod                                # explain Pod fields
+kubectl explain deployment.spec                    # Deployment spec
+kubectl explain deployment.spec.strategy           # rollout strategy
+kubectl explain service.spec.type                   # Service types
+kubectl explain pod.spec.containers                 # container specification
+```
+
+### Output and Formatting
+
+```bash
+kubectl get pods -o wide                           # human-readable extended output
+kubectl get pods -o yaml                           # YAML
+kubectl get pods -o json                           # JSON
+kubectl get pod <pod> -o name                      # resource name
+kubectl get pod <pod> -o jsonpath='{.metadata.name}'
+kubectl get pods --show-labels                      # include labels
+```
+
+### Useful Filtering
+
+```bash
+kubectl get pods -l app=devops-app                  # label selector
+kubectl get pods -l 'environment in (prod,staging)'
+kubectl get pods --field-selector=status.phase=Running
+kubectl get nodes --field-selector=status.conditions.ready=true
+```
+
+### Debugging Network Connectivity
+
+```bash
+kubectl exec -it <pod> -- sh
+kubectl exec -it <pod> -- curl http://<service>:80
+kubectl exec -it <pod> -- curl http://<service>.<namespace>.svc.cluster.local
+kubectl run net-debug --rm -it \
+  --image=busybox:1.36 --restart=Never -- sh
+```
+
+The temporary `net-debug` Pod is useful for DNS, Service, and network troubleshooting.
+
+### Common Daily Workflow
+
+```bash
+kubectl get nodes
+kubectl get namespaces
+kubectl get pods -A
+kubectl get deployments -A
+kubectl get services -A
+kubectl get events -A --sort-by='.lastTimestamp'
+
+kubectl describe pod <pod>
+kubectl logs <pod> --previous
+
+kubectl rollout status deployment/<deployment>
+kubectl rollout history deployment/<deployment>
+kubectl rollout undo deployment/<deployment>
+```
+
+For this project:
+
+```bash
+kubectl get pods -n devops-app -o wide
+kubectl get deployment -n devops-app
+kubectl get svc -n devops-app
+kubectl get pvc -n devops-app
+kubectl get events -n devops-app --sort-by='.lastTimestamp'
+
+kubectl describe pod <pod> -n devops-app
+kubectl logs <pod> -n devops-app
+kubectl rollout status deployment/devops-app -n devops-app
+```
+
+---
+
+## Kubernetes API Versions
+
+The `apiVersion` identifies the API group and version used by a Kubernetes resource. For the core resources below, `v1` is used without a named API group. Workload controllers such as Deployment, ReplicaSet, DaemonSet, and StatefulSet use `apps/v1`, while Job and CronJob use `batch/v1`.
+
+| **kind**    | **Usually use** |
+| ----------- | --------------- |
+| Pod         | `v1`            |
+| Service     | `v1`            |
+| ConfigMap   | `v1`            |
+| Secret      | `v1`            |
+| Deployment  | `apps/v1`       |
+| ReplicaSet  | `apps/v1`       |
+| DaemonSet   | `apps/v1`       |
+| StatefulSet | `apps/v1`       |
+| Job         | `batch/v1`      |
+| CronJob     | `batch/v1`      |
+
+Example:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-first-deployment
+spec:
+  replicas: 3
+```
+
+For the API version actually available on a particular cluster, use:
+
+```bash
+kubectl api-versions
+kubectl api-resources
+kubectl explain deployment
+kubectl explain deployment.spec
 ```
 
 ---

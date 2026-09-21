@@ -441,11 +441,58 @@ policy has an explicit `"Effect": "Deny"`, which always overrides any Allow.
 In AWS EKS, IAM Roles for Service Accounts (IRSA) enable Kubernetes pods to assume IAM roles securely using OpenID Connect (OIDC) without distributing AWS credentials directly to containers. IRSA lets you bind a specific IAM role to a specific Kubernetes **ServiceAccount**, rather than to an entire EC2 node. Mechanically, EKS exposes an **OIDC (OpenID Connect) provider**:
 
 ```hcl
-resource "aws_iam_openid_connect_provider" "eks" {
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint]
-  url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
+# eks.tf
+module "eks" {
+  source      = "terraform-aws-modules/eks/aws"
+  version     = "~> 20.31"
+  enable_irsa = true   # module creates the OIDC provider
 }
+
+# irsa.tf
+data "aws_iam_policy_document" "postgres_backup_assume" {
+  count = var.enable_cloud_storage ? 1 : 0
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    effect  = "Allow"
+    principals {
+      type        = "Federated"
+      identifiers = [module.eks.oidc_provider_arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "${module.eks.oidc_provider}:sub"
+      values   = ["system:serviceaccount:devops-app:postgres-backup-sa"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "${module.eks.oidc_provider}:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "postgres_backup" {
+  # ...
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:PutObject"]
+      Resource = "${aws_s3_bucket.files_primary[0].arn}/postgres/*"
+    }]
+  })
+}
+```
+
+```yaml
+# overlays/prod/backup-config-patch.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-backup-sa
+  namespace: devops-app
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::<ACCOUNT_ID>:role/devops-app-postgres-backup"
 ```
 
 When a pod using an annotated service account calls an AWS API, the AWS SDK exchanges a projected Kubernetes service-account JWT token for temporary STS credentials scoped to exactly that IAM role — via `sts:AssumeRoleWithWebIdentity`. This enables **pod-level least privilege**: the AWS Load Balancer Controller pod gets only ELB/EC2 describe-and-modify permissions, the Cluster Autoscaler pod gets only ASG scaling permissions, and neither can access the other's permissions — unlike the old model where every pod on a node inherited the node's full instance profile.
@@ -712,6 +759,31 @@ the same family are almost always a free performance upgrade at the same or lowe
 ### What is a resource tagging strategy, and why does it matter beyond Kubernetes discovery?
 
 Beyond the EKS-specific discovery tags covered later, a basic tagging convention — `Name`, `Environment` (dev/staging/prod), `Owner`, `CostCenter` — applied consistently across all resources enables cost allocation reports in Cost Explorer, easier resource search/filtering in the Console, and automated policies (e.g., "delete anything tagged `Environment=dev` older than 7 days").
+
+```hcl
+# main.tf
+locals {
+  common_tags = {
+    Project     = var.app_name
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
+}
+
+# provider.tf
+provider "aws" {
+  region = var.aws_region
+  default_tags { tags = local.common_tags }
+}
+
+# vpc.tf  (vpc_cidr = 10.20.0.0/16, az_count = 2)
+locals {
+  public_subnet_cidrs  = [for i in range(var.az_count) : cidrsubnet(var.vpc_cidr, 8, i)]
+  private_subnet_cidrs = [for i in range(var.az_count) : cidrsubnet(var.vpc_cidr, 8, i + 100)]
+}
+# public:  10.20.0.0/24, 10.20.1.0/24
+# private: 10.20.100.0/24, 10.20.101.0/24
+```
 
 ### What is an Auto Scaling Group (ASG), in plain terms?
 
@@ -1018,12 +1090,80 @@ This enables **envelope encryption of Kubernetes Secrets** at the etcd storage l
 ### Explain `depends_on` in the context of `aws_eks_cluster.main` and IAM policy attachments. Why can't Terraform infer this automatically?
 
 ```hcl
-resource "aws_eks_cluster" "main" {
-  role_arn = aws_iam_role.eks_cluster.arn
-  depends_on = [
-    aws_iam_role_policy_attachment.eks_cluster_policy,
-    aws_iam_role_policy_attachment.eks_vpc_resource_controller,
-  ]
+# backup_verifier.tf
+resource "aws_lambda_permission" "s3_invoke_backup_verifier" {
+  count          = var.enable_cloud_storage ? 1 : 0
+  statement_id   = "AllowS3Invoke"
+  action         = "lambda:InvokeFunction"
+  function_name  = aws_lambda_function.backup_verifier[0].function_name
+  principal      = "s3.amazonaws.com"
+  source_arn     = aws_s3_bucket.files_primary[0].arn
+  source_account = data.aws_caller_identity.current.account_id  # confused-deputy guard
+}
+
+resource "aws_s3_bucket_notification" "backup_uploaded" {
+  count  = var.enable_cloud_storage ? 1 : 0
+  bucket = aws_s3_bucket.files_primary[0].id
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.backup_verifier[0].arn
+    events              = ["s3:ObjectCreated:*"]
+    filter_prefix       = "postgres/"
+    filter_suffix       = ".sql.gz"
+  }
+  # S3 validates the permission when creating the notification,
+  # but nothing here references the permission resource:
+  depends_on = [aws_lambda_permission.s3_invoke_backup_verifier]
+}
+
+# eks.tf (trimmed)
+module "eks" {
+  source  = "terraform-aws-modules/eks/aws"
+  version = "~> 20.31"
+
+  cluster_name    = local.cluster_name
+  cluster_version = var.kubernetes_version
+  vpc_id          = module.vpc.vpc_id
+  enable_irsa     = true
+
+  subnet_ids = var.enable_nat_gateway ? module.vpc.private_subnets : module.vpc.public_subnets
+
+  cluster_endpoint_public_access  = true   # cluster_endpoint_public_access_cidrs not set -> open to 0.0.0.0/0
+  cluster_endpoint_private_access = true
+
+  cluster_enabled_log_types              = ["api", "authenticator"]  # no "audit"
+  cloudwatch_log_group_retention_in_days = 7
+
+  cluster_addons = {
+    coredns    = { most_recent = true }
+    kube-proxy = { most_recent = true }
+    vpc-cni = {
+      most_recent          = true
+      configuration_values = jsonencode({ enableNetworkPolicy = "true" })
+    }
+    metrics-server = { most_recent = true }
+  }
+
+  eks_managed_node_groups = {
+    default = {
+      instance_types = [var.node_instance_type]
+      capacity_type  = "ON_DEMAND"
+      min_size       = var.node_min_size
+      max_size       = var.node_max_size
+      desired_size   = var.node_desired_size
+      node_repair_config = { enabled = true }
+    }
+  }
+
+  access_entries = { /* console_principal_arn -> AmazonEKSClusterAdminPolicy */ }
+  enable_cluster_creator_admin_permissions = true
+}
+
+# EBS CSI is a separate add-on with its own IRSA role
+resource "aws_eks_addon" "ebs_csi" {
+  cluster_name             = module.eks.cluster_name
+  addon_name               = "aws-ebs-csi-driver"
+  service_account_role_arn = module.ebs_csi_irsa.iam_role_arn
+  depends_on               = [module.eks]
 }
 ```
 
@@ -1155,6 +1295,12 @@ Performance Insights is a database performance-tuning feature that visualizes da
 
 When an RDS instance is destroyed, `skip_final_snapshot = false` forces AWS to take one last named snapshot (`final_snapshot_identifier`) before deletion — a safety net against accidental data loss. In non-production environments, `skip_final_snapshot = true` is often used to allow instant, snapshot-free teardown (faster CI/CD cleanup, no leftover cost from unused snapshots). In production, it should always be `false` (or conditionally computed via `var.environment == "prod"`) so a `terraform destroy` mistake doesn't destroy the last months of data with no recovery path.
 
+```hcl
+# rds.tf
+skip_final_snapshot       = var.db_skip_final_snapshot   # default true (disposable)
+final_snapshot_identifier = var.db_skip_final_snapshot ? null : "${var.app_name}-db-final-${var.environment}"
+deletion_protection       = var.db_deletion_protection   # default false
+```
 ### What is `deletion_protection` on RDS, and how is it different from `skip_final_snapshot`?
 
 `deletion_protection = true` makes the RDS **API itself reject any delete request** (via console, CLI, or Terraform) until the flag is explicitly turned off first — an extra manual step required before any deletion can even begin. `skip_final_snapshot` only controls whether a snapshot is taken **during** an already-permitted deletion. Using both together means: (1) you can't accidentally delete the DB without first consciously disabling protection, and (2) if you do delete it deliberately, a final snapshot is still captured.
@@ -1238,6 +1384,23 @@ A **Metric** is a time-ordered set of data points (e.g., `CPUUtilization`, `Free
 
 By default, if a metric stops reporting data (e.g., briefly during a maintenance window or a monitoring hiccup), some alarm configurations would either stay in whatever state they were in, or move to `INSUFFICIENT_DATA` which can itself be treated as a breach depending on configuration. Setting `notBreaching` explicitly tells the alarm "if there's no data, assume things are fine" — preventing false-positive page-outs during expected data gaps, at the cost of potentially masking a real problem if data loss coincides with an actual failure (a trade-off that should be reviewed for critical alarms).
 
+```hcl
+# alerts.tf
+resource "aws_cloudwatch_metric_alarm" "backup_missing" {
+  count               = var.enable_cloud_storage ? 1 : 0
+  alarm_name          = "${var.app_name}-backup-missing-or-invalid"
+  namespace           = "DevopsApp/Backups"
+  metric_name         = "BackupVerified"
+  statistic           = "Sum"
+  period              = 3600
+  evaluation_periods  = 26
+  datapoints_to_alarm = 26
+  threshold           = 1
+  comparison_operator = "LessThanThreshold"
+  treat_missing_data  = "breaching"   # silence == backup pipeline is broken
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+}
+```
 ### Why set `monitoring_interval = 0` by default, and what's the trade-off of enabling Enhanced Monitoring?
 
 `monitoring_interval = 0` disables **Enhanced Monitoring**, which otherwise gathers OS-level metrics (per-process CPU, memory) at intervals as low as 1 second via a dedicated agent, at additional cost and requiring an extra IAM role. Standard CloudWatch metrics (60-second granularity, DB-engine-level only) are sufficient for most cases and are free — Enhanced Monitoring is worth the added cost primarily when diagnosing OS-level resource contention that engine-level metrics can't explain.

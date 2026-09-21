@@ -193,6 +193,60 @@ pre_destroy_cleanup() {
     done
 }
 
+# Kubernetes creates Azure Load Balancers and managed Disks that Pulumi
+# doesn't know about (LoadBalancer Services, PVCs). They block VNet/AKS
+# deletion and keep billing, so remove them before `pulumi destroy`.
+pre_destroy_cleanup_azure() {
+    local cluster="$1" rg="$2" left i mc_rg
+    print_subsection "Pre-destroy cleanup (Azure)"
+    [[ -n "$cluster" && -n "$rg" ]] || {
+        print_info "No AKS cluster/resource group in Pulumi state — skipping Kubernetes-level cleanup"
+        return 0
+    }
+
+    if az aks show --name "$cluster" --resource-group "$rg" >/dev/null 2>&1; then
+        az aks get-credentials --resource-group "$rg" --name "$cluster" --overwrite-existing >/dev/null
+
+        kubectl delete svc -A --field-selector spec.type=LoadBalancer --timeout=180s || true
+        kubectl delete pvc -A --all --timeout=300s || true
+
+        # AKS provisions a second, managed resource group (MC_<rg>_<cluster>_<region>)
+        # that actually holds the LB/Disk objects Kubernetes creates.
+        mc_rg="$(az aks show --name "$cluster" --resource-group "$rg" \
+            --query nodeResourceGroup -o tsv 2>/dev/null || echo "")"
+
+        if [[ -n "$mc_rg" ]]; then
+            print_step "Waiting for Azure to release LoadBalancers in ${mc_rg}..."
+            for i in {1..30}; do
+                left="$(az network lb list --resource-group "$mc_rg" --query "length(@)" -o tsv 2>/dev/null || echo 0)"
+                [[ "$left" == "0" ]] && break
+                sleep 10
+            done
+
+            if [[ "$left" != "0" ]]; then
+                print_warning "Load balancers still present in ${mc_rg} — force-deleting"
+                for lb in $(az network lb list --resource-group "$mc_rg" --query "[].name" -o tsv 2>/dev/null); do
+                    az network lb delete --resource-group "$mc_rg" --name "$lb" || true
+                done
+            fi
+
+            print_step "Waiting for Azure to release managed Disks in ${mc_rg}..."
+            for i in {1..15}; do
+                left="$(az disk list --resource-group "$mc_rg" --query "length([?diskState=='Unattached'])" -o tsv 2>/dev/null || echo 0)"
+                [[ "$left" == "0" ]] && break
+                sleep 10
+            done
+
+            for disk in $(az disk list --resource-group "$mc_rg" --query "[?diskState=='Unattached'].name" -o tsv 2>/dev/null); do
+                print_warning "Deleting orphaned managed Disk: ${disk}"
+                az disk delete --resource-group "$mc_rg" --name "$disk" --yes || true
+            done
+        fi
+    else
+        print_info "AKS cluster ${cluster} not found via Azure API — continuing with direct Pulumi destroy"
+    fi
+}
+
 forget_cluster() {
     local name="$1" x
     [[ -n "$name" ]] || return 0
@@ -394,6 +448,10 @@ deploy_pulumi() {
             print_success "kubectl context: ${cluster}"
             ;;
         destroy)
+            local cluster resource_group
+            cluster="$(pulumi stack output aks_cluster_name --stack "$stack" 2>/dev/null || true)"
+            resource_group="$(pulumi stack output resource_group --stack "$stack" 2>/dev/null || true)"
+            pre_destroy_cleanup_azure "$cluster" "$resource_group"
             pulumi destroy --yes
             ;;
     esac

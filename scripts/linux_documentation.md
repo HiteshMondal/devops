@@ -357,6 +357,134 @@ history 20           # last 20 commands only
 history -c           # clear history for this session
 ```
 
+### Bash History Configuration
+
+Bash provides environment variables that control how command history is stored and handled.
+
+```bash
+HISTCONTROL=ignoredups:ignorespace
+HISTFILE=/root/.bash_history
+HISTFILESIZE=2000
+HISTSIZE=1000
+```
+
+#### `HISTCONTROL`
+
+Controls how Bash handles commands before adding them to history.
+
+```bash
+HISTCONTROL=ignoredups
+```
+
+`ignoredups` prevents consecutive duplicate commands from being stored.
+
+```bash
+HISTCONTROL=ignorespace
+```
+
+`ignorespace` prevents commands that begin with a space from being saved to history.
+
+Both can be enabled together:
+
+```bash
+HISTCONTROL=ignoredups:ignorespace
+```
+
+Example:
+
+```bash
+echo hello
+ echo secret-command
+```
+
+The second command begins with a space, so with `ignorespace` enabled, it is not saved to history.
+
+> `ignorespace` is not a security mechanism. A command typed with a leading space may still appear through other logging or auditing mechanisms.
+
+#### `HISTFILE`
+
+Specifies the file used to save Bash command history.
+
+```bash
+echo "$HISTFILE"
+```
+
+For the root account, a typical value is:
+
+```bash
+HISTFILE=/root/.bash_history
+```
+
+For a normal user, it is commonly:
+
+```bash
+HISTFILE=~/.bash_history
+```
+
+#### `HISTSIZE`
+
+Controls how many commands Bash keeps in the current shell's in-memory history list.
+
+```bash
+HISTSIZE=1000
+```
+
+This means the shell keeps up to 1000 history entries in memory.
+
+Check the current value:
+
+```bash
+echo "$HISTSIZE"
+```
+
+#### `HISTFILESIZE`
+
+Controls how many history lines are retained in the history file when Bash writes history to disk.
+
+```bash
+HISTFILESIZE=2000
+```
+
+This can be different from `HISTSIZE`.
+
+```text
+HISTSIZE      → commands remembered by the current shell
+HISTFILESIZE  → lines retained in the history file
+```
+
+#### Search Command History
+
+```bash
+history | grep cat
+```
+
+This displays history entries containing `cat`.
+
+For a case-insensitive search:
+
+```bash
+history | grep -i "cat"
+```
+
+You can also search the Bash configuration file for history-related settings:
+
+```bash
+grep -i "hist" ~/.bashrc
+```
+
+> Use `~/.bashrc` rather than `.bashrc` when you want to explicitly refer to the Bash configuration file in your home directory.
+
+#### Check Your Current History Settings
+
+```bash
+echo "$HISTCONTROL"
+echo "$HISTFILE"
+echo "$HISTSIZE"
+echo "$HISTFILESIZE"
+```
+
+> These variables can be set for the current shell by assigning them directly. To make them persistent for future interactive Bash sessions, place the desired settings in the appropriate Bash startup configuration, commonly `~/.bashrc`.
+
 | Shortcut | Effect |
 |---|---|
 | `!!` | Repeat the last command |
@@ -637,9 +765,78 @@ v           → Open the current file in an editor
 
 ### diff — Compare Files
 
+`diff` compares two files and shows the differences between them. It is commonly used to compare configuration files, source code, backups, or old and new versions of a file.
+
 ```bash
-diff passwords.old passwords.new        # Compare the Two Files
+diff file1.txt file2.txt
 ```
+
+Example:
+
+```bash
+diff old.conf new.conf
+```
+
+By default, `diff` displays the differences in a compact format.
+
+#### Useful Options
+
+```bash
+diff -u old.conf new.conf       # Unified format — easier for humans to read
+diff -c old.conf new.conf       # Context format
+diff -q old.conf new.conf       # Only report whether files differ
+diff -i old.conf new.conf       # Ignore case differences
+diff -w old.conf new.conf       # Ignore whitespace differences
+diff -r dir1 dir2               # Compare directories recursively
+```
+
+#### Unified Diff Format
+
+```bash
+diff -u old.txt new.txt
+```
+
+Typical output:
+
+```text
+--- old.txt
++++ new.txt
+@@
+-Hello
++Hello Linux
+```
+
+Meaning:
+
+```text
+-   # Line exists in the first file but not the second
++   # Line exists in the second file but not the first
+```
+
+#### Compare Sorted Data
+
+`diff` can also compare command output:
+
+```bash
+diff <(sort file1.txt) <(sort file2.txt)
+```
+
+This compares the sorted contents without creating temporary files.
+
+#### Check Whether Two Files Are Identical
+
+```bash
+diff -q file1.txt file2.txt
+```
+
+Example:
+
+```text
+Files file1.txt and file2.txt differ
+```
+
+> `diff` compares contents. It does not merge the files or modify either input file.
+
 
 ### cp — Copy Files and Directories
 
@@ -1023,6 +1220,77 @@ passwd -u hitesh       # unlock account
 chage -l hitesh        # show password expiry info
 chage -M 90 hitesh     # force password change every 90 days
 ```
+
+### /etc/shells & /etc/gshadow
+
+`/etc/shells` and `/etc/gshadow` are important system files related to user accounts, login shells, and groups.
+
+#### `/etc/shells` — Valid Login Shells
+
+`/etc/shells` contains a list of shells that are considered valid login shells on the system. Programs such as `chsh` can use this list when changing a user's login shell.
+
+```bash
+cat /etc/shells
+```
+
+Example:
+
+```text
+/bin/sh
+/bin/bash
+/bin/dash
+/bin/zsh
+```
+
+Useful searches:
+
+```bash
+grep -i "bash" /etc/shells       # Check whether Bash is listed
+grep -i "zsh" /etc/shells        # Check whether Zsh is listed
+```
+
+> `/etc/shells` is a list of allowed shell paths; it is not the file that stores which shell a particular user currently uses. A user's configured login shell is stored in the final field of `/etc/passwd`.
+
+#### `/etc/gshadow` — Secure Group Information
+
+`/etc/gshadow` stores protected group information. It is similar to `/etc/group`, but contains security-sensitive group password and administrator/member information.
+
+```bash
+sudo cat /etc/gshadow
+```
+
+A typical entry has the general format:
+
+```text
+group:group_password:group_admins:group_members
+```
+
+For example:
+
+```text
+developers:!:alice:bob,charlie
+```
+
+Fields:
+
+```text
+group             # Group name
+group_password    # Group password field
+group_admins      # Users who can administer the group
+group_members     # Users who belong to the group
+```
+
+> `/etc/gshadow` contains security-sensitive information and is normally readable only by root. Do not post its contents publicly or include real system secrets in screenshots.
+
+#### Compare the Four Common Account Files
+
+| File           | Purpose                                                        |
+| -------------- | -------------------------------------------------------------- |
+| `/etc/passwd`  | Basic user account information                                 |
+| `/etc/shadow`  | Password hashes and password-aging information                 |
+| `/etc/group`   | Group names, GIDs, and group members                           |
+| `/etc/gshadow` | Protected group passwords and group administration information |
+
 
 ### /etc/services & /etc/nsswitch.conf
 
@@ -1444,6 +1712,186 @@ hostnamectl set-hostname newname   # Change system hostname permanently
 watch -n 1 ss -tuln         # Refresh listening ports every second
 watch -n 2 ip addr          # Watch IP address changes
 ```
+### curl — Transfer Data from URLs
+
+`curl` is a command-line tool for transferring data to or from URLs. It is commonly used for HTTP/HTTPS requests, APIs, downloading content, and testing web services.
+
+```bash
+curl https://example.com             # Fetch a webpage
+curl -I https://example.com          # Show HTTP response headers only
+curl -o page.html https://example.com # Save output to a specific filename
+curl -O https://example.com/file.txt  # Save using the remote filename
+```
+
+#### Common Options
+
+```bash
+curl -I https://example.com
+```
+
+`-I` requests headers only.
+
+```bash
+curl -L https://example.com
+```
+
+`-L` follows HTTP redirects.
+
+```bash
+curl -o output.html https://example.com
+```
+
+`-o` writes the response body to the specified filename.
+
+```bash
+curl -O https://example.com/file.txt
+```
+
+`-O` saves the file using its remote filename.
+
+```bash
+curl -s https://example.com
+```
+
+`-s` runs silently and suppresses the progress meter.
+
+```bash
+curl -v https://example.com
+```
+
+`-v` displays detailed request and connection information, useful for troubleshooting.
+
+#### API Example
+
+```bash
+curl -H "Content-Type: application/json" https://api.example.com/users
+```
+
+`-H` adds an HTTP request header.
+
+> `curl` is especially useful when you need to inspect HTTP requests, response headers, APIs, or troubleshoot connectivity.
+
+### wget — Download Files
+
+`wget` is primarily used to download files from HTTP, HTTPS, and other supported protocols.
+
+```bash
+wget https://example.com/file.tar.gz
+```
+
+This downloads the file to the current directory.
+
+#### Common Options
+
+```bash
+wget -O output.tar.gz https://example.com/file.tar.gz
+```
+
+`-O` saves the download using the specified filename.
+
+```bash
+wget -c https://example.com/large.iso
+```
+
+`-c` resumes a partially completed download.
+
+```bash
+wget -q https://example.com/file.txt
+```
+
+`-q` runs quietly.
+
+```bash
+wget -P /tmp https://example.com/file.txt
+```
+
+`-P` specifies the directory in which to save the downloaded file.
+
+#### curl vs wget
+
+| Feature               | `curl`          | `wget`                |
+| --------------------- | --------------- | --------------------- |
+| HTTP requests/APIs    | Excellent       | More download-focused |
+| Download files        | Yes             | Yes                   |
+| Resume downloads      | Yes             | Yes                   |
+| Inspect headers       | Very convenient | More limited          |
+| Recursive downloading | No              | Yes                   |
+
+> Use `curl` when working with HTTP requests and APIs; use `wget` when the main task is downloading files or recursively retrieving web content.
+
+### dig — DNS Lookup
+
+`dig` (Domain Information Groper) is a command-line DNS troubleshooting and lookup tool. It queries DNS servers and displays detailed information about DNS records.
+
+```bash
+dig example.com
+```
+
+This performs a DNS lookup and displays the DNS response.
+
+#### Common Queries
+
+```bash
+dig example.com +short
+```
+
+Show only the concise answer, such as an IP address.
+
+```bash
+dig example.com A
+```
+
+Query the IPv4 `A` record.
+
+```bash
+dig example.com AAAA
+```
+
+Query the IPv6 `AAAA` record.
+
+```bash
+dig example.com MX
+```
+
+Query mail-server (`MX`) records.
+
+```bash
+dig example.com NS
+```
+
+Query authoritative name-server (`NS`) records.
+
+```bash
+dig example.com TXT
+```
+
+Query `TXT` records.
+
+#### Query a Specific DNS Server
+
+```bash
+dig @8.8.8.8 example.com
+```
+
+This sends the DNS query to the specified DNS server.
+
+#### Reverse DNS Lookup
+
+```bash
+dig -x 8.8.8.8
+```
+
+Attempts to find the hostname associated with an IP address.
+
+#### Useful Options
+
+```bash
+dig +short example.com       # Concise answer
+dig +trace example.com       # Trace DNS resolution from the root
+dig +stats example.com       # Show query statistics
+```
+
+> `dig` is primarily a DNS diagnostic tool. For a quick basic lookup, `host` or `nslookup` may produce simpler output.
 
 ### Firewall (ufw / iptables)
 
@@ -1471,18 +1919,108 @@ ifconfig eth0            # old way to view interface info
 ip addr show eth0        # modern equivalent
 ```
 
-### File Transfer (scp / rsync)
+### File Transfer (`scp` / `rsync`)
+
+#### scp — Secure Copy
+
+`scp` copies files between machines over SSH. It is useful for straightforward file transfers when an SSH connection is available.
 
 ```bash
-scp file.txt user@server:/path     # -r for directories, -P for custom port
-scp -r folder/ user@server:/path
-scp -P 2222 file.txt user@server:/path
-
-rsync -avz /src user@host:/dst
-# -a archive mode (preserves permissions/timestamps/symlinks)
-# -v verbose
-# -z compress during transfer
+scp file.txt user@server:/path/
 ```
+
+Copy a remote file to the local machine:
+
+```bash
+scp user@server:/path/file.txt .
+```
+
+Copy a directory recursively:
+
+```bash
+scp -r folder/ user@server:/path/
+```
+
+Use a custom SSH port:
+
+```bash
+scp -P 2222 file.txt user@server:/path/
+```
+
+Use a specific SSH private key:
+
+```bash
+scp -i ~/.ssh/id_ed25519 file.txt user@server:/path/
+```
+
+#### Important `scp` Options
+
+| Option | Purpose                                    |
+| ------ | ------------------------------------------ |
+| `-r`   | Copy directories recursively               |
+| `-P`   | Specify SSH port                           |
+| `-i`   | Use a specific private key                 |
+| `-p`   | Preserve file modification times and modes |
+| `-q`   | Suppress progress information              |
+
+#### rsync — Synchronize Files
+
+`rsync` synchronizes files and directories between locations. It is especially useful for backups and repeated transfers because it can transfer only the changes that are needed.
+
+```bash
+rsync -av source/ user@server:/destination/
+```
+
+Common options:
+
+```bash
+rsync -a source/ destination/
+```
+
+`-a` enables archive mode, preserving important file attributes and recursively copying directories.
+
+```bash
+rsync -v source/ destination/
+```
+
+`-v` shows what is being transferred.
+
+```bash
+rsync -z source/ user@server:/destination/
+```
+
+`-z` compresses data during transfer.
+
+```bash
+rsync -n -av source/ destination/
+```
+
+`-n` performs a dry run — it shows what would happen without actually changing the destination.
+
+```bash
+rsync -av --delete source/ destination/
+```
+
+`--delete` removes destination files that no longer exist in the source.
+
+> `--delete` is powerful and potentially destructive. Use a dry run first:
+>
+> ```bash
+> rsync -avn --delete source/ destination/
+> ```
+
+#### scp vs rsync
+
+| Feature                     | `scp` | `rsync`   |
+| --------------------------- | ----- | --------- |
+| Simple file copy            | Yes   | Yes       |
+| Directory transfer          | Yes   | Yes       |
+| Incremental synchronization | No    | Yes       |
+| Dry run                     | No    | Yes       |
+| Efficient repeated backups  | Basic | Excellent |
+| SSH support                 | Yes   | Yes       |
+
+> Use `scp` for a simple one-time copy. Use `rsync` when repeatedly synchronizing directories or creating backups.
 
 ---
 
@@ -1732,9 +2270,9 @@ sar -n DEV               # Network interface statistics
 
 # System information
 uname -a                 # Kernel and system information
-hostnamectl               # Hostname and OS information
-lsb_release -a            # Linux distribution details
-cat /etc/os-release       # OS release information
+hostnamectl              # Hostname and OS information
+lsb_release -a           # Linux distribution details
+cat /etc/os-release      # OS release information
 
 # Running services
 systemctl status                                    # List failed and loaded services
@@ -1743,8 +2281,8 @@ systemctl list-units --type=service --state=running
 
 # System logs
 journalctl                # View systemd logs
-journalctl -xe             # Recent errors
-dmesg                      # Kernel messages
+journalctl -xe            # Recent errors
+dmesg                     # Kernel messages
 
 # Open files
 lsof                      # List all open files
@@ -1989,6 +2527,83 @@ journalctl -f                     # Follow mode (like tail -f)
 journalctl --since "2024-01-01"   # Logs since a date
 journalctl -p err                 # Only error-level and above
 ```
+
+### journalctl — View systemd Journal Logs
+
+`journalctl` displays logs collected by the systemd journal. It is commonly used to troubleshoot services, boot problems, authentication issues, and system errors.
+
+```bash
+journalctl
+```
+
+Show recent log entries:
+
+```bash
+journalctl -n 50
+```
+
+Show logs for a particular service:
+
+```bash
+journalctl -u nginx
+```
+
+Follow logs in real time:
+
+```bash
+journalctl -f
+```
+
+Show logs from the current boot:
+
+```bash
+journalctl -b
+```
+
+Show logs from the previous boot:
+
+```bash
+journalctl -b -1
+```
+
+Show logs since a specific time:
+
+```bash
+journalctl --since "1 hour ago"
+```
+
+```bash
+journalctl --since "2026-09-21 10:00:00"
+```
+
+Show only warning/error-level messages:
+
+```bash
+journalctl -p warning
+journalctl -p err
+```
+
+Combine service filtering and live monitoring:
+
+```bash
+journalctl -u nginx -f
+```
+
+Show kernel-related journal messages:
+
+```bash
+journalctl -k
+```
+
+Useful troubleshooting pattern:
+
+```bash
+systemctl status nginx
+journalctl -u nginx -n 100
+journalctl -u nginx -f
+```
+
+> `journalctl` works with systems using systemd's journal. Traditional text logs such as `/var/log/syslog` may still exist depending on the distribution and logging configuration.
 
 ---
 
@@ -3310,6 +3925,66 @@ sort < unsorted.txt > sorted.txt        # Sort file
 grep "pattern" <<< "This is the string to search"
 ```
 
+### tee — Read stdin and Write to Both Screen and File
+
+`tee` reads data from standard input and writes it both to standard output and to one or more files.
+
+This makes it useful when you want to **see command output on the terminal while also saving it to a file**.
+
+```bash
+ls -l | tee output.txt
+```
+
+The output is displayed on the terminal and saved to `output.txt`.
+
+Append instead of overwriting:
+
+```bash
+ls -l | tee -a output.txt
+```
+
+`-a` appends to the file.
+
+#### Common Examples
+
+Save command output while still seeing it:
+
+```bash
+df -h | tee disk_usage.txt
+```
+
+Save a pipeline result:
+
+```bash
+ps aux | grep nginx | tee nginx_processes.txt
+```
+
+Use `tee` with `sudo` when writing to a protected file:
+
+```bash
+echo "test" | sudo tee /etc/example.conf
+```
+
+Append to a protected file:
+
+```bash
+echo "another line" | sudo tee -a /etc/example.conf
+```
+
+> `sudo echo "text" > /etc/example.conf` usually does **not** work as expected because the shell performs the `>` redirection before `sudo` is applied. `sudo tee` allows the file-writing operation itself to run with elevated privileges.
+
+Conceptually:
+
+```text
+command
+   ↓
+stdout
+   ↓
+ tee ─────→ file
+   │
+   └──────→ terminal
+```
+
 ### Pipelines
 
 A pipeline (`|`) connects the stdout of one command to the stdin of another, chaining commands to process data progressively.
@@ -3754,5 +4429,26 @@ trap cleanup EXIT          # Signal handling
 ```
 
 ---
+
+## Scenario-based troubleshooting questions
+
+Q. A developer created a testing program that is continuously writing to a log file /var/log/bad.log and filling up the disk. You can check for example with tail -f /var/log/bad.log.
+This program is no longer needed. Find it and terminate it. Do not delete the log file.
+
+
+```bash
+sudo kill 1234
+sudo lsof /var/log/bad.log
+sudo fuser /var/log/bad.log
+tail -f /var/log/bad.log
+
+```
+
+Q. Description: There's a web server access log file at /home/admin/access.log. The file consists of one line per HTTP request, with the requester's IP address at the beginning of each line (first column).
+Findwhat's the IP address that has the most requests in this file (there's no tie; the IP is unique). Write the solution into a file /home/admin/highestip.txt. For example, if your solution is "1.2.3.4", you can do echo "1.2.3.4" > /home/admin/highestip.txt
+```bash
+awk '{print $1}' /home/admin/access.log | sort | uniq -c | sort -nr | head -1 | awk '{print $2}' > /home/admin/highestip.txt
+```
+
 
 *This document covers Linux Commands and Shell Scripting from beginner to DevOps-level. Practice these concepts hands-on for best results.*

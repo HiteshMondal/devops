@@ -47,14 +47,18 @@ _credential = ManagedIdentityCredential()
 
 def _remediate_aks() -> str:
     client = ContainerServiceClient(_credential, SUBSCRIPTION_ID)
-    poller = client.agent_pools.begin_create_or_update(
+    current = client.agent_pools.get(
         resource_group_name=RESOURCE_GROUP_NAME,
         resource_name=AKS_CLUSTER_NAME,
         agent_pool_name=AKS_NODE_POOL_NAME,
-        parameters={"count": None},  # re-apply current config, forcing a reconcile
     )
-    poller.wait(timeout=5)  # don't block the function on the full operation
-    return f"Triggered reconcile on AKS node pool '{AKS_NODE_POOL_NAME}'."
+    client.agent_pools.begin_create_or_update(
+        resource_group_name=RESOURCE_GROUP_NAME,
+        resource_name=AKS_CLUSTER_NAME,
+        agent_pool_name=AKS_NODE_POOL_NAME,
+        parameters=current,
+    )
+    return f"Triggered reconcile on AKS node pool '{AKS_NODE_POOL_NAME}' (count={current.count})."
 
 
 def _remediate_postgres() -> str:

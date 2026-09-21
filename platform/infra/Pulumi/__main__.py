@@ -72,7 +72,8 @@ env_name = get_env("APP_ENV", "production")
 
 # Azure placement — not present in the shared .env by default (Azure-specific);
 # add AZURE_LOCATION to .env to override across every run without touching code.
-location = get_env("AZURE_LOCATION", "eastus")
+location = get_env("AZURE_LOCATION", "centralindia")
+dr_location = get_env("AZURE_DR_LOCATION", "southeastasia")
 
 # AKS sizing — deliberately small/burstable to minimize spend.
 aks_vm_size = get_env("AZURE_AKS_VM_SIZE", "Standard_B2s")
@@ -290,6 +291,7 @@ dr_backup_function_app = create_dr_backup(
     env_name=env_name,
     rg=rg,
     location=location,
+    dr_location=dr_location,
     common_tags=common_tags,
     postgres_server_name=pg_server.name,
     files_storage_account=files_storage_account,
@@ -319,6 +321,7 @@ pulumi.export("postgres_database", pg_database.name)
 pulumi.export("cloud_storage_account", files_storage_account.name if files_storage_account else None)
 pulumi.export("self_healing_enabled", enable_self_healing)
 pulumi.export("dr_backup_enabled", enable_dr_backup)
+pulumi.export("dr_backup_region", dr_location if enable_dr_backup else None)
 connection_string = Output.all(
     pg_server.fully_qualified_domain_name, db_admin_user, db_admin_password, db_name
 ).apply(lambda a: f"postgresql://{a[1]}:{a[2]}@{a[0]}:5432/{a[3]}?sslmode=require")
