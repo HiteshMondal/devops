@@ -357,7 +357,11 @@ deploy_pulumi() {
         "https://learn.microsoft.com/cli/azure/install-azure-cli"
 
     print_subsection "Azure CLI Authentication"
-
+    if ! pulumi whoami >/dev/null 2>&1; then
+        print_error "Not logged in to Pulumi"
+        print_info  "Run: pulumi login   (or 'pulumi login --local' for local-only state, no Pulumi Cloud account needed)"
+        exit 1
+    fi
     if ! az account show >/dev/null 2>&1; then
         print_error "Not logged in to Azure CLI (or session expired)"
         print_info  "Run: az login --use-device-code"
@@ -389,7 +393,7 @@ deploy_pulumi() {
         exit 1
     fi
 
-    local stack="${PULUMI_STACK:-HiteshMondal/devops-platform-azure/prod}"
+    local stack="${PULUMI_STACK:-prod}"
 
     print_info "Pulumi project:"
     grep "^name:" Pulumi.yaml
@@ -421,7 +425,7 @@ deploy_pulumi() {
             )"
 
             resource_group="$(
-                pulumi stack output aks_resource_group_name \
+                pulumi stack output resource_group \
                     --stack "$stack" \
                     2>/dev/null || true
             )"

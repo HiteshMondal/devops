@@ -205,7 +205,7 @@ spec:
   source:
     repoURL: ${GIT_REPO_URL}
     targetRevision: ${GIT_REPO_BRANCH}
-    path: platform/deployment/kubernetes/overlays/${DEPLOY_TARGET}
+    path: platform/deployment/kubernetes/overlays/${K8S_OVERLAY}
 
   destination:
     server: https://kubernetes.default.svc

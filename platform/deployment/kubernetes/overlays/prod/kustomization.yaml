@@ -8,6 +8,7 @@ kind: Kustomization
 
 resources:
   - ../../base
+  - storageclass.yaml
   - network-policy.yaml
   - pod-disruption-budget.yaml
   - devops-app-sealed-secret.yaml

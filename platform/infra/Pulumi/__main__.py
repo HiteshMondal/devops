@@ -36,6 +36,8 @@ from self_healing import create_self_healing
 from dr import create_dr_backup
 from monitoring_alerts import create_self_healing_alerts
 
+from postgres_backup_identity import create_postgres_backup_identity
+
 # Configuration — .env is authoritative, Pulumi config can override either,
 # hard-coded defaults only apply when neither source sets a value.
 load_env()
@@ -161,13 +163,12 @@ dns_vnet_link = network.VirtualNetworkLink(
     registration_enabled=False,
 )
 
-# AKS Cluster
-#   - "Free" SKU tier -> control plane has no hourly charge.
-#   - kubenet + custom VNet keeps IP usage minimal (vs. Azure CNI).
-#   - System-assigned identity; granted Network Contributor on the AKS
-#     subnet so kubenet can manage routes (required for BYO-VNet + kubenet).
 aks_cluster = containerservice.ManagedCluster(
     f"{app_name}-aks",
+    oidc_issuer_profile=containerservice.ManagedClusterOIDCIssuerProfileArgs(enabled=True),
+    security_profile=containerservice.ManagedClusterSecurityProfileArgs(
+        workload_identity=containerservice.ManagedClusterSecurityProfileWorkloadIdentityArgs(enabled=True),
+    ),
     resource_group_name=rg.name,
     resource_name_=f"{app_name}-{env_name}-aks",
     location=rg.location,
@@ -259,6 +260,15 @@ files_storage_account, files_container = create_distributed_storage(
     common_tags=common_tags,
 )
 
+postgres_backup_client_id = create_postgres_backup_identity(
+    enabled=enable_cloud_storage,
+    app_name=app_name,
+    rg=rg,
+    aks_cluster=aks_cluster,
+    files_storage_account=files_storage_account,
+    subscription_id=client_config.subscription_id,
+)
+
 # Self-Healing Infrastructure
 self_healing_function_app = create_self_healing(
     enabled=enable_self_healing,
@@ -278,7 +288,6 @@ create_self_healing_alerts(
     app_name=app_name,
     rg=rg,
     common_tags=common_tags,
-    aks_cluster=aks_cluster,
     pg_server=pg_server,
     self_healing_function_app=self_healing_function_app,
     subscription_id=client_config.subscription_id,
@@ -319,6 +328,7 @@ pulumi.export("postgres_server_name", pg_server.name)
 pulumi.export("postgres_fqdn", pg_server.fully_qualified_domain_name)
 pulumi.export("postgres_database", pg_database.name)
 pulumi.export("cloud_storage_account", files_storage_account.name if files_storage_account else None)
+pulumi.export("postgres_backup_client_id", postgres_backup_client_id)
 pulumi.export("self_healing_enabled", enable_self_healing)
 pulumi.export("dr_backup_enabled", enable_dr_backup)
 pulumi.export("dr_backup_region", dr_location if enable_dr_backup else None)

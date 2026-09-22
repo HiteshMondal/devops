@@ -22,7 +22,7 @@ from __future__ import annotations
 import pulumi
 from pulumi import ResourceOptions
 from pulumi_azure_native import resources, storage
-
+import pulumi_azure_native as _azure_native
 
 def create_distributed_storage(
     *,
@@ -42,7 +42,11 @@ def create_distributed_storage(
     if not enabled:
         return None, None
 
-    account_name = f"{app_name}{env_name}files".replace("-", "").replace("_", "")[:24].lower()
+    def _account_name(base: str, subscription_id: str) -> str:
+        suffix = subscription_id.replace("-", "")[:6]
+        return f"{base}{suffix}"[:24].lower()
+
+    account_name = _account_name(f"{app_name}{env_name}files".replace("-", "").replace("_", ""), subscription_id)
 
     account = storage.StorageAccount(
         f"{app_name}-files-sa",

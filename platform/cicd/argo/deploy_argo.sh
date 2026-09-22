@@ -49,6 +49,9 @@ fi
 : "${APP_NAME:=devops-app}"
 : "${ARGOCD_SYNC_WAVE_ENABLED:=true}"
 
+K8S_OVERLAY="${DEPLOY_TARGET}"
+[[ "${CLOUD_PROVIDER:-}" == "azure" ]] && K8S_OVERLAY="prod-azure"
+export K8S_OVERLA
 
 export ARGOCD_NAMESPACE ARGOCD_VERSION DEPLOY_TARGET NAMESPACE APP_NAME
 export PROMETHEUS_NAMESPACE LOKI_NAMESPACE TRIVY_NAMESPACE
@@ -355,8 +358,70 @@ EOF
     print_info "Step 4d verifies this file is on origin/${GIT_REPO_BRANCH} before Argo CD is started"
 }
 
+sync_backup_config_from_pulumi() {
+    if [[ "${CLOUD_PROVIDER:-}" != "azure" ]]; then
+        print_info "Skipping Pulumi backup configuration for ${CLOUD_PROVIDER}"
+        return 0
+    fi
+    print_subsection "Syncing Backup Config from Pulumi Outputs"
+
+    local pulumi_dir="${PROJECT_ROOT}/platform/infra/Pulumi"
+    local overlay_dir="${PROJECT_ROOT}/platform/deployment/kubernetes/overlays/${K8S_OVERLAY}"
+    local patch_file="${overlay_dir}/backup-config-patch.yaml"
+    local stack="${PULUMI_STACK:-devops-platform-azure/prod}"
+
+    require_cmd pulumi
+
+    local client_id db_host bucket_account
+    client_id=$(pulumi -C "${pulumi_dir}" stack output postgres_backup_client_id --stack "${stack}" 2>&1) || {
+        print_error "Failed to read postgres_backup_client_id: ${client_id}"
+        exit 1
+    }
+    db_host=$(pulumi -C "${pulumi_dir}" stack output postgres_fqdn --stack "${stack}" 2>&1) || {
+        print_error "Failed to read postgres_fqdn: ${db_host}"
+        exit 1
+    }
+    bucket_account=$(pulumi -C "${pulumi_dir}" stack output cloud_storage_account --stack "${stack}" 2>&1) || {
+        print_error "Failed to read cloud_storage_account: ${bucket_account}"
+        exit 1
+    }
+
+    if [[ -z "$client_id" || -z "$db_host" || "$bucket_account" == "null" ]]; then
+        print_error "postgres_backup_client_id, postgres_fqdn, or cloud_storage_account is empty in Pulumi state"
+        print_info "Check ENABLE_CLOUD_STORAGE=true and re-run pulumi up"
+        exit 1
+    fi
+
+    mkdir -p "${overlay_dir}"
+    cat > "${patch_file}" <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-backup-sa
+  namespace: devops-app
+  annotations:
+    azure.workload.identity/client-id: "${client_id}"
+  labels:
+    azure.workload.identity/use: "true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: devops-app-config
+  namespace: devops-app
+data:
+  BACKUP_STORAGE_ACCOUNT: "${bucket_account}"
+  BACKUP_CONTAINER: "files"
+  DB_HOST: "${db_host}"
+  DB_PORT: "${DB_PORT:-5432}"
+  DB_NAME: "${DB_NAME:-devopsdb}"
+  PGSSLMODE: "require"
+EOF
+    print_success "Wrote ${patch_file}"
+}
+
 sync_image_tag_to_overlay() {
-    local kfile="${PROJECT_ROOT}/platform/deployment/kubernetes/overlays/prod/kustomization.yaml"
+    local kfile="${PROJECT_ROOT}/platform/deployment/kubernetes/overlays/${K8S_OVERLAY}/kustomization.yaml"
     local user="${DOCKERHUB_USERNAME:-}" tag="${DOCKER_IMAGE_TAG:-latest}" tmp
 
     [[ -f "$kfile" ]] || { print_error "Missing ${kfile}"; exit 1; }
@@ -402,7 +467,7 @@ gitops_publish_changes() {
 
     local p
     local -a paths=()
-    for p in platform/deployment/kubernetes/overlays/prod \
+    for p in "platform/deployment/kubernetes/overlays/${K8S_OVERLAY}" \
              platform/deployment/kubernetes/base \
              monitoring; do
         [[ -e "${PROJECT_ROOT}/${p}" ]] && paths+=("$p")
@@ -747,6 +812,7 @@ deploy_argo() {
 
     print_subsection "Step 4b — Sync Backup Config"
     sync_backup_config_from_terraform
+    sync_backup_config_from_pulumi
 
     print_subsection "Step 4c — Sync Image Tag"
     sync_image_tag_to_overlay

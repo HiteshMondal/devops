@@ -1,0 +1,71 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: devops-app
+  labels: {app: postgres-backup}
+spec:
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            app: postgres-backup
+            azure.workload.identity/use: "true"
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: postgres-backup-sa
+          securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, fsGroup: 999}
+          volumes:
+            - {name: work, emptyDir: {}}
+          initContainers:
+            - name: dump
+              image: postgres:16-alpine
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$PGUSER" -d "$DB_NAME" -f /work/dump.sql
+                  gzip -f /work/dump.sql
+              envFrom:
+                - configMapRef: {name: devops-app-config}   # DB_HOST, DB_PORT, DB_NAME, PGSSLMODE
+              env:
+                - {name: PGUSER, valueFrom: {secretKeyRef: {name: devops-app-secrets, key: DB_USERNAME}}}
+                - {name: PGPASSWORD, valueFrom: {secretKeyRef: {name: devops-app-secrets, key: DB_PASSWORD}}}
+              volumeMounts: [{name: work, mountPath: /work}]
+              securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          containers:
+            - name: upload
+              # NOTE: verify this tag is still current when you deploy.
+              image: mcr.microsoft.com/azure-cli:2.65.0
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  az login --federated-token "$(cat "$AZURE_FEDERATED_TOKEN_FILE")" \
+                    --service-principal -u "$AZURE_CLIENT_ID" -t "$AZURE_TENANT_ID" >/dev/null
+                  az storage blob upload \
+                    --account-name "$BACKUP_STORAGE_ACCOUNT" \
+                    --container-name "$BACKUP_CONTAINER" \
+                    --auth-mode login \
+                    --name "postgres/$(date -u +%Y%m%d-%H%M%S).sql.gz" \
+                    --file /work/dump.sql.gz
+              envFrom:
+                - configMapRef: {name: devops-app-config}   # BACKUP_STORAGE_ACCOUNT, BACKUP_CONTAINER
+              volumeMounts: [{name: work, mountPath: /work}]
+              securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-backup-sa
+  namespace: devops-app
+  labels: {app: postgres-backup}
+  annotations:
+    azure.workload.identity/client-id: "placeholder-overridden-by-backup-config-patch"

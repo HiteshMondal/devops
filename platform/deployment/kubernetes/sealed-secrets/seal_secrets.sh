@@ -36,7 +36,9 @@ source "${PROJECT_ROOT}/platform/lib/colors.sh"
 # shellcheck source=/dev/null
 source "${PROJECT_ROOT}/platform/lib/logging.sh"
 
-BASE_DIR="${PROJECT_ROOT}/platform/deployment/kubernetes/overlays/prod"
+K8S_OVERLAY="${DEPLOY_TARGET:-prod}"
+[[ "${CLOUD_PROVIDER:-}" == "azure" ]] && K8S_OVERLAY="prod-azure"
+BASE_DIR="${PROJECT_ROOT}/platform/deployment/kubernetes/overlays/${K8S_OVERLAY}"
 NAMESPACE="${NAMESPACE:-devops-app}"
 SEALED_SECRETS_NAMESPACE="${SEALED_SECRETS_NAMESPACE:-kube-system}"
 SEALED_SECRETS_CONTROLLER_NAME="${SEALED_SECRETS_CONTROLLER_NAME:-sealed-secrets-controller}"

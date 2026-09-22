@@ -1,0 +1,16 @@
+resources:
+  - ../../base
+  - network-policy.yaml
+  - pod-disruption-budget.yaml
+  - devops-app-sealed-secret.yaml
+  - postgres-backup-cronjob.yaml
+
+namespace: devops-app
+
+images:
+  - name: devops-app
+    newName: <your-registry>/devops-app
+    newTag: "placeholder"
+
+patches:
+  - path: backup-config-patch.yaml

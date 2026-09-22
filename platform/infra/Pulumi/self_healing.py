@@ -23,7 +23,23 @@ from pulumi_azure_native import authorization, containerservice, resources, stor
 
 from function_packaging import deploy_function_package
 
-_CONTRIBUTOR_ROLE_ID = "b24988ac-6180-42a0-ab88-20f7382dd24c"  # built-in "Contributor"
+custom_role = authorization.RoleDefinition(
+    f"{app_name}-selfheal-role",
+    role_name=f"{app_name}-self-healing",
+    scope=rg.id,
+    description="Least-privilege role for the self-healing Function App.",
+    permissions=[
+        authorization.PermissionArgs(
+            actions=[
+                "Microsoft.ContainerService/managedClusters/agentPools/read",
+                "Microsoft.ContainerService/managedClusters/agentPools/write",
+                "Microsoft.DBforPostgreSQL/flexibleServers/read",
+                "Microsoft.DBforPostgreSQL/flexibleServers/restart/action",
+            ],
+        ),
+    ],
+    assignable_scopes=[rg.id],
+)
 
 
 def create_self_healing(
@@ -102,15 +118,12 @@ def create_self_healing(
     )
 
     authorization.RoleAssignment(
-        f"{app_name}-selfheal-func-contributor",
+        f"{app_name}-selfheal-func-role",
         scope=rg.id,
-        role_definition_id=(
-            f"/subscriptions/{subscription_id}/providers/Microsoft.Authorization/"
-            f"roleDefinitions/{_CONTRIBUTOR_ROLE_ID}"
-        ),
+        role_definition_id=custom_role.id,
         principal_id=function_app.identity.apply(lambda i: i.principal_id if i else ""),
         principal_type="ServicePrincipal",
-        opts=ResourceOptions(depends_on=[function_app]),
+        opts=ResourceOptions(depends_on=[function_app, custom_role]),
     )
 
     pulumi.export("self_healing_function_url", function_app.default_host_name.apply(lambda h: f"https://{h}"))
