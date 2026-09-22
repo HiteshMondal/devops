@@ -32,6 +32,7 @@ def create_distributed_storage(
     rg: resources.ResourceGroup,
     location: pulumi.Input[str],
     common_tags: dict,
+    subscription_id: str,
 ):
     """Create (or skip) a GRS-replicated Storage Account + blob container.
 

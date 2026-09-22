@@ -23,24 +23,6 @@ from pulumi_azure_native import authorization, containerservice, resources, stor
 
 from function_packaging import deploy_function_package
 
-custom_role = authorization.RoleDefinition(
-    f"{app_name}-selfheal-role",
-    role_name=f"{app_name}-self-healing",
-    scope=rg.id,
-    description="Least-privilege role for the self-healing Function App.",
-    permissions=[
-        authorization.PermissionArgs(
-            actions=[
-                "Microsoft.ContainerService/managedClusters/agentPools/read",
-                "Microsoft.ContainerService/managedClusters/agentPools/write",
-                "Microsoft.DBforPostgreSQL/flexibleServers/read",
-                "Microsoft.DBforPostgreSQL/flexibleServers/restart/action",
-            ],
-        ),
-    ],
-    assignable_scopes=[rg.id],
-)
-
 
 def create_self_healing(
     *,
@@ -56,11 +38,28 @@ def create_self_healing(
     subscription_id: str,
 ):
     """Create (or skip) the self-healing Function App + RBAC wiring.
-
     Returns the Function App resource, or None when disabled.
     """
     if not enabled:
         return None
+
+    custom_role = authorization.RoleDefinition(
+        f"{app_name}-selfheal-role",
+        role_name=f"{app_name}-self-healing",
+        scope=rg.id,
+        description="Least-privilege role for the self-healing Function App.",
+        permissions=[
+            authorization.PermissionArgs(
+                actions=[
+                    "Microsoft.ContainerService/managedClusters/agentPools/read",
+                    "Microsoft.ContainerService/managedClusters/agentPools/write",
+                    "Microsoft.DBforPostgreSQL/flexibleServers/read",
+                    "Microsoft.DBforPostgreSQL/flexibleServers/restart/action",
+                ],
+            ),
+        ],
+        assignable_scopes=[rg.id],
+    )
 
     func_storage = storage.StorageAccount(
         f"{app_name}-selfheal-func-sa",

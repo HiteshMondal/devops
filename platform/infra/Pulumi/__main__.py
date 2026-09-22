@@ -258,6 +258,7 @@ files_storage_account, files_container = create_distributed_storage(
     rg=rg,
     location=location,
     common_tags=common_tags,
+    subscription_id=client_config.subscription_id,
 )
 
 postgres_backup_client_id = create_postgres_backup_identity(
