@@ -49,10 +49,6 @@ def create_self_healing_alerts(
         tags=common_tags,
     )
 
-    # NOTE: verify this metric name against current Microsoft Learn docs
-    # for "Azure Database for PostgreSQL - Flexible Server" before relying
-    # on it — Azure has renamed Postgres metrics before, and unlike the
-    # AKS case above I have not independently re-confirmed this one.
     insights.MetricAlert(
         f"{app_name}-postgres-alert",
         resource_group_name=rg.name,

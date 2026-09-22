@@ -400,8 +400,16 @@ deploy_pulumi() {
 
     print_info "Pulumi stack: $stack"
 
-    if pulumi stack select "$stack"; then
+    if pulumi stack select "$stack" 2>/dev/null; then
         print_success "Pulumi stack selected: $stack"
+    elif [[ "$ACTION" == "destroy" ]]; then
+        print_warning "Stack '${stack}' does not exist — nothing to destroy in Pulumi state"
+        print_info "Still scanning Azure directly for stray resources named '${APP_NAME:-devops-app}*'..."
+        for rg_name in $(az group list --query "[?starts_with(name, '${APP_NAME:-devops-app}')].name" -o tsv 2>/dev/null); do
+            print_warning "Found stray resource group: ${rg_name} — deleting"
+            az group delete --name "$rg_name" --yes --no-wait
+        done
+        return 0
     else
         print_warning "Creating Pulumi stack: $stack"
         pulumi stack init "$stack"
@@ -412,7 +420,7 @@ deploy_pulumi() {
             pulumi preview
             ;;
         apply)
-            pulumi up --yes
+            pulumi up --yes --parallel 15
 
             print_success "Pulumi apply complete"
 
@@ -455,11 +463,28 @@ deploy_pulumi() {
             local cluster resource_group
             cluster="$(pulumi stack output aks_cluster_name --stack "$stack" 2>/dev/null || true)"
             resource_group="$(pulumi stack output resource_group --stack "$stack" 2>/dev/null || true)"
+            # Fall back to the deterministic name if the export never ran
+            if [[ -z "$resource_group" ]]; then
+                resource_group="${APP_NAME:-devops-app}-${APP_ENV:-production}-rg"
+                print_warning "No resource_group output — falling back to expected name: ${resource_group}"
+            fi
             pre_destroy_cleanup_azure "$cluster" "$resource_group"
             pulumi destroy --yes
 
             if [[ -n "$resource_group" ]]; then
                 print_step "Verifying resource group '${resource_group}' no longer exists in Azure..."
+                if az group show --name "$resource_group" >/dev/null 2>&1; then
+                    print_warning "Resource group '${resource_group}' still exists after 'pulumi destroy'"
+                    print_warning "Deleting it directly to guarantee no leftover billing resources:"
+                    az group delete --name "$resource_group" --yes --no-wait
+                    print_info "Deletion started asynchronously — check with: az group show --name ${resource_group}"
+                fi
+            fi
+
+            print_step "Scanning for any other resource groups matching '${APP_NAME:-devops-app}*'..."
+            if [[ -n "$resource_group" ]]; then
+                print_step "Verifying resource group '${resource_group}' no longer exists in Azure..."
+
                 if az group show --name "$resource_group" >/dev/null 2>&1; then
                     print_warning "Resource group '${resource_group}' still exists after 'pulumi destroy'"
                     print_warning "Deleting it directly to guarantee no leftover billing resources:"
@@ -472,6 +497,12 @@ deploy_pulumi() {
                 print_warning "No resource_group output found in Pulumi state — cannot verify deletion"
                 print_warning "Manually check the Azure Portal for any leftover 'devops-app-*' resource groups"
             fi
+
+            print_step "Scanning for any other resource groups matching '${APP_NAME:-devops-app}*'..."
+            for rg_name in $(az group list --query "[?starts_with(name, '${APP_NAME:-devops-app}')].name" -o tsv 2>/dev/null); do
+                print_warning "Found stray resource group: ${rg_name} — deleting"
+                az group delete --name "$rg_name" --yes --no-wait
+            done
             ;;
     esac
 }
