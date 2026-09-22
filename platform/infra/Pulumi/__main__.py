@@ -78,7 +78,7 @@ location = get_env("AZURE_LOCATION", "centralindia")
 dr_location = get_env("AZURE_DR_LOCATION", "southeastasia")
 
 # AKS sizing — deliberately small/burstable to minimize spend.
-aks_vm_size = get_env("AZURE_AKS_VM_SIZE", "Standard_B2s")
+aks_vm_size = get_env("AZURE_AKS_VM_SIZE", "Standard_D2s_v6")
 aks_node_count = int(get_env("AZURE_AKS_NODE_COUNT", "1"))
 aks_min_count = int(get_env("MIN_REPLICAS", "1"))
 aks_max_count = int(get_env("MAX_REPLICAS", "3"))

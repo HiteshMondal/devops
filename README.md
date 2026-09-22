@@ -169,31 +169,35 @@ OCI image build/tagging for DockerHub or local runtime · Deployments · Service
                           Deployment Runner   
                        ──────────────────────────
                                    │
-                  ───────────────────────────────────
+               ────────────────────────────────────────
                            Bootstrap Menu            
                       install.sh   ·   reset.sh ·    
                    deploy workflow · Jenkins CI/CD   
-                  ──────────────────────────────────
+               ────────────────────────────────────────
                                    │
                         select_environment()
                                    │
-   ────────────────────────────────────────────────────────────────────────
+───────────────────────────────────────────────────────────────────────────
               │                                      │
       DEPLOY_TARGET=local                   DEPLOY_TARGET=prod
    (Minikube/Kind/K3s/MicroK8s)                  (EKS/AKS)
               │                                      │
+              |                                      |
     configure_environment()                configure_environment()
     DEPLOY_MODE=direct                      DEPLOY_MODE=gitops
               │                                      │
+              |                                      |
    detect_container_runtime()               select_cloud_provider()
    detect_k8s_cluster()                     select_infra_action()
               │                             (plan / apply / destroy)
               │                                      │
+              |                                      |
               │                            detect_container_runtime()
+              |                                      |
               │                                      │
-              │                       ───────────────────────────────
+              │                     ──────────────────────────────────────
               │                               deploy_infra.sh          
-              │                       ───────────────────────────────
+              │                     
               │                         aws   → Terraform  → EKS+RDS  
               │                         azure → Pulumi     → AKS+PG   
               │                       ───────────────────────────────
@@ -201,13 +205,15 @@ OCI image build/tagging for DockerHub or local runtime · Deployments · Service
               │                          detect_k8s_cluster()
               │                          (cluster now exists post-infra)
               │                                      │
+              |                                      |
    ───────────────────────────             ───────────────────────
      deploy_image()                          deploy_image()      
     build_and_push_                         build_and_push_      
     image.sh / _podman.sh                   image.sh / _podman.sh
    ────────────────────────────            ───────────────────────
-              │                                       │
-   ────────────────────────────                        │
+              │                                       |
+              |                                       │
+   ────────────────────────────                       │
     DIRECT KUBERNETES PIPELINE              ─────────────────────
    ────────────────────────────                 deploy_argo.sh    
    deploy_kubernetes.sh                       installs ArgoCD    
@@ -215,6 +221,7 @@ OCI image build/tagging for DockerHub or local runtime · Deployments · Service
     → build/load image                        generated/apps.yaml
     → HPA · Ingress · Secrets               ─────────────────────
                                                       │
+                                                      |
    deploy_monitoring.sh                     Git-managed sync targets:
     → Prometheus                          ─────────────────────────────
     → Grafana                                platform/deployment/    
@@ -227,6 +234,7 @@ OCI image build/tagging for DockerHub or local runtime · Deployments · Service
     → Trivy CronJob scan                    reconciles cluster state
     → trivy-exporter                        from these Git paths
    ────────────────────────────
+              |                                         | 
               │                                         │
             ───────────────────────────────────────────────
                                  │
