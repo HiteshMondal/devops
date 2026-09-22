@@ -99,17 +99,15 @@ _prompt_choice() {
     done
 }
 
-# Yes/no prompt — returns 0 for yes, 1 for no
-# Usage: _ask_yn "Question" "y|n"
 _ask_yn() {
     local question="$1"
     local default="${2:-n}"
 
     local hint
     if [[ "${default,,}" == "y" ]]; then
-        hint="${BOLD}${GREEN}Y${RESET}${DIM}/n${RESET}"
+        hint="Y/n"
     else
-        hint="${DIM}y/${RESET}${BOLD}${RED}N${RESET}"
+        hint="y/N"
     fi
 
     printf "  ${CYAN}%-44s${RESET} [%b]: " "$question" "$hint"
