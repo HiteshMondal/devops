@@ -457,6 +457,21 @@ deploy_pulumi() {
             resource_group="$(pulumi stack output resource_group --stack "$stack" 2>/dev/null || true)"
             pre_destroy_cleanup_azure "$cluster" "$resource_group"
             pulumi destroy --yes
+
+            if [[ -n "$resource_group" ]]; then
+                print_step "Verifying resource group '${resource_group}' no longer exists in Azure..."
+                if az group show --name "$resource_group" >/dev/null 2>&1; then
+                    print_warning "Resource group '${resource_group}' still exists after 'pulumi destroy'"
+                    print_warning "Deleting it directly to guarantee no leftover billing resources:"
+                    az group delete --name "$resource_group" --yes --no-wait
+                    print_info "Deletion started asynchronously — check with: az group show --name ${resource_group}"
+                else
+                    print_success "Confirmed: resource group '${resource_group}' is fully deleted"
+                fi
+            else
+                print_warning "No resource_group output found in Pulumi state — cannot verify deletion"
+                print_warning "Manually check the Azure Portal for any leftover 'devops-app-*' resource groups"
+            fi
             ;;
     esac
 }

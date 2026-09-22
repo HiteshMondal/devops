@@ -70,7 +70,7 @@ def blob_sas_url(
             permissions=storage.Permissions.R,
             shared_access_start_time="2024-01-01T00:00:00Z",
             shared_access_expiry_time="2034-01-01T00:00:00Z",
-            protocols=storage.HttpProtocol.HTTPS_ONLY,
+            protocols=storage.HttpProtocol.HTTPS,
         )
         return f"https://{acct}.blob.core.windows.net/{container}/{blob}?{sas.service_sas_token}"
 
