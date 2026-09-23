@@ -370,8 +370,6 @@ sync_backup_config_from_pulumi() {
     local patch_file="${overlay_dir}/backup-config-patch.yaml"
     local stack="${PULUMI_STACK:-devops-platform-azure/prod}"
 
-    require_cmd pulumi
-
     local client_id db_host bucket_account
     client_id=$(pulumi -C "${pulumi_dir}" stack output postgres_backup_client_id --stack "${stack}" 2>&1) || {
         print_error "Failed to read postgres_backup_client_id: ${client_id}"

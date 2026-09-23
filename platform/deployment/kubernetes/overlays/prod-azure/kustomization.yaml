@@ -9,8 +9,8 @@ namespace: devops-app
 
 images:
   - name: devops-app
-    newName: <your-registry>/devops-app
-    newTag: "placeholder"
+    newName: hiteshmondaldocker/devops-app
+    newTag: "b715c16"
 
 patches:
   - path: backup-config-patch.yaml
