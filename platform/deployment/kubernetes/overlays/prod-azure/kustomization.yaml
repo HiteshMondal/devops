@@ -1,3 +1,6 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
 resources:
   - ../../base
   - network-policy.yaml
@@ -9,8 +12,205 @@ namespace: devops-app
 
 images:
   - name: devops-app
-    newName: hiteshmondaldocker/devops-app
-    newTag: "e79c628"
+    newName: <your-registry>/devops-app
+    newTag: "placeholder"
 
 patches:
   - path: backup-config-patch.yaml
+
+  # Production-grade resource allocation and replica count
+  - target:
+      kind: Deployment
+      name: devops-app
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: devops-app
+        labels:
+          environment: production
+      spec:
+        replicas: 3
+        strategy:
+          type: RollingUpdate
+          rollingUpdate:
+            maxSurge: 1
+            maxUnavailable: 0
+        template:
+          metadata:
+            labels:
+              environment: production
+          spec:
+            affinity:
+              podAntiAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  podAffinityTerm:
+                    labelSelector:
+                      matchExpressions:
+                      - key: app
+                        operator: In
+                        values:
+                        - devops-app
+                    topologyKey: kubernetes.io/hostname
+            containers:
+            - name: devops-app
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              livenessProbe:
+                httpGet:
+                  path: /api/v1/health
+                  port: 8000
+                initialDelaySeconds: 30
+                periodSeconds: 10
+                timeoutSeconds: 5
+                failureThreshold: 3
+              readinessProbe:
+                httpGet:
+                  path: /api/v1/ready
+                  port: 8000
+                initialDelaySeconds: 10
+                periodSeconds: 5
+                timeoutSeconds: 3
+                failureThreshold: 3
+
+  # Production HPA configuration
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: devops-app-hpa
+    patch: |-
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: devops-app-hpa
+      spec:
+        minReplicas: 2
+        maxReplicas: 10
+        metrics:
+        - type: Resource
+          resource:
+            name: cpu
+            target:
+              type: Utilization
+              averageUtilization: 70
+        - type: Resource
+          resource:
+            name: memory
+            target:
+              type: Utilization
+              averageUtilization: 80
+        behavior:
+          scaleDown:
+            stabilizationWindowSeconds: 300
+            policies:
+            - type: Percent
+              value: 50
+              periodSeconds: 60
+          scaleUp:
+            stabilizationWindowSeconds: 0
+            policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 30
+            - type: Pods
+              value: 2
+              periodSeconds: 30
+            selectPolicy: Max
+
+  # Universal LoadBalancer Service for cloud clusters
+  - target:
+      kind: Service
+      name: devops-app-service
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: devops-app-service
+        annotations: {}
+      spec:
+        type: ClusterIP
+        sessionAffinity: None
+        ports:
+        - port: 80
+          targetPort: 8000
+          protocol: TCP
+          name: http
+        - port: 443
+          targetPort: 8000
+          protocol: TCP
+          name: https
+
+  # Universal Ingress configuration for cloud clusters
+  - target:
+      kind: Ingress
+      name: devops-app-ingress
+    patch: |-
+      - op: remove
+        path: /spec/rules/0/host
+
+  - target:
+      kind: Secret
+      name: devops-app-secrets
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: devops-app-secrets
+        namespace: devops-app
+
+  - target:
+      kind: Secret
+      name: postgres-secrets
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: postgres-secrets
+        namespace: devops-app
+
+  - target:
+      kind: StatefulSet
+      name: postgres
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: postgres
+
+  - target:
+      kind: Service
+      name: postgres-service
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: postgres-service
+
+  - target:
+      kind: PersistentVolumeClaim
+      name: app-data-pvc
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: app-data-pvc
+
+  - target:
+      kind: Deployment
+      name: devops-app
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/volumes/0
+        value:
+          name: app-data
+          emptyDir: {}

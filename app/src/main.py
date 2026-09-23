@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .auth import (
@@ -99,7 +99,7 @@ def ready(session: DBSession):
     try:
         session.execute(text("SELECT 1"))
         checks["database"] = "ok"
-    except Exception as exc:
+    except SQLAlchemyError as exc:
         checks["database"] = "unreachable"
         overall_ok = False
         logger.warning("Readiness DB check failed: %s", exc)
