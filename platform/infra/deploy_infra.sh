@@ -393,6 +393,20 @@ deploy_pulumi() {
         exit 1
     fi
 
+    print_subsection "Python Environment"
+
+    if [[ ! -d venv ]]; then
+        print_step "Creating Pulumi virtualenv..."
+        python3 -m venv venv
+    fi
+
+    print_step "Syncing Python dependencies (requirements.txt)..."
+    if ! "${pulumi_dir}/venv/bin/pip" install --quiet --upgrade -r requirements.txt; then
+        print_error "Failed to install Python dependencies into ${pulumi_dir}/venv"
+        exit 1
+    fi
+    print_success "Pulumi Python environment ready"
+
     local stack="${PULUMI_STACK:-prod}"
 
     print_info "Pulumi project:"

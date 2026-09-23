@@ -87,7 +87,8 @@ def create_self_healing(
         resource_group_name=rg.name,
         location=location,
         kind="functionapp",
-        sku=web.SkuDescriptionArgs(tier="Dynamic", name="Y1"),  # Consumption plan: pay-per-execution, free tier eligible
+        reserved=True,
+        sku=web.SkuDescriptionArgs(tier="Dynamic", name="Y1"),
         tags=common_tags,
     )
 
@@ -100,7 +101,6 @@ def create_self_healing(
         server_farm_id=plan.id,
         identity=web.ManagedServiceIdentityArgs(type="SystemAssigned"),
         site_config=web.SiteConfigArgs(
-            linux_fx_version="Python|3.11",
             app_settings=[
                 web.NameValuePairArgs(name="FUNCTIONS_WORKER_RUNTIME", value="python"),
                 web.NameValuePairArgs(name="FUNCTIONS_EXTENSION_VERSION", value="~4"),

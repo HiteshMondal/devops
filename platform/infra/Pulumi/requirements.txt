@@ -1,3 +1,4 @@
 pulumi>=3.100,<4.0
 pulumi-azure-native>=2.30,<3.0
 python-dotenv>=1.0,<2.0
+pulumiverse_time>=0.1.1,<1.0

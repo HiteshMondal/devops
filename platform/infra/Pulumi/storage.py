@@ -23,6 +23,7 @@ import pulumi
 from pulumi import ResourceOptions
 from pulumi_azure_native import resources, storage
 import pulumi_azure_native as _azure_native
+from pulumiverse_time import Sleep
 
 def create_distributed_storage(
     *,
@@ -62,12 +63,19 @@ def create_distributed_storage(
         opts=ResourceOptions(depends_on=[rg]),
     )
 
+    account_ready = Sleep(
+        f"{app_name}-files-sa-ready",
+        create_duration="30s",
+        opts=ResourceOptions(depends_on=[account]),
+    )
+
     container = storage.BlobContainer(
         f"{app_name}-files-container",
         account_name=account.name,
         resource_group_name=rg.name,
         container_name="files",
         public_access=storage.PublicAccess.NONE,
+        opts=ResourceOptions(depends_on=[account, account_ready]),
     )
 
     return account, container

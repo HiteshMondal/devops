@@ -25,6 +25,7 @@ import zipfile
 import pulumi
 from pulumi import FileAsset, Output, ResourceOptions
 from pulumi_azure_native import resources, storage
+from pulumiverse_time import Sleep
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _FUNCTIONS_DIR = os.path.join(_THIS_DIR, "functions")
@@ -88,12 +89,19 @@ def deploy_function_package(
 ) -> Output[str]:
     """Zip `function_name`'s code, upload it, and return the SAS URL to
     hand to WEBSITE_RUN_FROM_PACKAGE."""
+    storage_ready = Sleep(
+        f"{name_prefix}-sa-ready",
+        create_duration="30s",
+        opts=ResourceOptions(depends_on=[storage_account]),
+    )
+
     deployments_container = storage.BlobContainer(
         f"{name_prefix}-deployments",
         account_name=storage_account.name,
         resource_group_name=rg.name,
         container_name="deployments",
         public_access=storage.PublicAccess.NONE,
+        opts=ResourceOptions(depends_on=[storage_account, storage_ready]),
     )
 
     zip_path = zip_function_dir(function_name, zip_filename)
