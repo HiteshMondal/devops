@@ -13,7 +13,7 @@ namespace: devops-app
 images:
   - name: devops-app
     newName: hiteshmondaldocker/devops-app
-    newTag: "dfa23c1"
+    newTag: "91ee259"
 
 patches:
   - path: backup-config-patch.yaml
