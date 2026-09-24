@@ -104,7 +104,7 @@ def ready(session: DBSession):
     try:
         session.execute(text("SELECT 1"))
         checks["database"] = "ok"
-    except SQLAlchemyError as exc:
+    except Exception as exc:
         checks["database"] = "unreachable"
         overall_ok = False
         logger.warning("Readiness DB check failed: %s", exc)

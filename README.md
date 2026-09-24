@@ -1,6 +1,6 @@
 <div align="center">
 
-# ☁️ Multi-Cloud Application & Infrastructure Platform
+# ☁️ Automated Cloud Delivery & Infrastructure Provisioning Platform
 
 ### 🚀 Production-ready DevOps · Kubernetes · GitOps · Observability · Cloud
 

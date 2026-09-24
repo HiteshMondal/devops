@@ -17,10 +17,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.database import Base
 from src.main import app, db_session
+from src.config import config
 
 
 @pytest.fixture()
 def client(monkeypatch):
+    monkeypatch.setattr(config, "JWT_SECRET", "test-only-jwt-secret")
     # Use a shared in-memory SQLite DB (StaticPool keeps the same connection
     # alive across the pool so ":memory:" isn't wiped between uses).
     from sqlalchemy.pool import StaticPool

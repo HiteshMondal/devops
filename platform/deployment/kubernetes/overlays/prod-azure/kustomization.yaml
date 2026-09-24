@@ -184,4 +184,3 @@ patches:
       kind: HorizontalPodAutoscaler
       metadata:
         name: devops-app-hpa
-
