@@ -3,10 +3,10 @@
 # platform/deployment/kubernetes/deploy_kubernetes.sh
 
 # Designed to be compatible with all major Linux distributions and WSL.
-# Supports all Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
-# Should run on any computer without manual editing. Only configuration in the .env file is required.
-# .env is the SINGLE SOURCE OF TRUTH for Ports, configuration, Variables, and Secrets.
-# run.sh is the SINGLE AUTHORITY for Local/Production mode and execution flow.
+# Supports major Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
+# No manual file editing or manual command entry is required.
+# .env is the SINGLE SOURCE OF TRUTH for ports, configuration, variables, and secrets.
+# run.sh is the SINGLE AUTHORITY for local/production mode and execution flow.
 
 set -euo pipefail
 IFS=$'\n\t'
