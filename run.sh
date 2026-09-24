@@ -5,7 +5,7 @@
 # Supports major Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
 # No manual file editing or manual command entry is required.
 # .env is the SINGLE SOURCE OF TRUTH for ports, configuration, variables, and secrets.
-# run.sh is the SINGLE AUTHORITY for local/production mode and execution flow.
+# run.sh is the SINGLE AUTHORITY for local/production mode, execution flow and other scripts must run from run.sh only.
 
 set -Eeuo pipefail
 IFS=$'\n\t'

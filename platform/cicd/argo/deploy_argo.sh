@@ -603,9 +603,14 @@ apply_argocd_apps() {
             --sync \
             --health \
             --timeout 420; then
-            print_error "KEDA did not become healthy within 420 seconds"
+
+            print_warning "KEDA did not become synced/healthy within 420 seconds"
             diagnose_app "keda"
-            exit 1
+
+            # Do not block creation of the remaining Argo CD Applications.
+            print_warning "Continuing with remaining Argo CD Applications..."
+        else
+            print_success "KEDA is synced and healthy"
         fi
 
         print_success "KEDA is synced and healthy"
@@ -822,11 +827,7 @@ deploy_argo() {
     install_argocd_cli
 
     print_subsection "Step 2 — ArgoCD Server"
-    if argocd_is_installed; then
-        print_success "Argo CD already installed on cluster"
-    else
-        install_argocd_server
-    fi
+    install_argocd_server
 
     print_subsection "Step 3 — Login and Access"
     argocd_login
