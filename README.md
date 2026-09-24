@@ -4,7 +4,7 @@
 
 ### 🚀 Production-ready DevOps · Kubernetes · GitOps · Observability · Cloud
 
-</p>
+<p>
   <img src="https://img.shields.io/badge/Bash-121011?style=for-the-badge&logo=gnubash&logoColor=white" alt="Bash"/>
   <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
   <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"/>
@@ -289,7 +289,7 @@ chmod +x run.sh
 ```
 run.sh
  │
- ├─ 1. Bootstrap menu → install deps / reset environment / deploy / Jenkins CICD
+ ├─ 1. Bootstrap menu → install deps / reset environment / deploy / Jenkins CI/CD
  ├─ 2. Choose environment → local | production
  ├─ 3. Auto-configure services for that environment
  ├─ 4. (Production only) choose cloud provider + infra action
@@ -327,7 +327,7 @@ Provisions infra, then hands off to ArgoCD. Argo manages the app, monitoring, lo
 | AWS | Terraform | EKS | RDS PostgreSQL |
 | Azure | Pulumi | AKS | PostgreSQL Flexible Server |
 
-### Jenkins CICD (Optional Docker-based Jenkins)
+### Jenkins CI/CD (Optional Docker-based Jenkins)
 
 Full GitOps end-to-end CI/CD and main-branch validation
 
@@ -403,9 +403,9 @@ Full GitOps end-to-end CI/CD and main-branch validation
 │   ├── infra
 │   │   ├── deploy_infra.sh     # Infrastructure orchestrator
 |   |   |
-│   │   ├── pulumi
+│   │   ├── pulumi              # For Azure
 |   |   |
-│   │   └── terraform
+│   │   └── terraform           # For AWS
 |   |
 │   └── lib
 |
@@ -418,14 +418,14 @@ Full GitOps end-to-end CI/CD and main-branch validation
 
 ## Documentation
 
-* **Shell Scripts**: Automated shell scripts to run — [`scripts/linux_documentation.md`](./docs/linux_documentation.md) 
-* **Containerization**: Docker / Podman — [`platform/deployment/docker/docker_documentation.md`](./docs/docker_documentation.md)
-* **Orchestration**: Kubernetes — [`platform/deployment/kubernetes/documentation.md`](./docs/kubernetes_documentation.md)
-* **CI/CD**: GitHub Actions · GitLab CI · ArgoCD · Jenkins- [`platform/cicd/CICD_Documentation.md`](./docs/CICD_Documentation.md)
-                                                            [`platform/cicd/github/Git_GitHub_Fundamentals.md`](./docs/Git_GitHub_Fundamentals.md)
-                                                            [`platform/cicd/jenkins/documentation.md`](./docs/jenkins_documentation.md)
-* **Infrastructure and Cloud**: Terraform and AWs / Pulumi and Azure— [`platform/infra/documentation.md`](./docs/Cloud_Infra_documentation.md)
-* **Monitoring**: Prometheus + Grafana + Loki — [`monitoring/documentation.md`](./docs/monitoring_documentation.md)
+- **Shell Scripts** — [Linux Documentation](./docs/linux_documentation.md)
+- **Containers** — [Docker / Podman](./docs/docker_documentation.md)
+- **Kubernetes** — [Kubernetes Documentation](./docs/kubernetes_documentation.md)
+- **CI/CD** — [CI/CD Documentation](./docs/CICD_Documentation.md)
+- **Git & GitHub** — [Fundamentals](./docs/Git_GitHub_Fundamentals.md)
+- **Jenkins** — [Jenkins Documentation](./docs/jenkins_documentation.md)
+- **Cloud Infrastructure** — [AWS / Azure](./docs/Cloud_Infra_Documentation.md)
+- **Monitoring** — [Prometheus / Grafana / Loki](./docs/monitoring_documentation.md)
 
 ---
 

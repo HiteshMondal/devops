@@ -13,13 +13,14 @@ resources:
   - pod-disruption-budget.yaml
   - devops-app-sealed-secret.yaml
   - postgres-backup-cronjob.yaml
+  - keda-scaledobject.yaml
 
 namespace: devops-app
 
 images:
   - name: devops-app
     newName: hiteshmondaldocker/devops-app
-    newTag: "13e516f"
+    newTag: "c5a5dc6-20260924163509"
 
 patches:
   - path: backup-config-patch.yaml
@@ -84,49 +85,6 @@ patches:
                 periodSeconds: 5
                 timeoutSeconds: 3
                 failureThreshold: 3
-
-  # Production HPA configuration
-  - target:
-      kind: HorizontalPodAutoscaler
-      name: devops-app-hpa
-    patch: |-
-      apiVersion: autoscaling/v2
-      kind: HorizontalPodAutoscaler
-      metadata:
-        name: devops-app-hpa
-      spec:
-        minReplicas: 2
-        maxReplicas: 10
-        metrics:
-        - type: Resource
-          resource:
-            name: cpu
-            target:
-              type: Utilization
-              averageUtilization: 70
-        - type: Resource
-          resource:
-            name: memory
-            target:
-              type: Utilization
-              averageUtilization: 80
-        behavior:
-          scaleDown:
-            stabilizationWindowSeconds: 300
-            policies:
-            - type: Percent
-              value: 50
-              periodSeconds: 60
-          scaleUp:
-            stabilizationWindowSeconds: 0
-            policies:
-            - type: Percent
-              value: 100
-              periodSeconds: 30
-            - type: Pods
-              value: 2
-              periodSeconds: 30
-            selectPolicy: Max
 
   # Universal LoadBalancer Service for cloud clusters
   - target:
@@ -219,3 +177,15 @@ patches:
         value:
           name: app-data
           emptyDir: {}
+
+  - target:
+      group: autoscaling
+      version: v2
+      kind: HorizontalPodAutoscaler
+      name: devops-app-hpa
+    patch: |-
+      $patch: delete
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: devops-app-hpa

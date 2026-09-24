@@ -317,7 +317,6 @@ def delete_project(project_id: int, current_user: CurrentUser, session: DBSessio
     project = _get_owned_project_or_404(session, project_id, current_user)
     session.delete(project)
     session.flush()
-    return None
 
 
 # Contact

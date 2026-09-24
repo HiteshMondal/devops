@@ -467,7 +467,8 @@ gitops_publish_changes() {
     local -a paths=()
     for p in "platform/deployment/kubernetes/overlays/${K8S_OVERLAY}" \
              platform/deployment/kubernetes/base \
-             monitoring; do
+             monitoring \
+             "platform/cicd/argo/keda-app.yaml"; do
         [[ -e "${PROJECT_ROOT}/${p}" ]] && paths+=("$p")
     done
 
@@ -586,6 +587,33 @@ argocd_add_repo() {
 
 # APPLY APPLICATIONS
 apply_argocd_apps() {
+    # KEDA must be installed first because the production overlay
+    # contains a KEDA ScaledObject CRD.
+    local KEDA_APP="$PROJECT_ROOT/platform/cicd/argo/keda-app.yaml"
+
+    if [[ -f "$KEDA_APP" ]]; then
+        print_subsection "Applying KEDA controller Application"
+        kubectl apply -n "$ARGOCD_NAMESPACE" -f "$KEDA_APP"
+        print_success "KEDA Application applied"
+
+        print_step "Waiting for KEDA to sync and become healthy..."
+        assert_portforward_alive
+
+        if ! argocd_cmd app wait "keda" \
+            --sync \
+            --health \
+            --timeout 420; then
+            print_error "KEDA did not become healthy within 420 seconds"
+            diagnose_app "keda"
+            exit 1
+        fi
+
+        print_success "KEDA is synced and healthy"
+    else
+        print_error "Missing KEDA Application manifest: $KEDA_APP"
+        exit 1
+    fi
+
     local f="$PROJECT_ROOT/platform/cicd/argo/ingress-nginx-app.yaml"
     if [[ -f "$f" ]]; then
         print_subsection "Applying ingress-nginx controller Application"
@@ -824,7 +852,7 @@ deploy_argo() {
     print_subsection "Step 6 — Apply Applications"
     apply_argocd_apps
 
-    # Give ArgoCD a moment to register all four Application objects before
+    # Give ArgoCD a moment to register all Application objects before
     # the sync loop starts querying them.
     print_step "Waiting 10s for ArgoCD to register applications..."
     sleep 10

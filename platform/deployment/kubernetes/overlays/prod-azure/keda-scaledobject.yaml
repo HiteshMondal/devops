@@ -1,0 +1,59 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: devops-app-keda
+  namespace: devops-app
+  labels:
+    app: devops-app
+    managed-by: keda
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: devops-app
+
+  minReplicaCount: 2
+  maxReplicaCount: 10
+
+  pollingInterval: 15
+  cooldownPeriod: 300
+
+  advanced:
+    restoreToOriginalReplicaCount: true
+
+    horizontalPodAutoscalerConfig:
+      name: devops-app-keda-hpa
+
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Percent
+              value: 50
+              periodSeconds: 60
+            - type: Pods
+              value: 4
+              periodSeconds: 60
+          selectPolicy: Min
+
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 30
+            - type: Pods
+              value: 4
+              periodSeconds: 30
+          selectPolicy: Max
+
+  triggers:
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "70"
+
+    - type: memory
+      metricType: Utilization
+      metadata:
+        value: "80"

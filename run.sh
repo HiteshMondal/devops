@@ -207,7 +207,7 @@ select_environment() {
 
     _menu "Target Environment" \
         "Local|Minikube / Kind / K3s / MicroK8s" \
-        "Production|EKS / GKE / AKS"
+        "Production|EKS / AKS"
 
     _prompt_choice 1 2
 
