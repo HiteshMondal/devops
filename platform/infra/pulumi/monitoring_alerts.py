@@ -1,4 +1,4 @@
-# platform/infra/Pulumi/monitoring_alerts.py
+# platform/infra/pulumi/monitoring_alerts.py
 
 from __future__ import annotations
 

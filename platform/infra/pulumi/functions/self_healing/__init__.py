@@ -1,5 +1,5 @@
 """
-platform/infra/Pulumi/functions/self_healing/__init__.py
+platform/infra/pulumi/functions/self_healing/__init__.py
 --------------------------------------------------------------------------
 Self-healing remediation Azure Function.
 

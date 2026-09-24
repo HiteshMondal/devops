@@ -207,14 +207,14 @@ OCI image build/tagging for DockerHub or local runtime · Deployments · Service
               │                          (cluster now exists post-infra)
               │                                      │
               |                                      |
-   ───────────────────────────             ───────────────────────
+   ───────────────────────────            ───────────────────────
      deploy_image()                          deploy_image()      
     build_and_push_                         build_and_push_      
     image.sh / _podman.sh                   image.sh / _podman.sh
    ───────────────────────────            ───────────────────────
               │                                      |
               |                                      │
-   ───────────────────────────                       │
+   ─────────────────────────── 
     DIRECT KUBERNETES PIPELINE              ─────────────────────
                                                deploy_argo.sh    
    deploy_kubernetes.sh                       installs ArgoCD    
@@ -226,19 +226,19 @@ OCI image build/tagging for DockerHub or local runtime · Deployments · Service
               |                                      │
    ───────────────────────────                       |
       MONITORING STACK                               |
-                                                     |
+                                          ─────────────────────────────
    deploy_monitoring.sh                     Git-managed sync targets:
-    → Prometheus                          ─────────────────────────────
+    → Prometheus 
     → Grafana                                platform/deployment/    
                                                kubernetes/base       
    deploy_loki.sh                            monitoring/prometheus   
     → Loki (StatefulSet)                     monitoring/loki         
     → Promtail (DaemonSet)                   monitoring/trivy        
-                                           ────────────────────────────
+                                    
    trivy.sh                                 ArgoCD continuously
     → Trivy CronJob scan                    reconciles cluster state
     → trivy-exporter                        from these Git paths
-   ────────────────────────────
+   ────────────────────────────           ────────────────────────────
               |                                         | 
               │                                         │
             ───────────────────────────────────────────────
@@ -345,6 +345,7 @@ Full GitOps end-to-end CI/CD and main-branch validation
 ├── .env                        # Config, ports, secrets
 ├── .github/workflows/prod.yml  # GitHub Actions CI Only
 ├── .gitlab-ci.yml              # GitLab CI
+├── .gitignore
 |
 ├── app                         # FastAPI application
 │   ├── Dockerfile
@@ -378,7 +379,6 @@ Full GitOps end-to-end CI/CD and main-branch validation
 ├── platform
 │   ├── cicd                    # Argo CD, Jenkins
 │   │   ├── argo
-│   │   ├── github
 │   │   └── jenkins
 |   |
 |   |
@@ -391,6 +391,7 @@ Full GitOps end-to-end CI/CD and main-branch validation
 |   |   |
 │   │   └── kubernetes
 │   │       ├── deploy_kubernetes.sh   # Kubernetes orchestrator
+|   |       ├── kube_context.sh        # Select and Change Kubernetes Cluster - Minikube/EKS/AKS
 │   │       ├── base
 │   │       ├── overlays
 │   │       │   ├── local
@@ -402,7 +403,7 @@ Full GitOps end-to-end CI/CD and main-branch validation
 │   ├── infra
 │   │   ├── deploy_infra.sh     # Infrastructure orchestrator
 |   |   |
-│   │   ├── Pulumi
+│   │   ├── pulumi
 |   |   |
 │   │   └── terraform
 |   |
@@ -411,20 +412,20 @@ Full GitOps end-to-end CI/CD and main-branch validation
 ├── scripts
 │   ├── install.sh              # Install and check required Dependencies
 │   └── reset.sh                # Selective destructive cleanup
+├── docs
 ```
 ---
 
 ## Documentation
 
-* **Shell Scripts**: Automated shell scripts to run — [`scripts/linux_documentation.md`](./scripts/linux_documentation.md) 
-* **Containerization**: Docker / Podman — [`platform/deployment/docker/docker_documentation.md`](./platform/deployment/docker/docker_documentation.md)
-* **Orchestration**: Kubernetes — [`platform/deployment/kubernetes/documentation.md`](./platform/deployment/kubernetes/documentation.md)
-* **CI/CD**: GitHub Actions · GitLab CI · ArgoCD · Jenkins- [`platform/cicd/CICD_Documentation.md`](./platform/cicd/CICD_Documentation.md)
-                                                            [`platform/cicd/github/Git_GitHub_Fundamentals.md`](./platform/cicd/github/Git_GitHub_Fundamentals.md)
-                                                            [`platform/cicd/jenkins/documentation.md`](./platform/cicd/jenkins/documentation.md)
-* **Infrastructure**: Terraform / Pulumi — [`platform/infra/documentation.md`](./platform/infra/documentation.md)
-* **Monitoring**: Prometheus + Grafana + Loki — [`monitoring/documentation.md`](./monitoring/documentation.md)
-* **AWS**: [`platform/infra/terraform/AWS_Documentation.md`](./platform/infra/terraform/AWS_Documentation.md)
+* **Shell Scripts**: Automated shell scripts to run — [`scripts/linux_documentation.md`](./docs/linux_documentation.md) 
+* **Containerization**: Docker / Podman — [`platform/deployment/docker/docker_documentation.md`](./docs/docker_documentation.md)
+* **Orchestration**: Kubernetes — [`platform/deployment/kubernetes/documentation.md`](./docs/kubernetes_documentation.md)
+* **CI/CD**: GitHub Actions · GitLab CI · ArgoCD · Jenkins- [`platform/cicd/CICD_Documentation.md`](./docs/CICD_Documentation.md)
+                                                            [`platform/cicd/github/Git_GitHub_Fundamentals.md`](./docs/Git_GitHub_Fundamentals.md)
+                                                            [`platform/cicd/jenkins/documentation.md`](./docs/jenkins_documentation.md)
+* **Infrastructure and Cloud**: Terraform and AWs / Pulumi and Azure— [`platform/infra/documentation.md`](./docs/Cloud_Infra_documentation.md)
+* **Monitoring**: Prometheus + Grafana + Loki — [`monitoring/documentation.md`](./docs/monitoring_documentation.md)
 
 ---
 

@@ -1,5 +1,5 @@
 """
-platform/infra/Pulumi/postgres_backup_identity.py
+platform/infra/pulumi/postgres_backup_identity.py
 --------------------------------------------------------------------------
 Workload Identity (AKS's equivalent of AWS IRSA) for the postgres-backup
 CronJob's ServiceAccount, scoped only to Storage Blob Data Contributor on

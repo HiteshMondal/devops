@@ -1,5 +1,5 @@
 """
-platform/infra/Pulumi/self_healing.py
+platform/infra/pulumi/self_healing.py
 --------------------------------------------------------------------------
 Self-Healing Infrastructure (Azure side).
 

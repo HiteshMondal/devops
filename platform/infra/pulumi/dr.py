@@ -1,5 +1,5 @@
 """
-platform/infra/Pulumi/dr.py
+platform/infra/pulumi/dr.py
 --------------------------------------------------------------------------
 Multi-Cloud (same-cloud, cross-region via GRS) Disaster Recovery
 (Azure side).

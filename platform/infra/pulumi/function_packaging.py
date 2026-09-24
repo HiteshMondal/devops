@@ -1,5 +1,5 @@
 """
-platform/infra/Pulumi/function_packaging.py
+platform/infra/pulumi/function_packaging.py
 --------------------------------------------------------------------------
 Shared packaging helper for Azure Function Apps deployed from this Pulumi
 program, used by both self_healing.py and dr.py so the zip/upload/SAS

@@ -384,12 +384,12 @@ deploy_pulumi() {
     print_success "Azure subscription: ${az_subscription_id}"
     print_success "Azure tenant:       ${az_tenant_id}"
 
-    local pulumi_dir="${PROJECT_ROOT}/platform/infra/Pulumi"
+    local pulumi_dir="${PROJECT_ROOT}/platform/infra/pulumi"
 
     cd "$pulumi_dir"
 
-    if [[ ! -f Pulumi.yaml ]]; then
-        print_error "Pulumi.yaml missing"
+    if [[ ! -f pulumi.yaml ]]; then
+        print_error "pulumi.yaml missing"
         exit 1
     fi
 
@@ -410,7 +410,7 @@ deploy_pulumi() {
     local stack="${PULUMI_STACK:-prod}"
 
     print_info "Pulumi project:"
-    grep "^name:" Pulumi.yaml
+    grep "^name:" pulumi.yaml
 
     print_info "Pulumi stack: $stack"
 

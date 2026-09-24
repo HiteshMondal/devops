@@ -1,5 +1,5 @@
 """
-platform/infra/Pulumi/storage.py
+platform/infra/pulumi/storage.py
 --------------------------------------------------------------------------
 Distributed Cloud File System (Azure side).
 
