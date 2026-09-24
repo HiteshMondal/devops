@@ -317,7 +317,7 @@ deploy() {
 
     # Wait for rollout
     if ! kubectl rollout status deployment/"${APP_NAME}" \
-            -n "${NAMESPACE}" --timeout=300s; then
+            -n "${NAMESPACE}" --timeout=400s; then
         print_error "Deployment failed"
         kubectl get pods -n "${NAMESPACE}" || true
         exit 1
