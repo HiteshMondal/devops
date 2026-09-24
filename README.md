@@ -418,11 +418,9 @@ Full GitOps end-to-end CI/CD and main-branch validation
 
 ## Documentation
 
-- **Shell Scripts** — [Linux Documentation](./docs/linux_documentation.md)
 - **Containers** — [Docker / Podman](./docs/docker_documentation.md)
 - **Kubernetes** — [Kubernetes Documentation](./docs/kubernetes_documentation.md)
 - **CI/CD** — [CI/CD Documentation](./docs/CICD_Documentation.md)
-- **Git & GitHub** — [Fundamentals](./docs/Git_GitHub_Fundamentals.md)
 - **Jenkins** — [Jenkins Documentation](./docs/jenkins_documentation.md)
 - **Cloud Infrastructure** — [AWS / Azure](./docs/Cloud_Infra_Documentation.md)
 - **Monitoring** — [Prometheus / Grafana / Loki](./docs/monitoring_documentation.md)

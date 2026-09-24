@@ -14,6 +14,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, field_validator
+
 from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -96,22 +97,32 @@ def health():
 
 
 @app.get("/ready")
-@app.get("/api/v1/ready")
-def ready(session: DBSession):
-    checks = {}
-    overall_ok = True
+def readiness():
+    checks = {
+        "database": "unreachable",
+    }
+    overall_ok = False
 
     try:
-        session.execute(text("SELECT 1"))
+        with db_session() as session:
+            session.execute(text("SELECT 1"))
+
         checks["database"] = "ok"
-    except Exception as exc:
+        overall_ok = True
+
+    except (SQLAlchemyError, RuntimeError) as exc:
         checks["database"] = "unreachable"
-        overall_ok = False
         logger.warning("Readiness DB check failed: %s", exc)
 
     status_code = 200 if overall_ok else 503
-    body = {"status": "ready" if overall_ok else "not_ready", "checks": checks}
-    return JSONResponse(status_code=status_code, content=body)
+
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "ok" if overall_ok else "unhealthy",
+            "checks": checks,
+        },
+    )
 
 
 @app.get("/config")
