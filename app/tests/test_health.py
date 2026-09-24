@@ -77,8 +77,6 @@ def test_metrics_endpoint_exposes_prometheus_format(client):
     resp = client.get("/metrics")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/plain")
-    # Confirm at least the request counter metric name appears after
-    # this same client has made prior requests in this test session.
     assert b"http_requests_total" in resp.content or b"# HELP" in resp.content
 
 

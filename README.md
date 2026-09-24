@@ -165,9 +165,10 @@ OCI image build/tagging for DockerHub or local runtime · Deployments · Service
 
 ```
                        ──────────────────────────
-                               run.sh         
-                          Deployment Runner   
+                                 run.sh         
+                           Deployment Runner   
                        ──────────────────────────
+                                   |
                                    │
                ────────────────────────────────────────
                            Bootstrap Menu            
@@ -175,7 +176,7 @@ OCI image build/tagging for DockerHub or local runtime · Deployments · Service
                    deploy workflow · Jenkins CI/CD   
                ────────────────────────────────────────
                                    │
-                        select_environment()
+                           select_environment()
                                    │
 ───────────────────────────────────────────────────────────────────────────
               │                                      │
@@ -200,7 +201,7 @@ OCI image build/tagging for DockerHub or local runtime · Deployments · Service
               │                     
               │                         aws   → Terraform  → EKS+RDS  
               │                         azure → Pulumi     → AKS+PG   
-              │                       ───────────────────────────────
+              │                     ──────────────────────────────────────
               │                                      │
               │                          detect_k8s_cluster()
               │                          (cluster now exists post-infra)
@@ -210,18 +211,22 @@ OCI image build/tagging for DockerHub or local runtime · Deployments · Service
      deploy_image()                          deploy_image()      
     build_and_push_                         build_and_push_      
     image.sh / _podman.sh                   image.sh / _podman.sh
-   ────────────────────────────            ───────────────────────
-              │                                       |
-              |                                       │
-   ────────────────────────────                       │
+   ───────────────────────────            ───────────────────────
+              │                                      |
+              |                                      │
+   ───────────────────────────                       │
     DIRECT KUBERNETES PIPELINE              ─────────────────────
-   ────────────────────────────                 deploy_argo.sh    
+                                               deploy_argo.sh    
    deploy_kubernetes.sh                       installs ArgoCD    
     → Kustomize base+overlay                  applies apps from  
     → build/load image                        generated/apps.yaml
     → HPA · Ingress · Secrets               ─────────────────────
-                                                      │
-                                                      |
+   ───────────────────────────                       |
+              |                                      |
+              |                                      │
+   ───────────────────────────                       |
+      MONITORING STACK                               |
+                                                     |
    deploy_monitoring.sh                     Git-managed sync targets:
     → Prometheus                          ─────────────────────────────
     → Grafana                                platform/deployment/    
@@ -242,7 +247,6 @@ OCI image build/tagging for DockerHub or local runtime · Deployments · Service
                     credentials, kubectl commands
 ```
 
-
 ---
 
 
@@ -250,13 +254,13 @@ OCI image build/tagging for DockerHub or local runtime · Deployments · Service
 
 | Target                     | Requirements                                                             |
 | :------------------------- | :----------------------------------------------------------------------- |
-| 🖥️ **All**                | `Linux` · `Bash` · `Git` · `kubectl` · `Docker / Podman`                 |
+| 🖥️ **All**                 | `Linux` · `Bash` · `Git` · `kubectl` · `Docker / Podman`                 |
 | ☸️ **Local K8s**           | Choose one: `Minikube` · `Kind` · `K3s` · `MicroK8s` + running cluster   |
 | ☁️ **AWS**                 | `AWS CLI` · `Terraform` · AWS credentials · `EKS + RDS` permissions      |
 | ☁️ **Azure**               | `Azure CLI` · `Pulumi` · Azure auth · `AKS + PostgreSQL` permissions     |
 | 🔄 **Production / GitOps** | Git repo access · Container registry · Registry credentials · Cloud auth |
 | 🐳 **Docker**              | Non-`sudo` access: `sudo usermod -aG docker $USER` → `newgrp docker`     |
-| ✅ **Verify**               | `./scripts/install.sh` — checks required tools                           |
+| ✅ **Verify**              | `./scripts/install.sh` — checks required tools                           |
 
 > ⚠️ Review infrastructure plans before `apply`; cloud deployments require valid credentials and permissions.
 
@@ -390,7 +394,8 @@ Full GitOps end-to-end CI/CD and main-branch validation
 │   │       ├── base
 │   │       ├── overlays
 │   │       │   ├── local
-│   │       │   └── prod
+|   |       |   ├── prod
+│   │       │   └── prod-azure
 │   │       └── sealed-secrets
 |   |
 |   |

@@ -10,11 +10,11 @@ from pathlib import Path
 from typing import Annotated
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, field_validator
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -53,6 +53,11 @@ def db_session():
 
 DBSession = Annotated[Session, Depends(db_session)]
 CurrentUser = Annotated[User, Depends(make_get_current_user(db_session))]
+
+# Shared pagination query params. Capped at 100 per page so a caller can't
+# force the DB to load an unbounded number of rows in one request.
+PageParam = Annotated[int, Query(ge=1, description="1-indexed page number")]
+PageSizeParam = Annotated[int, Query(ge=1, le=100, description="Items per page (max 100)")]
 
 
 # Frontend
@@ -125,7 +130,7 @@ def metrics():
     return metrics_response()
 
 
-# Projects
+# Auth
 
 class SignupIn(BaseModel):
     email: EmailStr
@@ -173,27 +178,146 @@ def me(current_user: CurrentUser):
     return {"id": current_user.id, "email": current_user.email}
 
 
+# Projects
+#
+# Full CRUD. Listing is public (portfolio visitors need to see projects
+# without logging in) and paginated. Create/update/delete require auth,
+# and update/delete are restricted to the project's own owner — this is
+# the "My projects" ownership feature.
+
 class ProjectIn(BaseModel):
     title: str
     description: str = ""
     link: str = ""
 
 
+class ProjectUpdateIn(BaseModel):
+    """All fields optional — PATCH-style partial update."""
+    title: str | None = None
+    description: str | None = None
+    link: str | None = None
+
+
+def _project_out(p: Project) -> dict:
+    return {
+        "id": p.id,
+        "title": p.title,
+        "description": p.description,
+        "link": p.link,
+        "owner_id": p.owner_id,
+        "created_at": p.created_at.isoformat(),
+    }
+
+
+def _get_owned_project_or_404(session: Session, project_id: int, current_user: User) -> Project:
+    project = session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.owner_id != current_user.id:
+        # 404 rather than 403 so we don't leak the existence of other
+        # users' projects to someone who doesn't own them.
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
 @app.get("/api/v1/projects")
-def list_projects(session: DBSession):
-    projects = session.query(Project).order_by(Project.created_at.desc()).all()
-    return [
-        {"id": p.id, "title": p.title, "description": p.description, "link": p.link}
-        for p in projects
-    ]
+def list_projects(
+    session: DBSession,
+    page: PageParam = 1,
+    page_size: PageSizeParam = 20,
+):
+    """Public, paginated project listing."""
+    total = session.query(func.count(Project.id)).scalar() or 0
+    projects = (
+        session.query(Project)
+        .order_by(Project.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return {
+        "items": [_project_out(p) for p in projects],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": (total + page_size - 1) // page_size if page_size else 0,
+    }
+
+
+@app.get("/api/v1/projects/mine")
+def list_my_projects(
+    current_user: CurrentUser,
+    session: DBSession,
+    page: PageParam = 1,
+    page_size: PageSizeParam = 20,
+):
+    """Projects owned by the logged-in user. Must be declared before the
+    /{project_id} route below so FastAPI doesn't try to parse "mine" as
+    an int path param."""
+    query = session.query(Project).filter(Project.owner_id == current_user.id)
+    total = query.with_entities(func.count(Project.id)).scalar() or 0
+    projects = (
+        query.order_by(Project.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return {
+        "items": [_project_out(p) for p in projects],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": (total + page_size - 1) // page_size if page_size else 0,
+    }
+
+
+@app.get("/api/v1/projects/{project_id}")
+def get_project(project_id: int, session: DBSession):
+    project = session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return _project_out(project)
 
 
 @app.post("/api/v1/projects")
-def create_project(body: ProjectIn, session: DBSession):
-    project = Project(title=body.title, description=body.description, link=body.link)
+def create_project(body: ProjectIn, current_user: CurrentUser, session: DBSession):
+    project = Project(
+        title=body.title,
+        description=body.description,
+        link=body.link,
+        owner_id=current_user.id,
+    )
     session.add(project)
     session.flush()
-    return {"id": project.id}
+    return _project_out(project)
+
+
+@app.patch("/api/v1/projects/{project_id}")
+def update_project(
+    project_id: int,
+    body: ProjectUpdateIn,
+    current_user: CurrentUser,
+    session: DBSession,
+):
+    project = _get_owned_project_or_404(session, project_id, current_user)
+
+    if body.title is not None:
+        project.title = body.title
+    if body.description is not None:
+        project.description = body.description
+    if body.link is not None:
+        project.link = body.link
+
+    session.flush()
+    return _project_out(project)
+
+
+@app.delete("/api/v1/projects/{project_id}", status_code=204)
+def delete_project(project_id: int, current_user: CurrentUser, session: DBSession):
+    project = _get_owned_project_or_404(session, project_id, current_user)
+    session.delete(project)
+    session.flush()
+    return None
 
 
 # Contact
@@ -202,6 +326,16 @@ class ContactIn(BaseModel):
     name: str
     email: EmailStr
     message: str
+
+
+def _contact_out(c: ContactMessage) -> dict:
+    return {
+        "id": c.id,
+        "name": c.name,
+        "email": c.email,
+        "message": c.message,
+        "created_at": c.created_at.isoformat(),
+    }
 
 
 def _notify_contact_submission(name: str, email: str, message: str) -> None:
@@ -242,6 +376,36 @@ def submit_contact(
     )
 
     return {"status": "received", "id": entry.id}
+
+
+@app.get("/api/v1/contact")
+def list_contact_messages(
+    current_user: CurrentUser,
+    session: DBSession,
+    page: PageParam = 1,
+    page_size: PageSizeParam = 20,
+):
+    """Admin-only listing of submitted contact messages.
+
+    Any authenticated user can read this — there's no separate admin role
+    in this app yet, so "authenticated" is the only bar. Add a role check
+    here if you introduce one later.
+    """
+    total = session.query(func.count(ContactMessage.id)).scalar() or 0
+    messages = (
+        session.query(ContactMessage)
+        .order_by(ContactMessage.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return {
+        "items": [_contact_out(c) for c in messages],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": (total + page_size - 1) // page_size if page_size else 0,
+    }
 
 
 @app.exception_handler(CircuitOpenError)
