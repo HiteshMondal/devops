@@ -613,7 +613,6 @@ apply_argocd_apps() {
             print_success "KEDA is synced and healthy"
         fi
 
-        print_success "KEDA is synced and healthy"
     else
         print_error "Missing KEDA Application manifest: $KEDA_APP"
         exit 1
@@ -677,14 +676,18 @@ _wait_for_app() {
     fi
 
     print_step "Waiting for: ${BOLD}${app}${RESET}  (timeout: ${timeout}s)"
-    argocd_cmd app wait "$app" \
+
+    if argocd_cmd app wait "$app" \
         --sync \
         --health \
-        --timeout "$timeout" \
-        || {
-            print_warning "Timeout or issue waiting for ${app} — ArgoCD will continue to self-heal"
-            diagnose_app "$app"
-        }
+        --timeout "$timeout"; then
+        print_success "${app} is synced and healthy"
+        return 0
+    fi
+
+    print_warning "Timeout or issue waiting for ${app} — ArgoCD will continue to self-heal"
+    diagnose_app "$app"
+    return 1
 }
 
 # blocks on each app, so this becomes a lightweight final health check.
