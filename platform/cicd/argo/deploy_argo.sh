@@ -585,6 +585,59 @@ argocd_add_repo() {
     print_success "Repository registered: ${BOLD}${REPO_URL}${RESET}"
 }
 
+wait_for_metrics_server() {
+    print_subsection "Waiting for Kubernetes Metrics API"
+
+    local timeout="${1:-300}"
+    local elapsed=0
+
+    print_step "Waiting for metrics-server deployment..."
+
+    until kubectl -n kube-system rollout status deployment/metrics-server --timeout=10s >/dev/null 2>&1; do
+        if (( elapsed >= timeout )); then
+            print_error "metrics-server deployment did not become ready within ${timeout}s"
+            kubectl get deployment metrics-server -n kube-system -o wide 2>&1 || true
+            kubectl get pods -n kube-system -l k8s-app=metrics-server -o wide 2>&1 || true
+            kubectl describe apiservice v1beta1.metrics.k8s.io 2>&1 || true
+            kubectl logs -n kube-system -l k8s-app=metrics-server --tail=100 2>&1 || true
+            return 1
+        fi
+
+        sleep 10
+        elapsed=$((elapsed + 10))
+    done
+
+    print_success "metrics-server deployment is ready"
+
+    print_step "Waiting for metrics.k8s.io API to serve metrics..."
+
+    elapsed=0
+    until kubectl get --raw /apis/metrics.k8s.io/v1beta1/nodes >/dev/null 2>&1; do
+        if (( elapsed >= timeout )); then
+            print_error "metrics.k8s.io API is registered but not serving metrics"
+
+            print_info "APIService:"
+            kubectl get apiservice v1beta1.metrics.k8s.io -o wide 2>&1 || true
+
+            print_info "APIService details:"
+            kubectl describe apiservice v1beta1.metrics.k8s.io 2>&1 || true
+
+            print_info "Metrics Server pods:"
+            kubectl get pods -n kube-system -l k8s-app=metrics-server -o wide 2>&1 || true
+
+            print_info "Metrics Server logs:"
+            kubectl logs -n kube-system -l k8s-app=metrics-server --tail=100 2>&1 || true
+
+            return 1
+        fi
+
+        sleep 10
+        elapsed=$((elapsed + 10))
+    done
+
+    print_success "metrics.k8s.io API is serving metrics"
+}
+
 # APPLY APPLICATIONS
 apply_argocd_apps() {
     # KEDA must be installed first because the production overlay
@@ -852,6 +905,9 @@ deploy_argo() {
 
     print_subsection "Step 5 — Generate Application Manifests"
     generate_argocd_apps
+
+    print_subsection "Step 5b — Verify Kubernetes Metrics API"
+    wait_for_metrics_server 300
 
     print_subsection "Step 6 — Apply Applications"
     apply_argocd_apps
