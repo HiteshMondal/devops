@@ -1,12 +1,4 @@
-########################################
 # platform/infra/terraform/storage.tf
-#
-# Distributed Cloud File System: an S3 bucket in var.aws_region, versioned
-# and replicated to a second bucket in var.cloud_storage_replica_region.
-# Entirely opt-in (var.enable_cloud_storage) and additive — no other file
-# in this directory references these resources, so leaving the flag off
-# has zero effect on the rest of the stack.
-########################################
 
 # Primary bucket (var.aws_region)
 

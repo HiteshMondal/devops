@@ -214,14 +214,14 @@ OCI image build/tagging for DockerHub or local runtime · Deployments · Service
    ───────────────────────────            ───────────────────────
               │                                      |
               |                                      │
-   ─────────────────────────── 
-    DIRECT KUBERNETES PIPELINE              ─────────────────────
+   ───────────────────────────              ─────────────────────
+    DIRECT KUBERNETES PIPELINE              CLOUD KUBERNETES (EKS/AKS)
                                                deploy_argo.sh    
    deploy_kubernetes.sh                       installs ArgoCD    
     → Kustomize base+overlay                  applies apps from  
     → build/load image                        generated/apps.yaml
-    → HPA · Ingress · Secrets               ─────────────────────
-   ───────────────────────────                       |
+    → HPA · Ingress · Secrets              Kubernetes Event-driven Autoscaling
+   ───────────────────────────              ─────────────────────
               |                                      |
               |                                      │
    ───────────────────────────                       |
@@ -342,7 +342,7 @@ Full GitOps end-to-end CI/CD and main-branch validation
 .
 ├── run.sh                      # Main orchestrator
 |
-├── .env                        # Config, ports, secrets
+├── .env/.env.example           # Config, ports, secrets
 ├── .github/workflows/prod.yml  # GitHub Actions CI Only
 ├── .gitlab-ci.yml              # GitLab CI
 ├── .gitignore
@@ -401,7 +401,7 @@ Full GitOps end-to-end CI/CD and main-branch validation
 |   |
 |   |
 │   ├── infra
-│   │   ├── deploy_infra.sh     # Infrastructure orchestrator
+│   │   ├── deploy_infra.sh     # Infrastructure/Cloud orchestrator
 |   |   |
 │   │   ├── pulumi              # For Azure
 |   |   |

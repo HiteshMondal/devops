@@ -7,9 +7,11 @@
 # Kind, K3s, MicroK8s, EKS, GKE, AKS — no cloud-specific setup, no KMS.
 #
 # CONFIGURATION POLICY:
-# .env is the SINGLE SOURCE OF TRUTH for Ports, Variables, and Secrets.
-# run.sh is the SINGLE AUTHORITY for Local/Production mode and execution flow.
-# This script MUST NOT independently determine the deployment environment.
+# Designed to run on all major Linux distributions and WSL.
+# Supports major Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s, or others.
+# No manual file editing or manual command entry should be required during normal operation or debugging.
+# .env is the SINGLE SOURCE OF TRUTH for ports, configuration, variables, and secrets.
+# run.sh is the SINGLE AUTHORITY for local/production mode and execution flow. Other scripts must run from run.sh only.
 
 set -Eeuo pipefail
 IFS=$'\n\t'

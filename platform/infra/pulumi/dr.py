@@ -29,13 +29,7 @@ def create_dr_backup(
     files_container_name: str,
     subscription_id: str,
 ):
-    """Create (or skip) the DR backup timer Function App.
 
-    Requires files_storage_account (from storage.py, i.e.
-    ENABLE_CLOUD_STORAGE must also be true) since the checkpoint blob is
-    written into that GRS-replicated account. Returns the Function App
-    resource, or None when disabled or the storage account is absent.
-    """
     if not enabled or files_storage_account is None:
         if enabled and files_storage_account is None:
             pulumi.log.warn(

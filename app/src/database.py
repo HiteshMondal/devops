@@ -1,15 +1,5 @@
-"""Database engine & session setup.
+# Database engine & session setup.
 
-Tries Postgres first (built from the existing DB_* env vars — same
-contract as before, no new variables). If Postgres is unreachable at
-startup (host down, not yet provisioned, credentials missing, etc.), we
-fall back to the original on-disk SQLite file automatically, so any
-existing deployment that hasn't provisioned Postgres yet keeps working
-unmodified.
-
-A clear log line always states which backend ended up active — check
-`uvicorn`/pod logs to confirm.
-"""
 import logging
 import os
 import time
@@ -30,10 +20,6 @@ SQLITE_URL = f"sqlite:///{config.DB_SQLITE_PATH}"
 def _build_postgres_url() -> str | None:
     """Build a Postgres DSN from existing DB_* vars, or None if unset."""
     if not config.DB_HOST or config.DB_HOST == "localhost":
-        # "localhost" is the historical default when nobody set DB_HOST —
-        # treat it the same as "not configured" so local/dev without a
-        # Postgres instance falls back to SQLite instead of trying (and
-        # failing) to reach a local Postgres that doesn't exist.
         return None
     from urllib.parse import quote_plus
     user = quote_plus(config.DB_USERNAME)
@@ -45,12 +31,6 @@ def _build_postgres_url() -> str | None:
 
 
 def _try_postgres_engine(retries: int = 5, base_delay: float = 2.0):
-    """Attempt to connect to Postgres with exponential backoff.
-
-    RDS can take longer than a single short timeout to accept connections
-    (cold start, post-failover, brief network blips), so a single 3s
-    attempt was too eager to give up. This retries before conceding.
-    """
     url = _build_postgres_url()
     if not url:
         return None

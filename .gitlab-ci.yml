@@ -31,9 +31,6 @@ variables:
   APP_DIR: "app"
   APP_SRC: "app/src"
 
-# Only run pipelines where they matter: merge requests, and pushes to
-# main/develop. Avoids burning free-tier minutes on every branch push
-# and avoids duplicate pipelines (branch + MR) for the same commit.
 workflow:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -49,11 +46,6 @@ default:
 
 # REUSABLE SNIPPETS
 
-# Loads .env if present on the runner (useful for self-hosted/local
-# runners that mount a real .env), then falls back to whatever GitLab
-# CI/CD variables are already injected into the job environment.
-# Real secrets should NEVER be committed — this is a convenience layer,
-# not a way to smuggle secrets into git.
 .load_dotenv: &load_dotenv |
   if [ -f .env ]; then
     echo "Loading variables from .env"
@@ -72,8 +64,6 @@ default:
   paths:
     - .cache/pip
   policy: pull-push
-
-# STAGE: validate — cheap structural/static checks, no dependencies
 
 env-hygiene-check:
   stage: validate
@@ -149,7 +139,7 @@ terraform-validate:
         - "platform/infra/terraform/**/*"
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_COMMIT_BRANCH == "develop"'
-  allow_failure: true   # infra formatting shouldn't block app CI
+  allow_failure: true
 
 k8s-manifest-validate:
   stage: validate
@@ -171,9 +161,7 @@ k8s-manifest-validate:
         - "platform/deployment/kubernetes/**/*"
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_COMMIT_BRANCH == "develop"'
-  allow_failure: true   # manifests are patched at deploy-time; treat as advisory in CI
-
-# STAGE: lint — code style / static quality
+  allow_failure: true
 
 python-lint:
   stage: lint
@@ -205,8 +193,6 @@ dockerfile-lint:
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_COMMIT_BRANCH == "develop"'
 
-# STAGE: test — unit tests against a disposable, free Postgres service
-
 unit-tests:
   stage: test
   image: python:3.12-slim
@@ -214,9 +200,6 @@ unit-tests:
     - name: postgres:16-alpine
       alias: postgres
   variables:
-    # Test-only credentials for the ephemeral CI Postgres service.
-    # These are NOT the real .env values — they exist only for the
-    # lifetime of this job's service container.
     POSTGRES_DB: "${DB_NAME:-devopsdb}"
     POSTGRES_USER: "${DB_USERNAME:-devops}"
     POSTGRES_PASSWORD: "${DB_PASSWORD:-ci_test_password}"
@@ -254,9 +237,6 @@ unit-tests:
         - "app/**/*"
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_COMMIT_BRANCH == "develop"'
-
-# STAGE: security — free, self-contained scanners (no GitLab paid tier
-# security features are used here)
 
 dependency-scan:
   stage: security
@@ -326,10 +306,6 @@ filesystem-vuln-scan:
         - "app/**/*"
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_COMMIT_BRANCH == "develop"'
-
-# STAGE: build — validate the container image builds cleanly.
-# Image is built and scanned ONLY, never pushed to any registry, so
-# this incurs no registry/storage cost and needs no push credentials.
 
 container-build-validate:
   stage: build

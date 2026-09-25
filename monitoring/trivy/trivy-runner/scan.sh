@@ -9,9 +9,8 @@ export TRIVY_NO_PROGRESS=true
 echo "Starting Trivy vulnerability scan..."
 mkdir -p /reports
 
-# Seed the persistent cache from the image-baked DB on first use, so we
-# never pay the full ~3-4min download cost after a fresh/recreated PVC.
 CACHE_DIR="${TRIVY_CACHE_DIR:-/tmp/trivy-cache}"
+
 if [[ -d /opt/trivy-db-seed ]] && [[ ! -f "${CACHE_DIR}/db/trivy.db" ]]; then
     echo "Seeding Trivy DB cache from image build..."
     mkdir -p "${CACHE_DIR}"
@@ -32,8 +31,6 @@ kubectl_output=$(kubectl get pods --all-namespaces \
     exit 1
 }
 
-# Filter out empty strings produced by pods with unset image fields.
-# Use a process substitution with read to avoid word-splitting issues.
 readarray -t image_array < <(
     echo "${kubectl_output}" \
     | tr -s ' ' '\n' \
@@ -71,7 +68,6 @@ for image in "${image_array[@]}"; do
 
     echo "Scanning image: ${image}"
 
-    # Safe filename: replace path/tag/digest separators with underscores
     safe_filename=$(echo "${image}" | tr '/:@' '_' | tr -d ' ')
     safe_filename="${safe_filename:-unknown_image}"
 

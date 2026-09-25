@@ -1,11 +1,4 @@
 # /monitoring/prometheus/alerts.yaml
-#
-# Prometheus alerting rules loaded into the prometheus-alerts ConfigMap.
-# deploy_monitoring.sh creates this ConfigMap and Prometheus loads the rules
-# from /etc/prometheus/rules/*.yml.
-#
-# Works with direct deployment and ArgoCD.
-# Supports: Minikube · Kind · K3s · K8s · EKS · GKE · AKS · MicroK8s
 
 groups:
   # Kubernetes Pod Alerts

@@ -1,9 +1,4 @@
 // Jenkinsfile.infra — DevOps Platform Infrastructure Pipeline
-//
-// Thin wrapper around platform/infra/deploy_infra.sh (plan / apply / destroy
-// across AWS-Terraform and Azure-Pulumi). Manual trigger only —
-// intentionally not wired to githubPush(), since infra changes should be
-// deliberate.
 
 pipeline {
     agent any

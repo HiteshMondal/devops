@@ -2,11 +2,11 @@
 
 # platform/deployment/kubernetes/deploy_kubernetes.sh
 
-# Designed to be compatible with all major Linux distributions and WSL.
-# Supports major Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
-# No manual file editing or manual command entry is required.
+# Designed to run on all major Linux distributions and WSL.
+# Supports major Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s, or others.
+# No manual file editing or manual command entry should be required during normal operation or debugging.
 # .env is the SINGLE SOURCE OF TRUTH for ports, configuration, variables, and secrets.
-# run.sh is the SINGLE AUTHORITY for local/production mode and execution flow.
+# run.sh is the SINGLE AUTHORITY for local/production mode and execution flow. Other scripts must run from run.sh only.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -17,9 +17,6 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     return 1 2>/dev/null || exit 1
 fi
 
-# Locate project root regardless of where the script lives or how it's
-# invoked (symlink, relative path, etc.). This script lives 3 levels below
-# the project root: platform/deployment/kubernetes/deploy_kubernetes.sh
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd -P)"
 
 if [[ -z "${PROJECT_ROOT:-}" ]]; then

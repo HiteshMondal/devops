@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # run.sh — DevOps Platform Deployment Runner
 
-# Designed to be compatible with all major Linux distributions and WSL.
-# Supports major Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
-# No manual file editing or manual command entry should required for debugging.
+# Designed to run on all major Linux distributions and WSL.
+# Supports major Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s, or others.
+# No manual file editing or manual command entry should be required during normal operation or debugging.
 # .env is the SINGLE SOURCE OF TRUTH for ports, configuration, variables, and secrets.
-# run.sh is the SINGLE AUTHORITY for local/production mode, execution flow and other scripts must run from run.sh only.
+# run.sh is the SINGLE AUTHORITY for local/production mode and execution flow. Other scripts must run from run.sh only.
 
 set -Eeuo pipefail
 IFS=$'\n\t'
@@ -48,8 +48,6 @@ export DEVOPS_RUNNER=true
 
 # INTERNAL HELPERS
 
-# Draw a numbered menu and return the chosen number in $REPLY
-# Usage: _menu "Title" "opt1" "opt2" ...
 _menu() {
     local title="$1"
     shift
@@ -200,7 +198,7 @@ bootstrap_menu() {
     done
 }
 
-# STEP 1 — ENVIRONMENT SELECTION
+# ENVIRONMENT SELECTION
 
 select_environment() {
     print_section "DEVOPS PLATFORM — Deployment Runner" ">"
@@ -230,7 +228,7 @@ select_environment() {
     print_success "Application environment: ${BOLD}${APP_ENV}${RESET}"
 }
 
-# STEP 2 — ENVIRONMENT SERVICE PROFILE
+# ENVIRONMENT SERVICE PROFILE
 
 configure_environment() {
 
@@ -326,7 +324,7 @@ configure_environment() {
     print_success "Deployment mode: ${DEPLOY_MODE}"
 }
 
-# STEP 3 — CLOUD PROVIDER
+# CLOUD PROVIDER
 # Only required for production infrastructure.
 
 select_cloud_provider() {
@@ -354,7 +352,7 @@ select_cloud_provider() {
     print_success "Cloud provider selected: ${BOLD}${CLOUD_PROVIDER^^}${RESET}"
 }
 
-# STEP 4 — INFRA ACTION
+# INFRA ACTION
 # Only required for production infrastructure.
 
 select_infra_action() {
@@ -519,9 +517,6 @@ deploy_image() {
     print_subsection "Container Image Build & Push"
 
     if [[ "${DEPLOY_TARGET:-}" == "prod" ]]; then
-        # Production images must never use the mutable `latest` tag.
-        # Treat `latest` in .env as the default and replace it with a
-        # deterministic application-content hash.
         if [[ -z "${DOCKER_IMAGE_TAG:-}" || "$DOCKER_IMAGE_TAG" == "latest" ]]; then
             local app_hash
 

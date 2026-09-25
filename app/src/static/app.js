@@ -133,12 +133,10 @@ function renderShell() {
   `;
 }
 
-// ---------------------------------------------------------------------------
 // Projects: list (all / mine), create, inline edit, delete, pagination
-// ---------------------------------------------------------------------------
 
 const projectsState = {
-  tab: "all", // "all" | "mine"
+  tab: "all",
   page: 1,
   pageSize: 10,
   currentUser: null,
@@ -332,9 +330,7 @@ function renderNewProjectForm(user) {
   });
 }
 
-// ---------------------------------------------------------------------------
 // Contact inbox (admin — any signed-in user)
-// ---------------------------------------------------------------------------
 
 const inboxState = { page: 1, pageSize: 10 };
 
@@ -384,9 +380,7 @@ function renderAdminInboxSection(user) {
   loadInbox();
 }
 
-// ---------------------------------------------------------------------------
 // Contact form
-// ---------------------------------------------------------------------------
 
 function wireContactForm() {
   const form = document.getElementById("contact-form");
@@ -417,9 +411,7 @@ function wireContactForm() {
   });
 }
 
-// ---------------------------------------------------------------------------
 // Auth
-// ---------------------------------------------------------------------------
 
 async function fetchMe() {
   const token = getToken();

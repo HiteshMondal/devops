@@ -1,8 +1,4 @@
 # /monitoring/prometheus/agents.yaml
-# kube-state-metrics applied directly.
-# Namespace matches PROMETHEUS_NAMESPACE used by deploy_monitoring.sh.
-
-# kube-state-metrics only
 
 apiVersion: v1
 kind: ServiceAccount

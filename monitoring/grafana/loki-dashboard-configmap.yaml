@@ -2,9 +2,6 @@
 #
 # Grafana dashboard ConfigMap for the DevOps Loki logging dashboard.
 # Loaded by Grafana at startup via static provisioning (volumeMount in grafana.yaml).
-#
-# Works in both environments: ArgoCD and direct
-# Supports: Minikube · Kind · K3s · K8s · EKS · GKE · AKS · MicroK8s
 
 apiVersion: v1
 kind: ConfigMap

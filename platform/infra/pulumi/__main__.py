@@ -35,10 +35,6 @@ def get_env(key: str, default: str | None = None, required: bool = False) -> str
 
 
 def get_secret(key: str, default: str | None = None, required: bool = False) -> Output[str]:
-    """Same resolution order as get_env(), but always returned as a Pulumi
-    secret so it never appears in plaintext state/CLI output. Prefer
-    `pulumi config set --secret <key> <value>` over storing secrets in .env
-    for anything beyond local/dev use."""
     value = stack_config.get_secret(key) or __import__("os").environ.get(key) or default
     if required and not value:
         raise Exception(
@@ -89,9 +85,7 @@ rg = resources.ResourceGroup(
     tags=common_tags,
 )
 
-# Networking — one VNet, one subnet for AKS nodes, one delegated subnet for
-# PostgreSQL Flexible Server VNet integration (keeps the DB off the public
-# internet at zero extra networking cost).
+# Networking
 vnet = network.VirtualNetwork(
     f"{app_name}-vnet",
     resource_group_name=rg.name,

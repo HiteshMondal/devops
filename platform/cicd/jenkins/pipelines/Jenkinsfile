@@ -1,10 +1,5 @@
 // Jenkinsfile — DevOps Platform CI/CD
 //
-// Test -> Build & Push -> Security Scan -> Deploy.
-// Mirrors run.sh's own split: `local` deploys directly with kubectl,
-// `prod` is GitOps-managed by ArgoCD (this pipeline only builds/pushes
-// the image; ArgoCD picks up the change from Git).
-//
 // Every external script this pipeline calls is checked for existence
 // before use, so an unrelated refactor elsewhere in the repo fails the
 // build with a clear message instead of an obscure "no such file" error.

@@ -1,18 +1,5 @@
 # syntax=docker/dockerfile:1
-#
 # Jenkins controller image — DevOps Platform
-#
-# Jenkins itself is never installed on the host. This image bundles the
-# Jenkins controller plus the client tools its pipelines need (docker CLI,
-# kubectl, terraform, tofu, pulumi). The actual Docker *daemon* used by
-# pipeline builds lives in the separate `docker-dind` sidecar container
-# defined in docker-compose.yml, so the host's Docker socket is never
-# mounted into the controller.
-#
-# All versions are pinned build ARGs — override them in jenkins.env or via
-# `--build-arg` if you need a different version. TARGETARCH is provided
-# automatically by BuildKit, so this image builds correctly on amd64 and
-# arm64 hosts without any manual edits.
 
 ARG JENKINS_VERSION=lts-jdk17
 FROM jenkins/jenkins:${JENKINS_VERSION}

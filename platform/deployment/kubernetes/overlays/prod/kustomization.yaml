@@ -3,7 +3,11 @@ kind: Kustomization
 
 # /platform/deployement/kubernetes/overlays/prod/kustomization.yaml
 # Universal Production Environment Overlay
-# Works with: AWS EKS, Google GKE, Azure AKS, and other cloud Kubernetes platforms
+# Designed to run on all major Linux distributions and WSL.
+# Supports major Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s, or others.
+# No manual file editing or manual command entry should be required during normal operation or debugging.
+# .env is the SINGLE SOURCE OF TRUTH for ports, configuration, variables, and secrets.
+# run.sh is the SINGLE AUTHORITY for local/production mode and execution flow. Other scripts must run from run.sh only.
 # ArgoCD-compatible: no shell variable substitution — plain Kustomize only
 
 resources:
@@ -20,7 +24,7 @@ namespace: devops-app
 images:
   - name: devops-app
     newName: hiteshmondaldocker/devops-app
-    newTag: "4be1aa01286f"
+    newTag: "df7c230a5747"
 
 patches:
   - path: backup-config-patch.yaml

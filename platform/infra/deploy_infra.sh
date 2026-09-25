@@ -3,11 +3,11 @@
 # Supports: Terraform (AWS) + Pulumi (Azure)
 # Usage: ./deploy_infra.sh [plan|apply|destroy] [aws||azure]
 
-# Designed to be compatible with all major Linux distributions and WSL.
-# Supports major Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
-# No manual file editing or manual command entry is required.
+# Designed to run on all major Linux distributions and WSL.
+# Supports major Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s, or others.
+# No manual file editing or manual command entry should be required during normal operation or debugging.
 # .env is the SINGLE SOURCE OF TRUTH for ports, configuration, variables, and secrets.
-# run.sh is the SINGLE AUTHORITY for local/production mode and execution flow.
+# run.sh is the SINGLE AUTHORITY for local/production mode and execution flow. Other scripts must run from run.sh only.
 
 set -euo pipefail
 IFS=$'\n\t'

@@ -7,8 +7,6 @@ set -euo pipefail
 configure_dockerhub_username() {
     echo "🐳 Configuring Docker Hub username for GitOps"
 
-    # In ArgoCD mode the username is already hardcoded in the kustomization.yaml
-    # overlays. ArgoCD reads directly from Git and cannot access .env.
     if [[ "${DEPLOY_MODE:-}" == "argocd" ]]; then
         echo "✅ ArgoCD mode — DockerHub username is set in overlay kustomization.yaml (skipping substitution)"
         return 0

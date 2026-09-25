@@ -3,7 +3,7 @@
 Reads the exact variable names defined in `.env` and injected at runtime by
 `platform/deployment/kubernetes/deploy_kubernetes.sh` (ConfigMap `devops-app-config`
 and Secret `devops-app-secrets`). These names are a shared contract with the
-rest of the platform — do not rename them here.
+rest of the platform.
 """
 import os
 

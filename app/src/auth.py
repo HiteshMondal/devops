@@ -31,9 +31,6 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(user_id: int, email: str) -> str:
     if not config.JWT_SECRET:
-        # Fail loudly with a proper HTTP error rather than an unhandled
-        # RuntimeError, which FastAPI serializes as a raw plaintext 500 —
-        # that breaks any client doing res.json() on the response.
         raise HTTPException(
             status_code=500,
             detail="Authentication is not configured on this server (JWT_SECRET missing).",
@@ -57,12 +54,6 @@ def decode_access_token(token: str) -> dict | None:
 
 
 def make_get_current_user(db_session_dependency):
-    """Builds a get_current_user dependency bound to the app's db_session.
-
-    main.py calls this once with its own `db_session` generator so this
-    module doesn't need to import from main.py (avoids a circular import)
-    while still sharing the same request-scoped session.
-    """
     def get_current_user(
         credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
         session: Session = Depends(db_session_dependency),

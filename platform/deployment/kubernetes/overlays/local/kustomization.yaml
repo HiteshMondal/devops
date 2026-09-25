@@ -2,7 +2,11 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 # /platform/deployment/kubernetes/overlays/local/kustomization.yaml
 # Universal Local Environment Overlay
-# Works with: Minikube, Kind, K3s, MicroK8s, and local Kubernetes clusters
+# Designed to run on all major Linux distributions and WSL.
+# Supports major Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s, or others.
+# No manual file editing or manual command entry should be required during normal operation or debugging.
+# .env is the SINGLE SOURCE OF TRUTH for ports, configuration, variables, and secrets.
+# run.sh is the SINGLE AUTHORITY for local/production mode and execution flow. Other scripts must run from run.sh only.
 # ArgoCD-compatible: no shell variable substitution — plain Kustomize only
 #
 # NOTE: No `labels` block here — Kustomize's labels transformer also injects

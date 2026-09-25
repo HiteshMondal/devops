@@ -195,11 +195,6 @@ def me(current_user: CurrentUser):
 
 
 # Projects
-#
-# Full CRUD. Listing is public (portfolio visitors need to see projects
-# without logging in) and paginated. Create/update/delete require auth,
-# and update/delete are restricted to the project's own owner — this is
-# the "My projects" ownership feature.
 
 class ProjectIn(BaseModel):
     title: str
@@ -267,9 +262,7 @@ def list_my_projects(
     page: PageParam = 1,
     page_size: PageSizeParam = 20,
 ):
-    """Projects owned by the logged-in user. Must be declared before the
-    /{project_id} route below so FastAPI doesn't try to parse "mine" as
-    an int path param."""
+
     query = session.query(Project).filter(Project.owner_id == current_user.id)
     total = query.with_entities(func.count(Project.id)).scalar() or 0
     projects = (
@@ -354,14 +347,6 @@ def _contact_out(c: ContactMessage) -> dict:
 
 
 def _notify_contact_submission(name: str, email: str, message: str) -> None:
-    """Best-effort fire-and-forget notification for a new contact message.
-
-    Controlled entirely by the optional CONTACT_WEBHOOK_URL env var (not
-    part of the existing .env contract — add it yourself if you want this
-    active). If it's unset, this is a no-op, so behavior is unchanged for
-    anyone who hasn't opted in. Any failure here is only logged; it must
-    never affect the API response already sent to the client.
-    """
     webhook_url = os.environ.get("CONTACT_WEBHOOK_URL", "")
     if not webhook_url:
         return
@@ -400,12 +385,7 @@ def list_contact_messages(
     page: PageParam = 1,
     page_size: PageSizeParam = 20,
 ):
-    """Admin-only listing of submitted contact messages.
 
-    Any authenticated user can read this — there's no separate admin role
-    in this app yet, so "authenticated" is the only bar. Add a role check
-    here if you introduce one later.
-    """
     total = session.query(func.count(ContactMessage.id)).scalar() or 0
     messages = (
         session.query(ContactMessage)

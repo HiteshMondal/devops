@@ -43,9 +43,6 @@ def blob_sas_url(
     container_name: pulumi.Input[str],
     blob_name: pulumi.Input[str],
 ) -> Output[str]:
-    """Read-only, 10-year SAS URL for a private blob, so a Consumption-plan
-    Function App can pull its own deployment package without a storage
-    account key sitting in plaintext app settings."""
 
     def _make_sas(args):
         acct, rg_name, container, blob = args
@@ -73,8 +70,7 @@ def deploy_function_package(
     storage_account: storage.StorageAccount,
     rg: resources.ResourceGroup,
 ) -> Output[str]:
-    """Zip `function_name`'s code, upload it, and return the SAS URL to
-    hand to WEBSITE_RUN_FROM_PACKAGE."""
+
     storage_ready = Sleep(
         f"{name_prefix}-sa-ready",
         create_duration="30s",

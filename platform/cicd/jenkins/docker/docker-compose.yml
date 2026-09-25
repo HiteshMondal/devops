@@ -1,9 +1,4 @@
 # Jenkins CI/CD — Docker Compose
-#
-# Jenkins runs entirely in Docker; nothing is installed on the host.
-# Pipeline builds talk to the `docker-dind` sidecar over TLS instead of the
-# host's Docker socket, so this works identically on any Linux host
-# regardless of docker group/socket permissions.
 
 services:
 

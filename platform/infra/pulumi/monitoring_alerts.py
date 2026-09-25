@@ -17,9 +17,7 @@ def create_self_healing_alerts(
     self_healing_function_app: web.WebApp | None,
     subscription_id: str,
 ):
-    """Create (or skip) Action Group + Postgres alert pointed at the
-    self-healing function, and export the webhook URL for Alertmanager.
-    No-op when disabled or the function app wasn't created."""
+
     if not enabled or self_healing_function_app is None:
         return
 
@@ -27,9 +25,6 @@ def create_self_healing_alerts(
         lambda host: f"https://{host}/api/self_healing"
     )
 
-    # Exported so it can be pasted into Alertmanager's receivers/webhook
-    # config for AKS/pod-level triggering (cluster-side, out of Pulumi's
-    # reach).
     pulumi.export("self_healing_webhook_url", webhook_url)
 
     action_group = insights.ActionGroup(

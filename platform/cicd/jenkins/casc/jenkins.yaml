@@ -1,13 +1,4 @@
 # Jenkins Configuration as Code (JCasC)
-#
-# This file is the single source of truth for Jenkins system configuration.
-# Do not configure security, credentials, or jobs by hand through the UI —
-# changes made there will be overwritten on the next restart.
-#
-# All secrets below are `${ENV_VAR}` substitutions resolved at container
-# start time from docker/jenkins.env and/or the project-root .env (see
-# docker-compose.yml). No credential value is ever hardcoded in this file,
-# and this file is safe to commit to Git.
 
 jenkins:
   systemMessage: "DevOps Platform — Jenkins (managed by Configuration as Code; do not edit via UI)"
@@ -41,11 +32,6 @@ unclassified:
   timestamperConfig:
     allPipelines: true
 
-# Credentials store (Jenkins' built-in secrets manager)
-# Every value here is sourced from an environment variable — i.e. from
-# docker/jenkins.env or the project-root .env. Blank env vars simply
-# produce an empty credential that pipelines using it will fail fast on,
-# rather than breaking Jenkins startup.
 credentials:
   system:
     domainCredentials:
@@ -96,9 +82,6 @@ credentials:
               description: "kubeconfig for the target cluster, base64-encoded (from jenkins.env — see scripts/configure_jenkins.sh)"
 
 # Job seeding
-# Jenkins is told where the Jenkinsfiles live in Git; it does not need its
-# own copy. If GIT_REPO_URL is blank, these jobs are created but will fail
-# to check out until it's configured — Jenkins itself still starts fine.
 jobs:
   - script: |
       pipelineJob('devops-platform-pipeline') {

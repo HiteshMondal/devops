@@ -35,9 +35,6 @@ def test_contact_notification_noop_without_webhook_env(client, monkeypatch):
 
 
 def test_contact_notification_fires_background_task(client, monkeypatch):
-    """With CONTACT_WEBHOOK_URL set, the background task should attempt a
-    call — verified here by patching httpx.post rather than hitting the
-    network, since CI environments must not depend on external services."""
     calls = []
 
     def fake_post(url, json=None, timeout=None):

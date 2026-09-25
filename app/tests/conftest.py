@@ -1,10 +1,5 @@
-"""Shared pytest fixtures.
+# Shared pytest fixtures.
 
-Tests never touch the real DB_SQLITE_PATH file or any external Postgres —
-they run against an isolated in-memory SQLite database, so they pass the
-same way whether run locally, in GitHub Actions, in Jenkins, or in GitLab
-CI's Postgres-service job. No .env values are required for tests to run.
-"""
 import sys
 from pathlib import Path
 

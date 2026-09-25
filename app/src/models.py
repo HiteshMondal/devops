@@ -1,7 +1,7 @@
 """ORM models.
 
 Kept minimal on purpose — two tables covering the two obvious portfolio
-needs (things to showcase, and a way for visitors to reach you). Add more
+needs (things to showcase, and a way for visitors to reach). Add more
 models here as the site grows.
 """
 from datetime import datetime, timezone
