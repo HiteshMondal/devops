@@ -110,7 +110,7 @@ def readiness():
     overall_ok = False
 
     try:
-        with db_session() as session:
+        with get_session() as session:
             session.execute(text("SELECT 1"))
 
         checks["database"] = "ok"
