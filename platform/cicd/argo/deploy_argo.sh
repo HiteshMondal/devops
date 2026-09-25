@@ -365,7 +365,7 @@ sync_backup_config_from_pulumi() {
     fi
     print_subsection "Syncing Backup Config from Pulumi Outputs"
 
-    local pulumi_dir="${PROJECT_ROOT}/platform/infra/Pulumi"
+    local pulumi_dir="${PROJECT_ROOT}/platform/infra/pulumi"
     local overlay_dir="${PROJECT_ROOT}/platform/deployment/kubernetes/overlays/${K8S_OVERLAY}"
     local patch_file="${overlay_dir}/backup-config-patch.yaml"
     local stack="${PULUMI_STACK:-devops-platform-azure/prod}"
@@ -697,7 +697,16 @@ apply_argocd_apps() {
     local f="$PROJECT_ROOT/platform/cicd/argo/ingress-nginx-app.yaml"
     if [[ -f "$f" ]]; then
         print_subsection "Applying ingress-nginx controller Application"
-        kubectl apply -n "$ARGOCD_NAMESPACE" -f "$f"
+        local ingress_tmp
+        ingress_tmp="$(mktemp)"
+        if [[ "${CLOUD_PROVIDER:-}" == "azure" ]]; then
+            # AWS NLB annotations are meaningless (and untuned) on AKS — strip them
+            grep -v 'service.beta.kubernetes.io/aws-load-balancer' "$f" > "$ingress_tmp"
+        else
+            cp "$f" "$ingress_tmp"
+        fi
+        kubectl apply -n "$ARGOCD_NAMESPACE" -f "$ingress_tmp"
+        rm -f "$ingress_tmp"
         print_success "ingress-nginx Application applied"
     else
         print_info "ingress-nginx-app.yaml not present — skipping (devops-app-service will need its own LoadBalancer type if used)"

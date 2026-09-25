@@ -15,7 +15,7 @@ pipeline {
     }
 
     parameters {
-        choice(name: 'CLOUD_PROVIDER', choices: ['aws' and 'azure'], description: 'Matches run.sh cloud provider selection')
+        choice(name: 'CLOUD_PROVIDER', choices: ['aws', 'azure'], description: 'Matches run.sh cloud provider selection')
         choice(name: 'INFRA_ACTION', choices: ['plan', 'apply', 'destroy'], description: 'Matches run.sh infra action selection')
     }
 

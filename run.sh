@@ -548,11 +548,6 @@ deploy_image() {
         exit 1
     fi
 
-    if [[ "${DEPLOY_TARGET:-}" == "prod" && "$DOCKER_IMAGE_TAG" == "latest" ]]; then
-        print_error "Production image tag cannot be 'latest'"
-        exit 1
-    fi
-
     export DOCKER_IMAGE_TAG
     print_info "Image tag: ${DOCKER_IMAGE_TAG}"
 
@@ -671,8 +666,6 @@ fi
 verify_kubernetes_ready
 
 if [[ "$ENABLE_IMAGE" == true ]]; then
-    print_subsection "Detecting Runtime Environment"
-    detect_container_runtime
     deploy_image
 fi
 

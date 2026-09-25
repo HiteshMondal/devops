@@ -70,7 +70,7 @@ load_env() {
 # Wraps `kubeseal --raw` for a single key so each field can be rotated
 # independently later without resealing the whole Secret.
 _seal_value() {
-    local name="$1" namespace="$2" value="$4"
+    local name="$1" namespace="$2" value="$3"
     printf '%s' "${value}" | kubeseal --raw \
         --cert="${SEALED_SECRETS_CERT}" \
         --namespace="${namespace}" \
@@ -88,11 +88,11 @@ seal_app_secrets() {
     session_secret="${SESSION_SECRET:-$(_rand_b64 24)}"
 
     local enc_db_username enc_db_password enc_jwt_secret enc_api_key enc_session_secret
-    enc_db_username=$(_seal_value  "devops-app-secrets" "${NAMESPACE}" "DB_USERNAME"     "${db_username}")
-    enc_db_password=$(_seal_value  "devops-app-secrets" "${NAMESPACE}" "DB_PASSWORD"     "${db_password}")
-    enc_jwt_secret=$(_seal_value   "devops-app-secrets" "${NAMESPACE}" "JWT_SECRET"      "${jwt_secret}")
-    enc_api_key=$(_seal_value      "devops-app-secrets" "${NAMESPACE}" "API_KEY"         "${api_key}")
-    enc_session_secret=$(_seal_value "devops-app-secrets" "${NAMESPACE}" "SESSION_SECRET" "${session_secret}")
+    enc_db_username=$(_seal_value  "devops-app-secrets" "${NAMESPACE}" "${db_username}")
+    enc_db_password=$(_seal_value  "devops-app-secrets" "${NAMESPACE}" "${db_password}")
+    enc_jwt_secret=$(_seal_value   "devops-app-secrets" "${NAMESPACE}" "${jwt_secret}")
+    enc_api_key=$(_seal_value      "devops-app-secrets" "${NAMESPACE}" "${api_key}")
+    enc_session_secret=$(_seal_value "devops-app-secrets" "${NAMESPACE}" "${session_secret}")
 
     cat > "${BASE_DIR}/devops-app-sealed-secret.yaml" <<EOF
 apiVersion: bitnami.com/v1alpha1

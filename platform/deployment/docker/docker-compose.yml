@@ -9,7 +9,7 @@ services:
       - "${APP_PORT:-8000}:8000"
     environment:
       APP_ENV: ${APP_ENV:-development}
-      DB_PATH: /data/app.db
+      DB_SQLITE_PATH: /data/app.db
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-60}
       LRU_CACHE_SIZE: ${LRU_CACHE_SIZE:-128}
