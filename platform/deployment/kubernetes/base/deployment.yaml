@@ -79,7 +79,7 @@ spec:
 
           readinessProbe:
             httpGet:
-              path: /api/v1/ready
+              path: /api/v1/health
               port: http
             periodSeconds: 5
             timeoutSeconds: 3

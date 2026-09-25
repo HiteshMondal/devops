@@ -195,8 +195,6 @@ patch_overlay() {
 
     print_step "Patching Kustomize overlay in ${overlay_dir}..."
 
-    # 1. Update image reference in kustomization.yaml
-    # Using a temp file to avoid macOS/BSD vs GNU sed compatibility issues
     local tmp_kustomize
     tmp_kustomize=$(mktemp)
     sed \
@@ -205,7 +203,6 @@ patch_overlay() {
         "${kustomization_file}" > "${tmp_kustomize}"
     mv "${tmp_kustomize}" "${kustomization_file}"
 
-    # 2. Generate ConfigMap patch (matches env vars consumed by the Deployment)
     cat > "${overlay_dir}/configmap-patch.yaml" <<EOF
 apiVersion: v1
 kind: ConfigMap
@@ -215,15 +212,18 @@ metadata:
 data:
   APP_NAME: "${APP_NAME}"
   APP_PORT: "${APP_PORT}"
-  APP_ENV: "${APP_ENV:-production}"
+  APP_ENV: "${APP_ENV:-local}"
   LOG_LEVEL: "${LOG_LEVEL:-info}"
   DB_HOST: "${DB_HOST:-postgres-service}"
   DB_PORT: "${DB_PORT:-5432}"
-  DB_NAME: "${DB_NAME:-devops_db}"
+  DB_NAME: "${DB_NAME:-devopsdb}"
   DB_SQLITE_PATH: "${DB_SQLITE_PATH:-/data/app.db}"
 EOF
 
-    # 3. Generate Secrets patch (matches secretKeyRefs in the Deployment)
+    local db_username="${DB_USERNAME:-dbadmin}"
+    local db_password="${DB_PASSWORD:-$(_rand_b64 16)}"
+    local db_name="${DB_NAME:-devopsdb}"
+
     cat > "${overlay_dir}/secrets-patch.yaml" <<EOF
 apiVersion: v1
 kind: Secret
@@ -232,15 +232,30 @@ metadata:
   namespace: ${NAMESPACE}
 type: Opaque
 stringData:
-  DB_USERNAME: "${DB_USERNAME:-dbadmin}"
-  DB_PASSWORD: "${DB_PASSWORD:-$(_rand_b64 16)}"
+  DB_USERNAME: "${db_username}"
+  DB_PASSWORD: "${db_password}"
   JWT_SECRET: "${JWT_SECRET:-$(_rand_b64 32)}"
   API_KEY: "${API_KEY:-cmd-$(date +%s)}"
   SESSION_SECRET: "${SESSION_SECRET:-$(_rand_b64 24)}"
 EOF
+
     chmod 600 "${overlay_dir}/secrets-patch.yaml"
 
-    # 4. Generate ImagePullPolicy + rollout-restart patch
+    cat > "${overlay_dir}/postgres-secret-patch.yaml" <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secrets
+  namespace: ${NAMESPACE}
+type: Opaque
+stringData:
+  POSTGRES_USER: "${db_username}"
+  POSTGRES_PASSWORD: "${db_password}"
+  POSTGRES_DB: "${db_name}"
+EOF
+
+    chmod 600 "${overlay_dir}/postgres-secret-patch.yaml"
+
     cat > "${overlay_dir}/imagepull-patch.yaml" <<EOF
 apiVersion: apps/v1
 kind: Deployment
@@ -259,14 +274,24 @@ spec:
         imagePullPolicy: ${IMAGE_PULL_POLICY}
 EOF
 
-    # 5. Register any patches not already present in kustomization.yaml
-    for patch in "configmap-patch.yaml" "secrets-patch.yaml" "imagepull-patch.yaml"; do
+    for patch in \
+        "configmap-patch.yaml" \
+        "secrets-patch.yaml" \
+        "postgres-secret-patch.yaml" \
+        "imagepull-patch.yaml"; do
+
         if ! grep -q "$patch" "${kustomization_file}"; then
+
             if ! grep -q "^patches:" "${kustomization_file}"; then
                 printf '\npatches:\n' >> "${kustomization_file}"
             fi
-            # Ensure file ends with a newline before appending (avoids YAML collisions)
-            [[ -n "$(tail -c1 "${kustomization_file}")" ]] && printf '\n' >> "${kustomization_file}"
+
+            # Ensure file ends with a newline before appending
+            # (avoids YAML collisions)
+            if [[ -n "$(tail -c1 "${kustomization_file}")" ]]; then
+                printf '\n' >> "${kustomization_file}"
+            fi
+
             printf '  - path: %s\n' "$patch" >> "${kustomization_file}"
         fi
     done

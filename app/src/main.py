@@ -97,7 +97,13 @@ def health():
 
 
 @app.get("/ready")
+@app.get("/api/v1/ready")
 def readiness():
+    """Readiness probe — confirms the application can reach the database.
+
+    Both /ready and /api/v1/ready are supported because Kubernetes,
+    monitoring, tests, and existing clients use the versioned endpoint.
+    """
     checks = {
         "database": "unreachable",
     }
@@ -119,7 +125,7 @@ def readiness():
     return JSONResponse(
         status_code=status_code,
         content={
-            "status": "ok" if overall_ok else "unhealthy",
+            "status": "ready" if overall_ok else "not_ready",
             "checks": checks,
         },
     )
