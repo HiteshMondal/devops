@@ -388,8 +388,8 @@ deploy_pulumi() {
 
     cd "$pulumi_dir"
 
-    if [[ ! -f pulumi.yaml ]]; then
-        print_error "pulumi.yaml missing"
+    if [[ ! -f Pulumi.yaml ]]; then
+        print_error "Pulumi.yaml missing"
         exit 1
     fi
 
@@ -410,7 +410,7 @@ deploy_pulumi() {
     local stack="${PULUMI_STACK:-prod}"
 
     print_info "Pulumi project:"
-    grep "^name:" pulumi.yaml
+    grep "^name:" Pulumi.yaml
 
     print_info "Pulumi stack: $stack"
 

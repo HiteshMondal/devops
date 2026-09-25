@@ -1,20 +1,7 @@
 """
 platform/infra/pulumi/dr.py
 --------------------------------------------------------------------------
-Multi-Cloud (same-cloud, cross-region via GRS) Disaster Recovery
-(Azure side).
-
-Deploys a Python Function App (Consumption plan, timer-triggered) running
-functions/dr_backup/__init__.py, which records a timestamped backup
-checkpoint into the GRS-replicated storage account from storage.py. Since
-that storage account already replicates cross-region via GRS, the
-checkpoint (and any objects placed there) survive a primary-region
-outage.
-
-Packaging via function_packaging.py, same pattern as self_healing.py —
-one `pulumi up` builds and deploys.
-
-STANDALONE BY DESIGN.
+Multi-Cloud (same-cloud, cross-region via GRS) Disaster Recovery (Azure side).
 """
 
 from __future__ import annotations

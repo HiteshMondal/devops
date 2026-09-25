@@ -1,20 +1,6 @@
 """
 platform/infra/pulumi/function_packaging.py
 --------------------------------------------------------------------------
-Shared packaging helper for Azure Function Apps deployed from this Pulumi
-program, used by both self_healing.py and dr.py so the zip/upload/SAS
-logic exists in exactly one place.
-
-Packaging mechanism (single `pulumi up`, no separate build/CI step):
-  1. Zip a function's folder (+ shared host.json) with stdlib zipfile.
-  2. Upload the zip as a private blob (Pulumi FileAsset) to a
-     "deployments" container on that Function App's own storage account.
-  3. Generate a read-only, long-lived container-level SAS URL.
-  4. Point WEBSITE_RUN_FROM_PACKAGE at that URL — Azure Functions' own
-     supported mechanism for running directly from a package.
-
-STANDALONE BY DESIGN: no imports from run.sh or sibling scripts; only
-pulumi / pulumi_azure_native.
 """
 
 from __future__ import annotations

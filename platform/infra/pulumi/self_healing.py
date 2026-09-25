@@ -3,16 +3,6 @@ platform/infra/pulumi/self_healing.py
 --------------------------------------------------------------------------
 Self-Healing Infrastructure (Azure side).
 
-Deploys a Python Function App (Consumption plan -> 1M executions/month
-free) running functions/self_healing/__init__.py, invoked by an Azure
-Monitor Action Group webhook when AKS or PostgreSQL alerts fire.
-
-Packaging is handled by function_packaging.py (zip -> upload -> SAS URL ->
-WEBSITE_RUN_FROM_PACKAGE) so a single `pulumi up` builds and deploys the
-function code — no separate build/CI step.
-
-STANDALONE BY DESIGN: takes everything it needs as function arguments;
-no imports from run.sh or sibling scripts.
 """
 
 from __future__ import annotations

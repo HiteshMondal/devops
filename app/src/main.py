@@ -14,7 +14,6 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, field_validator
-
 from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session

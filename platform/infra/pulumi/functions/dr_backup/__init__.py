@@ -2,34 +2,6 @@
 platform/infra/Pulumi/functions/dr_backup/__init__.py
 --------------------------------------------------------------------------
 Disaster Recovery backup function (Azure side).
-
-STANDALONE BY DESIGN: no imports from elsewhere in the repo. Uses only
-`azure-functions` and `azure-mgmt-rdbms` (declared in this function's own
-requirements.txt).
-
-PostgreSQL Flexible Server already takes automated backups internally
-(backup_retention_days, set in __main__.py) and — because the server SKU
-here uses geo-redundant backup where available — those backups are
-themselves stored cross-region. This function adds an *additional*,
-independently-scheduled logical export: it triggers Azure's point-in-time
-restore validation path is out of scope for a free/cheap setup, so instead
-this function's job is intentionally simple and cheap: it records a
-timestamped "backup checkpoint" marker blob in the GRS storage account
-(see storage.py) so you have an auditable, cross-region-replicated record
-of when backups were last confirmed present, without paying for a second
-full logical dump on every run.
-
-For full logical (pg_dump-style) exports, run pg_dump from a
-network-connected job and upload the result to the same GRS container —
-that's a heavier, opt-in operation left outside this always-on timer to
-keep default cost near $0.
-
-Environment variables (set by Pulumi as Function App settings):
-  AZURE_SUBSCRIPTION_ID
-  RESOURCE_GROUP_NAME
-  POSTGRES_SERVER_NAME
-  STORAGE_ACCOUNT_NAME
-  STORAGE_CONTAINER_NAME
 """
 
 from __future__ import annotations

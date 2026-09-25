@@ -1,26 +1,5 @@
 """
 platform/infra/pulumi — Azure infrastructure for the DevOps platform.
-
-Provisions (all sized to stay inside Azure's free-tier / free-for-12-months
-allowances wherever Azure offers one):
-  - Resource Group
-  - Virtual Network with two delegated subnets (AKS, PostgreSQL)
-  - AKS cluster   — Free control-plane tier, single Burstable B-series node
-  - Azure Database for PostgreSQL Flexible Server — Burstable B1ms
-    (the SKU Azure lists under "free for 12 months"), VNet-integrated,
-    no public endpoint, no HA, 7-day backups (cheapest safe baseline)
-
-STANDALONE BY DESIGN
----------------------
-This program does not import run.sh, or any sibling
-Terraform/OpenTofu code. Its only external dependency is the project's
-.env file, which it locates itself (see env_loader.py). That means:
-  - You can `cd platform/infra/pulumi && pulumi up` directly.
-  - Renaming/editing terraform/, OpenTofu/, monitoring/, app/, etc. has
-    zero effect on this program.
-  - All ports, names and secrets come from .env (or Pulumi config as an
-    override) — never hard-coded — so there is a single source of truth
-    and no drift between clouds.
 """
 
 import uuid

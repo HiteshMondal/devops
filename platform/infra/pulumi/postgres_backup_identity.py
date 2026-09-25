@@ -1,12 +1,6 @@
 """
 platform/infra/pulumi/postgres_backup_identity.py
 --------------------------------------------------------------------------
-Workload Identity (AKS's equivalent of AWS IRSA) for the postgres-backup
-CronJob's ServiceAccount, scoped only to Storage Blob Data Contributor on
-the files storage account — not RG-level Contributor.
-
-Requires the AKS cluster's OIDC issuer + workload identity security
-profile to be enabled (see __main__.py changes).
 """
 
 from __future__ import annotations

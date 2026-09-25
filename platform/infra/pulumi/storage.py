@@ -2,19 +2,6 @@
 platform/infra/pulumi/storage.py
 --------------------------------------------------------------------------
 Distributed Cloud File System (Azure side).
-
-A Storage Account with GRS (Geo-Redundant Storage) replication — Azure's
-built-in cross-region replication, so no custom sync code is required.
-GRS keeps six copies of data across two regions automatically.
-
-STANDALONE BY DESIGN: only takes what it needs as function arguments from
-__main__.py (which already resolves them via env_loader.py / get_env()).
-Does not import run.sh or any other sibling script.
-
-Cost note: GRS is not part of Azure's always-free tier, but it is cheap —
-roughly $0.05/GB-month for the LRS-equivalent portion plus the geo-replicated
-copy, i.e. a few cents/month for typical small-file workloads. Pass
-enabled=False (ENABLE_CLOUD_STORAGE=false in .env) to skip creating it.
 """
 
 from __future__ import annotations

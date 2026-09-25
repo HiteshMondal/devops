@@ -2,25 +2,6 @@
 platform/infra/pulumi/functions/self_healing/__init__.py
 --------------------------------------------------------------------------
 Self-healing remediation Azure Function.
-
-STANDALONE BY DESIGN: no imports from elsewhere in the repo. Only depends
-on `azure-functions` and `azure-mgmt-*` packages declared in this
-function's own requirements.txt (see sibling file), which the Consumption
-plan installs automatically on deploy — no manual packaging step beyond
-`pulumi up`.
-
-Triggered by an Azure Monitor alert (via Action Group -> HTTP webhook,
-wired in self_healing.py/Pulumi). Two remediation paths:
-  1. AKS node pool unhealthy  -> trigger a node pool "start" (recovers
-     stopped/degraded nodes) via the AKS management API.
-  2. PostgreSQL Flexible Server unhealthy -> trigger a server restart.
-
-Environment variables (set by Pulumi as Function App settings):
-  AZURE_SUBSCRIPTION_ID
-  RESOURCE_GROUP_NAME
-  AKS_CLUSTER_NAME
-  AKS_NODE_POOL_NAME
-  POSTGRES_SERVER_NAME
 """
 
 from __future__ import annotations

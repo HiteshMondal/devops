@@ -2,26 +2,6 @@
 env_loader.py
 --------------------------------------------------------------------------
 Standalone environment loader for the Azure Pulumi stack.
-
-Design goal: this Pulumi program must run correctly on its own —
-`cd platform/infra/pulumi && pulumi up` — whether or not it was launched
-through run.sh. It must NOT import run.sh, or any other script.
-It only depends on the repo's single source of truth for config:
-the .env file at the project root (per README: ".env is the SINGLE SOURCE
-OF TRUTH for Ports, Variables, and Secrets").
-
-Resolution order (highest priority first):
-  1. Variables already present in the process environment (e.g. exported
-     by run.sh , or CI/CD secrets) — never overridden.
-  2. Values found in a discovered .env file.
-  3. Caller-supplied defaults (see get_env() in __main__.py).
-
-.env discovery:
-  - Respects an explicit ENV_FILE=/path/to/.env override.
-  - Otherwise walks upward from this file's directory looking for a file
-    named ".env", stopping at the filesystem root. This means the file can
-    be moved anywhere inside the repo and it will still find the project's
-    .env without any hard-coded relative path like "../../.env".
 """
 
 from __future__ import annotations
