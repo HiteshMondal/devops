@@ -33,6 +33,16 @@ module "eks" {
     metrics-server = { most_recent = true }
   }
 
+  node_security_group_additional_rules = {
+    metrics_server = {
+      description                   = "Cluster API to Metrics Server"
+      protocol                      = "tcp"
+      from_port                     = 10251
+      to_port                       = 10251
+      type                          = "ingress"
+      source_cluster_security_group = true
+    }
+  }
   eks_managed_node_groups = {
     default = {
       instance_types = [var.node_instance_type]
