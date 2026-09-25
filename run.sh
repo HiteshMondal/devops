@@ -519,28 +519,27 @@ deploy_image() {
     print_subsection "Container Image Build & Push"
 
     if [[ "${DEPLOY_TARGET:-}" == "prod" ]]; then
-        DOCKER_IMAGE_TAG=""
-    else
-        DOCKER_IMAGE_TAG="${DOCKER_IMAGE_TAG:-latest}"
-    fi
+        # Production images must never use the mutable `latest` tag.
+        # Treat `latest` in .env as the default and replace it with a
+        # deterministic application-content hash.
+        if [[ -z "${DOCKER_IMAGE_TAG:-}" || "$DOCKER_IMAGE_TAG" == "latest" ]]; then
+            local app_hash
 
-    if [[ "${DEPLOY_TARGET:-}" == "prod" && "$DOCKER_IMAGE_TAG" == "latest" ]]; then
-        local app_hash
-
-        app_hash="$(
-            {
+            app_hash="$({
                 find "$PROJECT_ROOT/app" -type f -not -path '*/__pycache__/*' -print0 \
                     | sort -z \
                     | xargs -0 sha256sum
-            } | sha256sum | cut -c1-12
-        )"
+            } | sha256sum | cut -c1-12)"
 
-        if [[ -z "$app_hash" ]]; then
-            print_error "Could not generate application image version from app/"
-            exit 1
+            if [[ -z "$app_hash" ]]; then
+                print_error "Could not generate application image version from app/"
+                exit 1
+            fi
+
+            DOCKER_IMAGE_TAG="$app_hash"
         fi
-
-        DOCKER_IMAGE_TAG="$app_hash"
+    else
+        DOCKER_IMAGE_TAG="${DOCKER_IMAGE_TAG:-latest}"
     fi
 
     if [[ "${DEPLOY_TARGET:-}" == "prod" && "$DOCKER_IMAGE_TAG" == "latest" ]]; then
@@ -556,6 +555,7 @@ deploy_image() {
     else
         bash "$PROJECT_ROOT/platform/deployment/docker/build_and_push_image.sh"
     fi
+
     print_success "Image build & push complete"
     print_divider
 }
