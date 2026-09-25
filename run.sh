@@ -3,7 +3,7 @@
 
 # Designed to be compatible with all major Linux distributions and WSL.
 # Supports major Kubernetes tools: Minikube, Kind, K3s, EKS, GKE, AKS, MicroK8s or others.
-# No manual file editing or manual command entry is required.
+# No manual file editing or manual command entry should required for debugging.
 # .env is the SINGLE SOURCE OF TRUTH for ports, configuration, variables, and secrets.
 # run.sh is the SINGLE AUTHORITY for local/production mode, execution flow and other scripts must run from run.sh only.
 
@@ -518,20 +518,41 @@ deploy_infra() {
 deploy_image() {
     print_subsection "Container Image Build & Push"
 
-    DOCKER_IMAGE_TAG="${DOCKER_IMAGE_TAG:-latest}"
+    if [[ "${DEPLOY_TARGET:-}" == "prod" ]]; then
+        DOCKER_IMAGE_TAG=""
+    else
+        DOCKER_IMAGE_TAG="${DOCKER_IMAGE_TAG:-latest}"
+    fi
 
     if [[ "${DEPLOY_TARGET:-}" == "prod" && "$DOCKER_IMAGE_TAG" == "latest" ]]; then
-        local sha
-        sha="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
-        if [[ -z "$sha" ]]; then
-            print_warning "Not a git checkout, keeping image tag 'latest'"
-        else
-            if [[ -n "$(git -C "$PROJECT_ROOT" status --porcelain -- app)" ]]; then
-                sha="${sha}-$(date +%Y%m%d%H%M%S)"
-            fi
-            DOCKER_IMAGE_TAG="$sha"
+        local app_hash
+
+        app_hash="$(
+            {
+                find "$PROJECT_ROOT/app" -type f -not -path '*/__pycache__/*' -print0 \
+                    | sort -z \
+                    | xargs -0 sha256sum
+            } | sha256sum | cut -c1-12
+        )"
+
+        if [[ -z "$app_hash" ]]; then
+            print_error "Could not generate application image version from app/"
+            exit 1
         fi
+
+        DOCKER_IMAGE_TAG="$app_hash"
     fi
+
+    if [[ "${DEPLOY_TARGET:-}" == "prod" && "$DOCKER_IMAGE_TAG" == "latest" ]]; then
+        print_error "Production image tag cannot be 'latest'"
+        exit 1
+    fi
+
+    if [[ "${DEPLOY_TARGET:-}" == "prod" && "$DOCKER_IMAGE_TAG" == "latest" ]]; then
+        print_error "Production image tag cannot be 'latest'"
+        exit 1
+    fi
+
     export DOCKER_IMAGE_TAG
     print_info "Image tag: ${DOCKER_IMAGE_TAG}"
 

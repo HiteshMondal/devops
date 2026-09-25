@@ -420,21 +420,44 @@ EOF
 
 sync_image_tag_to_overlay() {
     local kfile="${PROJECT_ROOT}/platform/deployment/kubernetes/overlays/${K8S_OVERLAY}/kustomization.yaml"
-    local user="${DOCKERHUB_USERNAME:-}" tag="${DOCKER_IMAGE_TAG:-latest}" tmp
+    local user="${DOCKERHUB_USERNAME:-}"
+    local tag="${DOCKER_IMAGE_TAG:-}"
+    local tmp
 
-    [[ -f "$kfile" ]] || { print_error "Missing ${kfile}"; exit 1; }
+    [[ -f "$kfile" ]] || {
+        print_error "Missing ${kfile}"
+        exit 1
+    }
+
     if [[ -z "$user" ]]; then
-        print_warning "DOCKERHUB_USERNAME is empty, leaving the image reference unchanged"
-        return 0
+        print_error "DOCKERHUB_USERNAME is empty"
+        exit 1
     fi
 
+    if [[ "${DEPLOY_TARGET:-}" == "prod" && -z "$tag" ]]; then
+        print_error "DOCKER_IMAGE_TAG must be set for production"
+        print_info "Production deployments must use an immutable image tag"
+        exit 1
+    fi
+
+    if [[ "${DEPLOY_TARGET:-}" == "prod" && "$tag" == "latest" ]]; then
+        print_error "Production deployment cannot use image tag 'latest'"
+        print_info "Use a commit-based or otherwise immutable tag"
+        exit 1
+    fi
+
+    [[ -n "$tag" ]] || tag="latest"
+
     tmp="$(mktemp)"
-    sed -e "s|^\( *newName:\).*|\1 ${user}/${APP_NAME}|" \
-        -e "s|^\( *newTag:\).*|\1 \"${tag}\"|" "$kfile" > "$tmp"
+    sed \
+        -e "s|^\( *newName:\).*|\1 ${user}/${APP_NAME}|" \
+        -e "s|^\( *newTag:\).*|\1 \"${tag}\"|" \
+        "$kfile" > "$tmp"
+
     cat "$tmp" > "$kfile"
     rm -f "$tmp"
 
-    print_success "Prod image: ${user}/${APP_NAME}:${tag}"
+    print_success "Application image: ${user}/${APP_NAME}:${tag}"
 }
 
 _fetch_remote_branch() {
@@ -757,12 +780,23 @@ wait_for_apps() {
     for app in "${apps[@]}"; do
         argocd_cmd app get "$app" --hard-refresh >/dev/null 2>&1 || true
     done
-    _wait_for_app "$prod_app" 420
+    if ! _wait_for_app "$prod_app" 420; then
+        print_error "${prod_app} did not become synced and healthy"
+
+        for app in "${apps[@]}"; do
+            print_kv "$app" "$(kubectl get application "$app" -n "$ARGOCD_NAMESPACE" \
+                -o jsonpath='{.status.sync.status} / {.status.health.status}' 2>/dev/null || echo "not found")"
+        done
+
+        kubectl get pods -n "$NAMESPACE" -o wide 2>/dev/null || true
+        return 1
+    fi
 
     for app in "${apps[@]}"; do
         print_kv "$app" "$(kubectl get application "$app" -n "$ARGOCD_NAMESPACE" \
             -o jsonpath='{.status.sync.status} / {.status.health.status}' 2>/dev/null || echo "not found")"
     done
+
     kubectl get pods -n "$NAMESPACE" 2>/dev/null || true
     print_success "Health check complete"
 }
@@ -907,7 +941,12 @@ deploy_argo() {
     generate_argocd_apps
 
     print_subsection "Step 5b — Verify Kubernetes Metrics API"
-    wait_for_metrics_server 300
+
+    if [[ "${CLOUD_PROVIDER:-}" == "aws" && "${DEPLOY_TARGET:-}" == "prod" ]]; then
+        wait_for_metrics_server 300
+    else
+        print_info "Skipping EKS Metrics API check for ${CLOUD_PROVIDER:-unknown}/${DEPLOY_TARGET:-unknown}"
+    fi
 
     print_subsection "Step 6 — Apply Applications"
     apply_argocd_apps

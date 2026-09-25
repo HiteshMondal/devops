@@ -26,7 +26,6 @@ build_and_push_image() {
 
     local IMAGE_TAG="${DOCKER_IMAGE_TAG}"
     local IMAGE_NAME="${DOCKERHUB_USERNAME}/${APP_NAME}:${IMAGE_TAG}"
-    local LATEST_IMAGE="${DOCKERHUB_USERNAME}/${APP_NAME}:latest"
 
     #  Login 
     if [[ -n "${DOCKERHUB_PASSWORD:-}" ]]; then
@@ -53,19 +52,10 @@ build_and_push_image() {
     echo "🏗️  Building image: ${IMAGE_NAME}"
     docker build -t "${IMAGE_NAME}" "${app_dir}"
 
-    # Also tag as latest for convenience
-    if [[ "${IMAGE_TAG}" != "latest" ]]; then
-        docker tag "${IMAGE_NAME}" "${LATEST_IMAGE}"
-    fi
 
     #  Push 
     echo "📤 Pushing image: ${IMAGE_NAME}"
     docker push "${IMAGE_NAME}"
-
-    if [[ "${IMAGE_TAG}" != "latest" ]]; then
-        echo "📤 Pushing image: ${LATEST_IMAGE}"
-        docker push "${LATEST_IMAGE}"
-    fi
 
     echo "✅ Image pushed successfully: ${IMAGE_NAME}"
 }

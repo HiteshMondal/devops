@@ -28,33 +28,59 @@ def test_ready_versioned_alias(client):
     assert body["status"] == "ready"
     assert body["checks"]["database"] == "ok"
 
+def test_ready_uses_real_database_context_manager(client, monkeypatch):
+    """Readiness must call get_session() as a context manager."""
+    from src import main
+
+    class FakeSession:
+        def __init__(self):
+            self.executed = False
+
+        def execute(self, statement):
+            self.executed = True
+
+    session = FakeSession()
+
+    class FakeContextManager:
+        def __enter__(self):
+            return session
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(main, "get_session", lambda: FakeContextManager())
+
+    resp = client.get("/api/v1/ready")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ready"
+    assert body["checks"]["database"] == "ok"
+    assert session.executed is True
 
 def test_ready_reports_unhealthy_db(client, monkeypatch):
-    """If the DB session raises on the readiness probe, /ready must
-    report 503 rather than crash or falsely report healthy."""
-    from src.main import app, db_session
-
-    original_override = app.dependency_overrides.get(db_session)
+    """If the DB context manager fails, /ready must return 503."""
+    from src import main
 
     class BrokenSession:
         def execute(self, *args, **kwargs):
             raise RuntimeError("simulated db outage")
 
-    def override_broken_session():
-        yield BrokenSession()
+    class BrokenContextManager:
+        def __enter__(self):
+            return BrokenSession()
 
-    app.dependency_overrides[db_session] = override_broken_session
-    try:
-        resp = client.get("/ready")
-        assert resp.status_code == 503
-        body = resp.json()
-        assert body["status"] == "not_ready"
-        assert body["checks"]["database"] == "unreachable"
-    finally:
-        if original_override is not None:
-            app.dependency_overrides[db_session] = original_override
-        else:
-            app.dependency_overrides.pop(db_session, None)
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(main, "get_session", lambda: BrokenContextManager())
+
+    resp = client.get("/ready")
+
+    assert resp.status_code == 503
+    body = resp.json()
+    assert body["status"] == "not_ready"
+    assert body["checks"]["database"] == "unreachable"
 
 
 def test_config_hides_secrets(client):
