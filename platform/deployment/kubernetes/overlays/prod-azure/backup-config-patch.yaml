@@ -4,7 +4,7 @@ metadata:
   name: postgres-backup-sa
   namespace: devops-app
   annotations:
-    azure.workload.identity/client-id: "4c2e0a94-6b15-4fac-93b8-143b66a505cd"
+    azure.workload.identity/client-id: "65bec891-5f8c-41b4-a26d-b028fc0aa4b5"
   labels:
     azure.workload.identity/use: "true"
 ---
