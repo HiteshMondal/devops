@@ -3,7 +3,8 @@
 Uses the existing JWT_SECRET env var (already part of the platform's
 secret contract in devops-app-secrets) — no new configuration required.
 """
-from datetime import datetime, timedelta, timezone
+import uuid
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -11,12 +12,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
+from . import nosql
 from .config import config
 from .models import User
-
-import uuid
-
-from . import nosql
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -40,7 +38,7 @@ def create_access_token(user_id: int, email: str) -> str:
             detail="Authentication is not configured on this server (JWT_SECRET missing).",
         )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
         "email": email,

@@ -7,7 +7,7 @@ skipped for 30s so requests don't pile up on timeouts.
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -145,7 +145,7 @@ def log_activity(user_id: int, action: str, **details) -> None:
                 "user_id": user_id,
                 "action": action,
                 "details": details,  # free-form: the point of a document store
-                "created_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(UTC),
             })
     except Exception as exc:  # noqa: BLE001
         _mongo_failed(exc)

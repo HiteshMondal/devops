@@ -4,7 +4,7 @@ Kept minimal on purpose — two tables covering the two obvious portfolio
 needs (things to showcase, and a way for visitors to reach). Add more
 models here as the site grows.
 """
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -23,7 +23,7 @@ class Project(Base):
         Integer, ForeignKey("users.id"), nullable=True, default=None
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc)
+        DateTime, default=lambda: datetime.now(UTC)
     )
 
 
@@ -34,7 +34,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc)
+        DateTime, default=lambda: datetime.now(UTC)
     )
 
 class ContactMessage(Base):
@@ -45,5 +45,5 @@ class ContactMessage(Base):
     email: Mapped[str] = mapped_column(String(200))
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc)
+        DateTime, default=lambda: datetime.now(UTC)
     )

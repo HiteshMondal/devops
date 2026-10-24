@@ -6,15 +6,14 @@ Run with: uvicorn src.main:app --host 0.0.0.0 --port $APP_PORT
 """
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Annotated
 
 import httpx
-import time
-
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
-from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy import func, text
