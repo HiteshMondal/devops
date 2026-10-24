@@ -11,3 +11,6 @@ data:
   LOG_LEVEL: "info"
   CB_FAILURE_THRESHOLD: "5"
   CB_RESET_SECONDS: "30"
+  REDIS_URL: "redis://redis-service:6379/0"
+  MONGO_URL: "mongodb://mongo-service:27017"
+  MONGO_DB: "devopsapp"

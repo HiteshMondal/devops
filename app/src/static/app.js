@@ -87,6 +87,36 @@ async function fetchJSON(url, options) {
   return body;
 }
 
+const esc = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function loadStats() {
+  const el = document.getElementById("page-views");
+  try {
+    const s = await fetchJSON("/api/v1/stats");
+    el.textContent = s.page_views === null ? "" : `${s.page_views} visits`;
+  } catch { /* non-critical */ }
+}
+
+async function loadActivity(user) {
+  const section = document.getElementById("activity");
+  const list = document.getElementById("activity-list");
+  if (!user) { section.style.display = "none"; return; }
+  section.style.display = "block";
+  try {
+    const data = await fetchJSON("/api/v1/activity?limit=10", { headers: authHeaders() });
+    list.innerHTML = data.items.length
+      ? data.items.map((a) => `
+          <div class="card">
+            <strong>${esc(a.action)}</strong>
+            <span class="muted">${esc(JSON.stringify(a.details))}</span>
+            <p class="muted">${new Date(a.created_at).toLocaleString()}</p>
+          </div>`).join("")
+      : "No activity recorded (MongoDB may not be enabled).";
+  } catch { list.textContent = "Could not load activity."; }
+}
+
 function renderShell() {
   document.body.innerHTML = `
     <header>
@@ -118,6 +148,11 @@ function renderShell() {
         <div id="inbox-list" class="muted">Loading…</div>
         <div id="inbox-pagination"></div>
       </section>
+      <section id="activity" style="display:none;">
+        <h2>My Activity</h2>
+        <p class="muted">Stored in MongoDB.</p>
+        <div id="activity-list" class="muted">Loading…</div>
+      </section>
       <section id="contact">
         <h2>Contact</h2>
         <form id="contact-form">
@@ -129,7 +164,7 @@ function renderShell() {
         <p id="contact-status" class="muted"></p>
       </section>
     </main>
-    <footer>Deployed via the platform &middot; ${new Date().getFullYear()}</footer>
+    <footer>Deployed via the platform &middot; ${new Date().getFullYear()} &middot; <span id="page-views"></span></footer>
   `;
 }
 
@@ -155,9 +190,9 @@ function projectCard(p, isOwner) {
     <div class="card" data-project-id="${p.id}">
       <div class="card-row">
         <div>
-          <strong>${p.title}</strong>
-          <p class="muted">${p.description || ""}</p>
-          ${p.link ? `<a href="${p.link}" target="_blank" rel="noopener">${p.link}</a>` : ""}
+          <strong>${esc(p.title)}</strong>
+          <p class="muted">${esc(p.description)}</p>
+            ${/^https?:\/\//i.test(p.link) ? `<a href="${esc(p.link)}" target="_blank" rel="noopener">${esc(p.link)}</a>` : ""}
         </div>
         ${editable}
       </div>
@@ -438,6 +473,7 @@ function onAuthStateChanged(user) {
   renderNewProjectForm(user);
   loadProjects();
   renderAdminInboxSection(user);
+  loadActivity(user);
 }
 
 function renderAuthSection(container, user) {
@@ -448,7 +484,10 @@ function renderAuthSection(container, user) {
         <button id="logout-btn">Log out</button>
       </div>
     `;
-    document.getElementById("logout-btn").addEventListener("click", () => {
+    document.getElementById("logout-btn").addEventListener("click", async () => {
+      try {
+        await fetch("/api/v1/auth/logout", { method: "POST", headers: authHeaders() });
+      } catch { /* still log out locally */ }
       clearToken();
       renderAuthSection(container, null);
       onAuthStateChanged(null);
@@ -537,6 +576,7 @@ function renderApp() {
   injectStyles();
   renderShell();
   wireContactForm();
+  loadStats();
 
   const authContainer = document.getElementById("auth-container");
   fetchMe().then((user) => {

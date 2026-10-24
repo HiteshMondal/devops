@@ -14,6 +14,10 @@ from sqlalchemy.orm import Session
 from .config import config
 from .models import User
 
+import uuid
+
+from . import nosql
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -40,6 +44,7 @@ def create_access_token(user_id: int, email: str) -> str:
     payload = {
         "sub": str(user_id),
         "email": email,
+        "jti": uuid.uuid4().hex,
         "iat": now,
         "exp": now + JWT_EXPIRY,
     }
@@ -64,7 +69,8 @@ def make_get_current_user(db_session_dependency):
         payload = decode_access_token(credentials.credentials)
         if payload is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
-
+        if nosql.is_token_revoked(payload.get("jti")):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
         user = session.get(User, int(payload["sub"]))
         if user is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists")

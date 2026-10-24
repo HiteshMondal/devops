@@ -10,7 +10,10 @@ from pathlib import Path
 from typing import Annotated
 
 import httpx
+import time
+
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, field_validator
@@ -18,8 +21,11 @@ from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from . import nosql
 from .auth import (
+    bearer_scheme,
     create_access_token,
+    decode_access_token,
     hash_password,
     make_get_current_user,
     verify_password,
@@ -64,6 +70,7 @@ PageSizeParam = Annotated[int, Query(ge=1, le=100, description="Items per page (
 
 @app.get("/", response_class=HTMLResponse)
 def index():
+    nosql.incr_page_views()
     """Minimal shell — app.js builds the entire page client-side."""
     return """<!doctype html>
 <html lang="en">
@@ -154,7 +161,9 @@ class SignupIn(BaseModel):
 
     @field_validator("password")
     @classmethod
-    def password_within_bcrypt_limit(cls, v: str) -> str:
+    def password_rules(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
         if len(v.encode("utf-8")) > 72:
             raise ValueError("Password must be 72 bytes or fewer")
         return v
@@ -167,28 +176,51 @@ class LoginIn(BaseModel):
  
 @app.post("/api/v1/auth/signup")
 def signup(body: SignupIn, session: DBSession):
-    user = User(email=body.email, hashed_password=hash_password(body.password))
+    email = body.email.lower()
+    if session.query(User).filter(func.lower(User.email) == email).first():
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    user = User(email=email, hashed_password=hash_password(body.password))
     session.add(user)
     try:
         session.flush()
     except IntegrityError:
         session.rollback()
         raise HTTPException(status_code=409, detail="Email already registered")
- 
+
+    nosql.log_activity(user.id, "signup")
     token = create_access_token(user.id, user.email)
     return {"access_token": token, "token_type": "bearer"}
- 
- 
+
+
 @app.post("/api/v1/auth/login")
 def login(body: LoginIn, session: DBSession):
-    user = session.query(User).filter(User.email == body.email).first()
+    email = body.email.lower()
+    rl_key = f"login:{email}"
+    if nosql.hit_rate_limit(rl_key, limit=5, window=900):
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again in 15 minutes.")
+
+    user = session.query(User).filter(func.lower(User.email) == email).first()
     if user is None or not verify_password(body.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
- 
+
+    nosql.reset_rate_limit(rl_key)
+    nosql.log_activity(user.id, "login")
     token = create_access_token(user.id, user.email)
     return {"access_token": token, "token_type": "bearer"}
- 
- 
+
+
+@app.post("/api/v1/auth/logout", status_code=204)
+def logout(
+    current_user: CurrentUser,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+):
+    payload = decode_access_token(credentials.credentials) or {}
+    if payload.get("jti") and payload.get("exp"):
+        nosql.revoke_token(payload["jti"], max(int(payload["exp"] - time.time()), 1))
+    nosql.log_activity(current_user.id, "logout")
+
+
 @app.get("/api/v1/auth/me")
 def me(current_user: CurrentUser):
     return {"id": current_user.id, "email": current_user.email}
@@ -298,6 +330,7 @@ def create_project(body: ProjectIn, current_user: CurrentUser, session: DBSessio
     )
     session.add(project)
     session.flush()
+    nosql.log_activity(current_user.id, "project_created", project_id=project.id, title=project.title)
     return _project_out(project)
 
 
@@ -318,15 +351,32 @@ def update_project(
         project.link = body.link
 
     session.flush()
+    nosql.log_activity(current_user.id, "project_updated", project_id=project.id)
     return _project_out(project)
 
 
 @app.delete("/api/v1/projects/{project_id}", status_code=204)
 def delete_project(project_id: int, current_user: CurrentUser, session: DBSession):
     project = _get_owned_project_or_404(session, project_id, current_user)
+    nosql.log_activity(current_user.id, "project_deleted", project_id=project.id, title=project.title)
     session.delete(project)
     session.flush()
 
+@app.get("/api/v1/stats")
+def stats():
+    return {
+        "page_views": nosql.get_page_views(),
+        "redis_enabled": nosql.redis_enabled(),
+        "mongo_enabled": nosql.mongo_enabled(),
+    }
+
+
+@app.get("/api/v1/activity")
+def my_activity(
+    current_user: CurrentUser,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+):
+    return {"items": nosql.recent_activity(current_user.id, limit)}
 
 # Contact
 

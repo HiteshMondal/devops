@@ -33,6 +33,8 @@ resources:
   - secrets.yaml
   - postgres-secret.yaml
   - postgres-statefulset.yaml
+  - redis.yaml
+  - mongo.yaml
 images:
   - name: devops-app
     newName: devops-app
