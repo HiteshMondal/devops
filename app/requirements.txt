@@ -9,4 +9,4 @@ passlib==1.7.4
 pyjwt==2.14.0
 prometheus-client==0.21.0
 redis==5.0.8
-pymongo==4.18.0
+pymongo==4.18.2
