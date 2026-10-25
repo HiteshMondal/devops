@@ -96,6 +96,15 @@ seal_app_secrets() {
     enc_api_key=$(_seal_value      "devops-app-secrets" "${NAMESPACE}" "${api_key}")
     enc_session_secret=$(_seal_value "devops-app-secrets" "${NAMESPACE}" "${session_secret}")
 
+    # Managed Redis / MongoDB connection strings (optional — skipped if unset)
+    local extra_keys=""
+    if [[ -n "${REDIS_URL:-}" ]]; then
+        extra_keys+="    REDIS_URL: $(_seal_value "devops-app-secrets" "${NAMESPACE}" "${REDIS_URL}")"$'\n'
+    fi
+    if [[ -n "${MONGO_URL:-}" ]]; then
+        extra_keys+="    MONGO_URL: $(_seal_value "devops-app-secrets" "${NAMESPACE}" "${MONGO_URL}")"$'\n'
+    fi
+
     cat > "${BASE_DIR}/devops-app-sealed-secret.yaml" <<EOF
 apiVersion: bitnami.com/v1alpha1
 kind: SealedSecret
@@ -111,6 +120,7 @@ spec:
     JWT_SECRET: ${enc_jwt_secret}
     API_KEY: ${enc_api_key}
     SESSION_SECRET: ${enc_session_secret}
+${extra_keys}
   template:
     metadata:
       name: devops-app-secrets

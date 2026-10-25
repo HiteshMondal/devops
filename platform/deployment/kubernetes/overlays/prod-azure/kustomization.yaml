@@ -191,3 +191,43 @@ patches:
       kind: HorizontalPodAutoscaler
       metadata:
         name: devops-app-hpa
+  # Managed Redis/MongoDB in prod — don't run the in-cluster ones
+  - target: {kind: Deployment, name: redis}
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: redis
+
+  - target: {kind: Service, name: redis-service}
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: redis-service
+
+  - target: {kind: StatefulSet, name: mongo}
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: mongo
+
+  - target: {kind: Service, name: mongo-service}
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: mongo-service
+
+  - target: {kind: NetworkPolicy, name: nosql-allow-app-only}
+    patch: |-
+      $patch: delete
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: nosql-allow-app-only

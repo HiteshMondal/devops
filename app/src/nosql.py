@@ -41,7 +41,8 @@ def _get_redis():
         import redis
         _redis = redis.Redis.from_url(
             REDIS_URL, decode_responses=True,
-            socket_connect_timeout=1, socket_timeout=1,
+            socket_connect_timeout=3, socket_timeout=3,
+            health_check_interval=30,
         )
     return _redis
 
@@ -124,7 +125,13 @@ def _get_mongo():
         return None
     if _mongo is None:
         from pymongo import MongoClient
-        _mongo = MongoClient(MONGO_URL, serverSelectionTimeoutMS=1000, tz_aware=True)[MONGO_DB]
+        _mongo = MongoClient(
+            MONGO_URL,
+            serverSelectionTimeoutMS=3000,
+            connectTimeoutMS=3000,
+            socketTimeoutMS=5000,
+            tz_aware=True,
+        )[MONGO_DB]
     if not _mongo_indexed:
         _mongo.activity.create_index([("user_id", 1), ("created_at", -1)])
         _mongo_indexed = True
