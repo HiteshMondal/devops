@@ -99,9 +99,39 @@ class Base(DeclarativeBase):
     pass
 
 
+_INDEX_DDL = [
+    "CREATE INDEX IF NOT EXISTS ix_projects_created_at ON projects (created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_projects_owner_created ON projects (owner_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_contact_created_at ON contact_messages (created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_contact_email ON contact_messages (email)",
+]
+# Case-insensitive PREFIX search. On Postgres, text_pattern_ops makes the B-Tree
+# usable for LIKE 'abc%' regardless of the DB collation.
+_INDEX_DDL_PG = [
+    "CREATE INDEX IF NOT EXISTS ix_projects_title_lower_prefix "
+    "ON projects (lower(title) text_pattern_ops)",
+]
+_INDEX_DDL_SQLITE = [
+    "CREATE INDEX IF NOT EXISTS ix_projects_title_lower ON projects (lower(title))",
+]
+
+
+def ensure_indexes() -> None:
+    """Idempotent. One transaction per statement, and failures only warn, so
+    3 replicas racing at startup (or an old index) can never stop the app."""
+    stmts = _INDEX_DDL + (_INDEX_DDL_PG if engine.dialect.name == "postgresql" else _INDEX_DDL_SQLITE)
+    for ddl in stmts:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Index DDL skipped (%s): %s", ddl[:60], exc)
+
+
 def init_db() -> None:
     from . import models  # noqa: F401 — ensure models are registered
     Base.metadata.create_all(bind=engine)
+    ensure_indexes()
 
 
 @contextmanager

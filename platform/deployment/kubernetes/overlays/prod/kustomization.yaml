@@ -24,10 +24,11 @@ namespace: devops-app
 images:
   - name: devops-app
     newName: hiteshmondaldocker/devops-app
-    newTag: "a589ef57d628"
+    newTag: "2e50d4d4e97e"
 
 patches:
   - path: backup-config-patch.yaml
+  - path: admin-config-patch.yaml
 
   # Production-grade resource allocation and replica count
   - target:

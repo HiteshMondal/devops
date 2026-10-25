@@ -25,6 +25,7 @@ images:
 
 patches:
   - path: backup-config-patch.yaml
+  - path: admin-config-patch.yaml
 
   # Production-grade resource allocation and replica count
   - target:

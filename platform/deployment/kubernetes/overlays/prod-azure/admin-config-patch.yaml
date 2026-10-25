@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: devops-app-config
+  namespace: devops-app
+data:
+  ADMIN_EMAILS: "you@example.com"

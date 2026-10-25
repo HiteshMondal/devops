@@ -42,6 +42,7 @@ class Config:
     JWT_SECRET = _str("JWT_SECRET", "")
     API_KEY = _str("API_KEY", "")
     SESSION_SECRET = _str("SESSION_SECRET", "")
+    ADMIN_EMAILS = _str("ADMIN_EMAILS", "")   # comma-separated; empty = legacy behaviour
 
 
 config = Config()

@@ -4,6 +4,7 @@ Both are disabled unless REDIS_URL / MONGO_URL are set. Every call fails open:
 if a database is down the app keeps working, and the failing backend is
 skipped for 30s so requests don't pile up on timeouts.
 """
+import json
 import logging
 import os
 import time
@@ -104,6 +105,9 @@ def incr_page_views() -> None:
         r = _get_redis()
         if r:
             r.incr("stats:page_views")
+            day_key = f"stats:views:{datetime.now(UTC):%Y-%m-%d}"
+            r.incr(day_key)
+            r.expire(day_key, 90 * 24 * 3600)
     except Exception as exc:  # noqa: BLE001
         _redis_failed(exc)
 
@@ -134,6 +138,8 @@ def _get_mongo():
         )[MONGO_DB]
     if not _mongo_indexed:
         _mongo.activity.create_index([("user_id", 1), ("created_at", -1)])
+        # TTL: search events auto-expire after 30 days (keeps Atlas free tier small)
+        _mongo.search_events.create_index("created_at", expireAfterSeconds=30 * 24 * 3600)
         _mongo_indexed = True
     return _mongo
 
@@ -203,3 +209,53 @@ def health() -> dict:
             out["mongo"] = f"ERROR host={host}: {type(exc).__name__}: {exc}"
 
     return out
+
+# Search cache (Redis) — versioned so any project write invalidates all cached searches
+
+def cache_get(key: str):
+    try:
+        r = _get_redis()
+        raw = r.get(f"cache:{key}") if r else None
+        return json.loads(raw) if raw else None
+    except Exception as exc:  # noqa: BLE001
+        _redis_failed(exc)
+        return None
+
+
+def cache_set(key: str, value, ttl: int = 60) -> None:
+    try:
+        r = _get_redis()
+        if r:
+            r.setex(f"cache:{key}", ttl, json.dumps(value))
+    except Exception as exc:  # noqa: BLE001
+        _redis_failed(exc)
+
+
+def cache_version() -> str:
+    try:
+        r = _get_redis()
+        return (r.get("cache:version") or "0") if r else "0"
+    except Exception as exc:  # noqa: BLE001
+        _redis_failed(exc)
+        return "0"
+
+
+def cache_bump() -> None:
+    try:
+        r = _get_redis()
+        if r:
+            r.incr("cache:version")
+    except Exception as exc:  # noqa: BLE001
+        _redis_failed(exc)
+
+
+def log_search(user_id: int | None, term: str, total: int) -> None:
+    try:
+        db = _get_mongo()
+        if db is not None:
+            db.search_events.insert_one({
+                "user_id": user_id, "term": term, "results": total,
+                "created_at": datetime.now(UTC),
+            })
+    except Exception as exc:  # noqa: BLE001
+        _mongo_failed(exc)

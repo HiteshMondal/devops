@@ -20,5 +20,5 @@ data:
   DB_PORT: "5432"
   DB_NAME: "devopsdb"
   PGSSLMODE: "require"
-  REDIS_URL: null   # real value comes from devops-app-secrets
+  REDIS_URL: null
   MONGO_URL: null

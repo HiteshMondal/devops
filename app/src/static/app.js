@@ -134,6 +134,8 @@ function renderShell() {
       </section>
       <section id="projects">
         <h2>Projects</h2>
+        <input id="project-search" type="search" autocomplete="off"
+               placeholder="Search projects by title…" style="width:100%;margin-bottom:1rem;" />
         <div id="projects-tabs" class="tabs" style="display:none;">
           <button data-tab="all" class="active">All Projects</button>
           <button data-tab="mine">My Projects</button>
@@ -175,6 +177,7 @@ const projectsState = {
   page: 1,
   pageSize: 10,
   currentUser: null,
+  query: "",
 };
 
 function projectCard(p, isOwner) {
@@ -234,9 +237,9 @@ function wireProjectCardActions(listEl) {
       slot.dataset.open = "true";
       slot.innerHTML = `
         <form class="inline-edit-form" data-id="${btn.dataset.id}">
-          <input name="title" value="${title.replace(/"/g, "&quot;")}" required />
-          <textarea name="description" rows="2">${desc}</textarea>
-          <input name="link" value="${link}" placeholder="https://..." />
+          <input name="title" value="${esc(title)}" required />
+          <textarea name="description" rows="2">${esc(desc)}</textarea>
+          <input name="link" value="${esc(link)}" placeholder="https://..." />
           <button type="submit">Save</button>
         </form>
       `;
@@ -277,13 +280,18 @@ function renderPagination(container, page, totalPages, onChange) {
 async function loadProjects() {
   const listEl = document.getElementById("projects-list");
   const paginationEl = document.getElementById("projects-pagination");
-  const endpoint = projectsState.tab === "mine" ? "/api/v1/projects/mine" : "/api/v1/projects";
+  const q = projectsState.query.trim();
+  const searching = q !== "" && projectsState.tab === "all";
+  const endpoint = searching
+    ? "/api/v1/projects/search"
+    : projectsState.tab === "mine" ? "/api/v1/projects/mine" : "/api/v1/projects";
+  const qs = `page=${projectsState.page}&page_size=${projectsState.pageSize}` +
+    (searching ? `&q=${encodeURIComponent(q)}` : "");
 
   try {
-    const data = await fetchJSON(
-      `${endpoint}?page=${projectsState.page}&page_size=${projectsState.pageSize}`,
-      { headers: projectsState.tab === "mine" ? authHeaders() : {} }
-    );
+    const data = await fetchJSON(`${endpoint}?${qs}`, {
+      headers: projectsState.tab === "mine" || searching ? authHeaders() : {},
+    });
 
     if (!data.items.length) {
       listEl.textContent = projectsState.tab === "mine"
@@ -386,8 +394,8 @@ async function loadInbox() {
       .map(
         (m) => `
       <div class="card">
-        <strong>${m.name}</strong> <span class="muted">&lt;${m.email}&gt;</span>
-        <p>${m.message}</p>
+        <strong>${esc(m.name)}</strong> <span class="muted">&lt;${esc(m.email)}&gt;</span>
+        <p>${esc(m.message)}</p>
         <p class="muted">${new Date(m.created_at).toLocaleString()}</p>
       </div>
     `
@@ -406,7 +414,7 @@ async function loadInbox() {
 
 function renderAdminInboxSection(user) {
   const section = document.getElementById("admin-inbox");
-  if (!user) {
+  if (!user || !user.is_admin) {
     section.style.display = "none";
     return;
   }
@@ -572,10 +580,24 @@ function renderAuthSection(container, user) {
   draw();
 }
 
+function wireProjectSearch() {
+  const input = document.getElementById("project-search");
+  let timer;
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {          // debounce: one request per pause, not per keystroke
+      projectsState.query = input.value;
+      projectsState.page = 1;
+      loadProjects();
+    }, 300);
+  });
+}
+
 function renderApp() {
   injectStyles();
   renderShell();
   wireContactForm();
+  wireProjectSearch()
   loadStats();
 
   const authContainer = document.getElementById("auth-container");
