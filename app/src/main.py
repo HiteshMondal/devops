@@ -49,7 +49,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 @app.on_event("startup")
 def on_startup():
     init_db()
-
+    logger.info("NoSQL status: %s", nosql.health())
 
 def db_session():
     with get_session() as session:

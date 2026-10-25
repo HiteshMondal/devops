@@ -172,3 +172,34 @@ def recent_activity(user_id: int, limit: int = 20) -> list[dict]:
     except Exception as exc:  # noqa: BLE001
         _mongo_failed(exc)
         return []
+
+def health() -> dict:
+    """One-shot connectivity check, used at startup for diagnostics."""
+    from urllib.parse import urlparse
+    out = {}
+
+    if not REDIS_URL:
+        out["redis"] = "disabled (REDIS_URL empty)"
+    else:
+        host = urlparse(REDIS_URL).hostname
+        try:
+            r = _get_redis()
+            out["redis"] = f"ok host={host}" if r and r.ping() else f"skipped host={host}"
+        except Exception as exc:  # noqa: BLE001
+            out["redis"] = f"ERROR host={host}: {type(exc).__name__}: {exc}"
+
+    if not MONGO_URL:
+        out["mongo"] = "disabled (MONGO_URL empty)"
+    else:
+        host = urlparse(MONGO_URL).hostname
+        try:
+            db = _get_mongo()
+            if db is None:
+                out["mongo"] = f"skipped host={host}"
+            else:
+                db.command("ping")
+                out["mongo"] = f"ok host={host} db={MONGO_DB}"
+        except Exception as exc:  # noqa: BLE001
+            out["mongo"] = f"ERROR host={host}: {type(exc).__name__}: {exc}"
+
+    return out
