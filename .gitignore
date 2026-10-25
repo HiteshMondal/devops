@@ -147,7 +147,7 @@ temp/
 # DATA
 data/
 app-data/
-
+app/test.db
 
 # ARGO CD / GENERATED
 platform/cicd/argo/generated/
