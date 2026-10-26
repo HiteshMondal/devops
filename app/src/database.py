@@ -108,8 +108,10 @@ _INDEX_DDL = [
 # Case-insensitive PREFIX search. On Postgres, text_pattern_ops makes the B-Tree
 # usable for LIKE 'abc%' regardless of the DB collation.
 _INDEX_DDL_PG = [
-    "CREATE INDEX IF NOT EXISTS ix_projects_title_lower_prefix "
-    "ON projects (lower(title) text_pattern_ops)",
+    (
+        "CREATE INDEX IF NOT EXISTS ix_projects_title_lower_prefix "
+        "ON projects (lower(title) text_pattern_ops)"
+    ),
 ]
 _INDEX_DDL_SQLITE = [
     "CREATE INDEX IF NOT EXISTS ix_projects_title_lower ON projects (lower(title))",

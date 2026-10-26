@@ -7,8 +7,16 @@ models here as the site grows.
 from datetime import UTC, datetime
 
 from sqlalchemy import (
-    CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
 )
+
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .database import Base

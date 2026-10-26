@@ -41,7 +41,13 @@ from .database import get_session, init_db
 from .metrics import PrometheusMiddleware, metrics_response
 from .middleware import RequestContextLogMiddleware
 from .models import (
-    ContactMessage, Project, User, UserInfoItem, UserProfile, UserSecurity, utcnow_naive,
+    ContactMessage,
+    Project,
+    User,
+    UserInfoItem,
+    UserProfile,
+    UserSecurity,
+    utcnow_naive,
 )
 
 logger = logging.getLogger("uvicorn.error")
