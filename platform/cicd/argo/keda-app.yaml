@@ -23,6 +23,15 @@ spec:
     server: https://kubernetes.default.svc
     namespace: keda
 
+  # KEDA manages this runtime-generated TLS CA bundle.
+  # Ignore only this field to prevent permanent Argo CD drift.
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      name: keda-admission
+      jqPathExpressions:
+        - '.webhooks[].clientConfig.caBundle'
+
   syncPolicy:
     automated:
       prune: true
@@ -35,6 +44,7 @@ spec:
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
       - ServerSideApply=true
+      - RespectIgnoreDifferences=true
 
     retry:
       limit: 5
