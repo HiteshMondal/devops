@@ -4,7 +4,7 @@ metadata:
   name: postgres-backup-sa
   namespace: devops-app
   annotations:
-    azure.workload.identity/client-id: "65bec891-5f8c-41b4-a26d-b028fc0aa4b5"
+    azure.workload.identity/client-id: "5bde2c30-202e-48dc-862f-2580d48d7645"
   labels:
     azure.workload.identity/use: "true"
 ---
@@ -20,5 +20,3 @@ data:
   DB_PORT: "5432"
   DB_NAME: "devopsdb"
   PGSSLMODE: "require"
-  REDIS_URL: null
-  MONGO_URL: null

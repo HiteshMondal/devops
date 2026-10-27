@@ -58,7 +58,39 @@ def blob_sas_url(
         )
         return f"https://{acct}.blob.core.windows.net/{container}/{blob}?{sas.service_sas_token}"
 
-    return Output.all(account_name, resource_group_name, container_name, blob_name).apply(_make_sas)
+    # SAS URLs are deployment credentials. Mark the resulting Output secret so
+    # Pulumi encrypts it in state and redacts it from normal CLI output.
+    return pulumi.Output.secret(
+        Output.all(account_name, resource_group_name, container_name, blob_name).apply(_make_sas)
+    )
+
+
+def storage_connection_string(
+    account: storage.StorageAccount,
+    rg: resources.ResourceGroup,
+) -> Output[str]:
+    """Return the Function host-storage connection string as a Pulumi secret.
+
+    Azure Functions needs AzureWebJobsStorage for host coordination, timer
+    triggers, and function keys. The account key is resolved by an ARM invoke
+    so this works from a clean `pulumi up` without a manual CLI step.
+    """
+    keys = Output.all(rg.name, account.name).apply(
+        lambda args: storage.list_storage_account_keys(
+            resource_group_name=args[0],
+            account_name=args[1],
+        )
+    )
+
+    connection_string = Output.all(account.name, keys).apply(
+        lambda args: (
+            "DefaultEndpointsProtocol=https;"
+            f"AccountName={args[0]};"
+            f"AccountKey={args[1].keys[0].value};"
+            "EndpointSuffix=core.windows.net"
+        )
+    )
+    return pulumi.Output.secret(connection_string)
 
 
 def deploy_function_package(

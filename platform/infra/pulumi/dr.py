@@ -10,7 +10,7 @@ import pulumi
 from pulumi import ResourceOptions
 from pulumi_azure_native import authorization, resources, storage, web
 
-from function_packaging import deploy_function_package
+from function_packaging import deploy_function_package, storage_connection_string
 
 _STORAGE_BLOB_DATA_CONTRIBUTOR_ROLE_ID = "ba92f5b4-2d11-453d-a403-e96b0029c9fe"
 
@@ -51,6 +51,8 @@ def create_dr_backup(
         tags=common_tags,
     )
 
+    storage_conn = storage_connection_string(func_storage, rg)
+
     package_url = deploy_function_package(
         app_name=app_name,
         name_prefix=f"{app_name}-drbackup",
@@ -60,26 +62,21 @@ def create_dr_backup(
         rg=rg,
     )
 
-    plan = web.AppServicePlan(
-        f"{app_name}-drbackup-plan",
-        resource_group_name=rg.name,
-        location=dr_location,
-        kind="functionapp",
-        reserved=True,
-        sku=web.SkuDescriptionArgs(tier="Dynamic", name="Y1"),
-        tags=common_tags,
-    )
-
+    # Classic Linux Consumption: let the Microsoft.Web/sites create operation
+    # select/create the regional Dynamic plan instead of explicitly creating
+    # a Microsoft.Web/serverfarms resource.
     function_app = web.WebApp(
         f"{app_name}-drbackup-func",
         resource_group_name=rg.name,
         name=f"{app_name}-{env_name}-drbackup",
         location=dr_location,
         kind="functionapp,linux",
-        server_farm_id=plan.id,
+        reserved=True,
         identity=web.ManagedServiceIdentityArgs(type="SystemAssigned"),
         site_config=web.SiteConfigArgs(
+            linux_fx_version="Python|3.11",
             app_settings=[
+                web.NameValuePairArgs(name="AzureWebJobsStorage", value=storage_conn),
                 web.NameValuePairArgs(name="FUNCTIONS_WORKER_RUNTIME", value="python"),
                 web.NameValuePairArgs(name="FUNCTIONS_EXTENSION_VERSION", value="~4"),
                 web.NameValuePairArgs(name="WEBSITE_RUN_FROM_PACKAGE", value=package_url),
@@ -91,7 +88,7 @@ def create_dr_backup(
             ],
         ),
         tags=common_tags,
-        opts=ResourceOptions(depends_on=[plan]),
+        opts=ResourceOptions(depends_on=[func_storage]),
     )
 
     # Grant the DR function's managed identity write access to the files
